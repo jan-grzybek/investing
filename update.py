@@ -245,7 +245,8 @@ class Webpage:
                    'All TSR figures were calculated using the modified Dietz method. '
                    'Dividends were assumed to be subject to a 15% withholding tax.\n<br>\n'
                    'For informational purposes only. Nothing contained herein should be construed as a recommendation '
-                   'to buy, sell or hold any security or pursue any investment strategy.\n<br>\n<br>\n'
+                   'to buy, sell or hold any security or pursue any investment strategy.\n<br>\n'
+                   'Logos are trademarks of their respective owners and are used for identification purposes only.\n<br>\n<br>\n'
                    f'Updated on {update_date}\n</div>\n<br>')
         txt.append('</div>\n<div class="mobile-version">')
         txt.append('<br>\n<div style="font-size: 26px; font-weight: bold;">\nCurrent holdings\n</div>\n'
@@ -259,6 +260,7 @@ class Webpage:
                    'Dividends were assumed to be subject to a 15% withholding tax.\n<br>\n<br>\n'
                    'For informational purposes only. Nothing contained herein should be construed as a recommendation '
                    'to buy, sell or hold any security or pursue any investment strategy.\n<br>\n<br>\n'
+                   'Logos are trademarks of their respective owners and are used for identification purposes only.\n<br>\n<br>\n'
                    f'Updated on {update_date}\n</div>\n<br>')
         txt.append('</div>\n')
         with open("index.html", "w") as f:
