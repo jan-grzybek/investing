@@ -261,7 +261,7 @@ class Webpage:
                    'to buy, sell or hold any security or pursue any investment strategy.\n<br>\n<br>\n'
                    f'Updated on {update_date}\n</div>\n<br>')
         txt.append('</div>\n')
-        with open("/tmp/index.html", "w") as f:
+        with open("index.html", "w") as f:
             f.write("\n".join(txt))
 
     def _get_logo_url(self, ticker):
