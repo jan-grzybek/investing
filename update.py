@@ -227,7 +227,12 @@ class Webpage:
     def save(self):
         update_date = datetime.now().strftime("%b %d, %Y")
         txt = []
-        txt.append('<meta name="viewport" content="width=device-width, initial-scale=1.0">')
+        txt.append('<meta charset="UTF-8">\n<meta name="viewport" content="width=device-width, initial-scale=1.0">\n'
+                   '<meta name="description" content="Overview of investment portfolio, including historical holdings '
+                   'with TSR, CAGR, and ownership periods.">')
+        txt.append('<title>Investing</title>\n<link rel="icon" type="image/png" href="apple-touch-icon.png">\n'
+                   '<link rel="apple-touch-icon" href="apple-touch-icon.png" sizes="180x180">\n'
+                   '<link rel="icon" href="favicon.ico" sizes="any">')
         txt.append('<style>\n.desktop-version {display: block;}\n.mobile-version {display: none;}\n'
                    '@media (max-width: 600px) {\n.desktop-version {display: none;}\n'
                    '.mobile-version {display: block;}\n}\nbody {min-width: 333px; padding-left: 30px; '
