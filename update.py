@@ -266,7 +266,7 @@ class Webpage:
                    'For informational purposes only. Nothing contained herein should be construed as a recommendation '
                    'to buy, sell or hold any security or pursue any investment strategy.\n<br>\n<br>\n'
                    'Logos are trademarks of their respective owners and are used for identification purposes only.\n<br>\n<br>\n'
-                   f'Updated on {update_date}\n</div>\n<br>')
+                   f'Updated on {update_date}.\n</div>\n<br>')
         txt.append('</div>\n')
         with open("index.html", "w") as f:
             f.write("\n".join(txt))
@@ -302,8 +302,8 @@ class Webpage:
             if period["end"] is None:
                 end = "Present"
             else:
-                end = period["end"].strftime("%b %-d, %Y")
-            lines.append(f'<div>{period["start"].strftime("%b %-d, %Y")}</div><div>-</div><div>{end}</div>')
+                end = period["end"].strftime("%b %d, %Y")
+            lines.append(f'<div>{period["start"].strftime("%b %d, %Y")}</div><div>-</div><div>{end}</div>')
         lines.append('</div>')
         if holding["current"] is True:
             self.desktop_current.append("\n".join(lines))
@@ -332,8 +332,8 @@ class Webpage:
             if period["end"] is None:
                 end = "Present"
             else:
-                end = period["end"].strftime("%b %-d, %Y")
-            lines.append(f'<div>{period["start"].strftime("%b %-d, %Y")}</div><div>-</div><div>{end}</div>')
+                end = period["end"].strftime("%b %d, %Y")
+            lines.append(f'<div>{period["start"].strftime("%b %d, %Y")}</div><div>-</div><div>{end}</div>')
         lines.append('</div>')
         if holding["current"] is True:
             self.mobile_current.append("\n".join(lines))
