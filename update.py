@@ -225,12 +225,12 @@ class Webpage:
         self.mobile_historical = []
 
     def save(self):
-        update_date = datetime.now().strftime("%b %d, %Y")
+        update_date = datetime.now().strftime("%b %-d, %Y")
         txt = []
         txt.append('<meta charset="UTF-8">\n<meta name="viewport" content="width=device-width, initial-scale=1.0">\n'
                    '<meta name="description" content="Overview of investment portfolio, including historical holdings '
                    'with TSR, CAGR, and ownership periods.">')
-        txt.append('<title>Investing</title>\n<link rel="icon" type="image/png" href="apple-touch-icon.png">\n'
+        txt.append('<title>JG Investing</title>\n<link rel="icon" type="image/png" href="apple-touch-icon.png">\n'
                    '<link rel="apple-touch-icon" href="apple-touch-icon.png" sizes="180x180">\n'
                    '<link rel="icon" href="favicon.ico" sizes="any">')
         txt.append('<style>\n.desktop-version {display: block;}\n.mobile-version {display: none;}\n'
@@ -302,8 +302,8 @@ class Webpage:
             if period["end"] is None:
                 end = "Present"
             else:
-                end = period["end"].strftime("%b %d, %Y")
-            lines.append(f'<div>{period["start"].strftime("%b %d, %Y")}</div><div>-</div><div>{end}</div>')
+                end = period["end"].strftime("%b %-d, %Y")
+            lines.append(f'<div>{period["start"].strftime("%b %-d, %Y")}</div><div>-</div><div>{end}</div>')
         lines.append('</div>')
         if holding["current"] is True:
             self.desktop_current.append("\n".join(lines))
@@ -332,8 +332,8 @@ class Webpage:
             if period["end"] is None:
                 end = "Present"
             else:
-                end = period["end"].strftime("%b %d, %Y")
-            lines.append(f'<div>{period["start"].strftime("%b %d, %Y")}</div><div>-</div><div>{end}</div>')
+                end = period["end"].strftime("%b %-d, %Y")
+            lines.append(f'<div>{period["start"].strftime("%b %-d, %Y")}</div><div>-</div><div>{end}</div>')
         lines.append('</div>')
         if holding["current"] is True:
             self.mobile_current.append("\n".join(lines))

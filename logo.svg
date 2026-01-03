@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   width="1000"
+   height="1000"
+   viewBox="0 0 264.58333 264.58333"
+   version="1.1"
+   id="svg1"
+   inkscape:export-filename="logo.png"
+   inkscape:export-xdpi="96"
+   inkscape:export-ydpi="96"
+   inkscape:version="1.4.2 (ebf0e940, 2025-05-08)"
+   sodipodi:docname="logo.svg"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview1"
+     pagecolor="#ffffff"
+     bordercolor="#000000"
+     borderopacity="0.25"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:document-units="mm"
+     inkscape:export-bgcolor="#00000000"
+     inkscape:zoom="0.12"
+     inkscape:cx="229.16667"
+     inkscape:cy="583.33333"
+     inkscape:window-width="1856"
+     inkscape:window-height="973"
+     inkscape:window-x="88"
+     inkscape:window-y="25"
+     inkscape:window-maximized="0"
+     inkscape:current-layer="layer1" />
+  <defs
+     id="defs1">
+    <rect
+       x="519.23077"
+       y="680.76923"
+       width="273.07692"
+       height="230.76923"
+       id="rect9" />
+    <rect
+       x="379.36508"
+       y="120.63492"
+       width="238.09525"
+       height="200"
+       id="rect3" />
+    <rect
+       x="109.52381"
+       y="323.80951"
+       width="566.66669"
+       height="490.4762"
+       id="rect1" />
+    <clipPath
+       clipPathUnits="userSpaceOnUse"
+       id="clipPath15">
+      <circle
+         style="font-variation-settings:'wght' 400;fill:#ff7f2a;stroke-width:0.480288"
+         id="circle16"
+         cx="132.41249"
+         cy="132.6826"
+         r="130.2155" />
+    </clipPath>
+    <clipPath
+       clipPathUnits="userSpaceOnUse"
+       id="clipPath16">
+      <circle
+         style="font-variation-settings:'wght' 400;fill:#ff7f2a;stroke-width:0.480288"
+         id="circle17"
+         cx="132.41249"
+         cy="132.6826"
+         r="130.2155" />
+    </clipPath>
+    <clipPath
+       clipPathUnits="userSpaceOnUse"
+       id="clipPath17">
+      <circle
+         style="font-variation-settings:'wght' 400;fill:#ff7f2a;stroke-width:0.480288"
+         id="circle18"
+         cx="132.41249"
+         cy="132.6826"
+         r="130.2155" />
+    </clipPath>
+  </defs>
+  <g
+     inkscape:label="Layer 1"
+     inkscape:groupmode="layer"
+     id="layer1">
+    <circle
+       style="font-variation-settings:'wght' 400;fill:#ff7f2a;stroke-width:0.480288"
+       id="path1"
+       cx="132.41249"
+       cy="132.6826"
+       r="130.2155" />
+    <path
+       style="font-variation-settings:'wght' 600;fill:#000000;stroke-width:0.1"
+       d="M 103.66401,157.24893 C 233.12384,84.342578 87.916266,0.76720367 109.92019,36.274346 131.92411,71.781504 244.00666,25.446958 235.19332,90.176378 222.34295,184.55577 103.66401,157.24893 103.66401,157.24893 Z"
+       id="path8"
+       sodipodi:nodetypes="cssc"
+       clip-path="url(#clipPath17)" />
+    <path
+       style="font-variation-settings:'wght' 600;fill:#000000;stroke-width:0.1"
+       d="M 145.1002,30.020346 C 104.50541,245.41563 5.423277,327.10787 -0.18959297,431.95113 -4.788121,517.8474 158.33039,75.900171 145.1002,30.020346 Z"
+       id="path9"
+       sodipodi:nodetypes="csc"
+       clip-path="url(#clipPath16)" />
+    <path
+       style="font-variation-settings:'wght' 700;fill:#000000;stroke-width:0.1"
+       d="m -109.90385,226.93108 c 154.679493,107.86859 326.65866,-37.65224 326.65866,-37.65224 0,0 -219.8076926,31.54648 -246.266032,17.29968 -28.922647,-15.57374 -80.392628,20.35256 -80.392628,20.35256 z"
+       id="path10"
+       sodipodi:nodetypes="ccsc"
+       clip-path="url(#clipPath15)" />
+  </g>
+</svg>
