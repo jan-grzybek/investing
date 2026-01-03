@@ -170,9 +170,9 @@ class Holding:
 
 def pull_transactions():
     gc = gspread.service_account(filename="/tmp/gsheet_creds.json")
-    sh = gc.open("Stock trades")
+    sh = gc.open_by_key("1N1S95dIGEISRY7UR47yDrYYoByHarsVbsFZDfLXVDQk")
     transactions = []
-    for transaction in sh.sheet1.get_all_values()[2:]:
+    for transaction in sh.worksheet("Trades").get_all_values()[2:]:
         if transaction[6] not in ["Y", "YES", "y", "yes"]:
             continue
         if transaction[5] in ["B", "BUY", "b", "buy"]:
@@ -252,7 +252,7 @@ class Webpage:
                    'For informational purposes only. Nothing contained herein should be construed as a recommendation '
                    'to buy, sell or hold any security or pursue any investment strategy.\n<br>\n'
                    'Logos are trademarks of their respective owners and are used for identification purposes only.\n<br>\n<br>\n'
-                   f'Updated on {update_date}\n</div>\n<br>')
+                   f'Updated on {update_date}.\n</div>\n<br>')
         txt.append('</div>\n<div class="mobile-version">')
         txt.append('<br>\n<div style="font-size: 26px; font-weight: bold;">\nCurrent holdings\n</div>\n'
                    '<hr style="height: 1px; background-color: black;">')
