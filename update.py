@@ -184,8 +184,8 @@ def pull_data():
         transactions.append({
             "date": transaction[1],
             "ticker": transaction[2],
-            "quantity": int(transaction[3]),
-            "price_per_share":  float(transaction[4]),
+            "quantity": int(transaction[3].replace(",", "")),
+            "price_per_share":  float(transaction[4].replace(",", "")),
             "action": action
         })
     valuations = []
@@ -194,8 +194,8 @@ def pull_data():
             continue
         valuations.append({
             "date": datetime.strptime(valuation[1], "%d-%m-%Y"),
-            "value": float(valuation[2]),
-            "flow": float(valuation[3])
+            "value": float(valuation[2].replace(",", "")),
+            "flow": float(valuation[3].replace(",", ""))
         })
     return transactions, valuations
 
