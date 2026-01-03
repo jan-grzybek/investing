@@ -34,7 +34,7 @@ jobs:
           GSHEET_CREDS: ${{ secrets.GSHEET_CREDS }}
 
       - name: Generate new webpage
-        run: python update.py
+        run: python update.py 2>/dev/null
 
       - name: Configure git
         run: |
