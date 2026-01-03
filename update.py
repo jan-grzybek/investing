@@ -168,7 +168,7 @@ class Holding:
         }
 
 
-def pull_transactions():
+def pull_data():
     gc = gspread.service_account(filename="/tmp/gsheet_creds.json")
     sh = gc.open_by_key("1N1S95dIGEISRY7UR47yDrYYoByHarsVbsFZDfLXVDQk")
     transactions = []
@@ -188,11 +188,20 @@ def pull_transactions():
             "price_per_share":  float(transaction[4]),
             "action": action
         })
-    return transactions
+    valuations = []
+    for valuation in sh.worksheet("Reports").get_all_values()[2:]:
+        if valuation[4] not in ["Y", "YES", "y", "yes"]:
+            continue
+        valuations.append({
+            "date": datetime.strptime(valuation[1], "%d-%m-%Y"),
+            "value": float(valuation[2]),
+            "flow": float(valuation[3])
+        })
+    return transactions, valuations
 
 
-def get_holdings():
-    trades = combine_and_sort(pull_transactions())
+def get_holdings(transactions):
+    trades = combine_and_sort(transactions)
 
     holdings = {}
     for trade in trades:
@@ -345,7 +354,7 @@ class Webpage:
         self.add_holding_mobile(holding)
 
 
-def generate_webpage(holdings):
+def generate_webpage(total_return, holdings):
     webpage = Webpage()
     for holding in holdings["current"]:
         webpage.add_holding(holding)
@@ -354,8 +363,32 @@ def generate_webpage(holdings):
     webpage.save()
 
 
+def calc_twr(valuations):
+    if len(valuations) < 2:
+        return {"start_date": datetime.today(), "end_date": datetime.today(), "twr%": 0., "cagr%": 0.}
+    valuations = sorted(valuations, key=lambda item: item["date"])
+    total_return = {
+        "start_date": valuations[0]["date"],
+        "end_date": valuations[-1]["date"]
+    }
+    start_value = valuations[0]["value"] + valuations[0]["flow"]
+    twr = 1.
+    for valuation in valuations[1:]:
+        twr *= (valuation["value"] / start_value)
+        start_value = valuation["value"] + valuation["flow"]
+    cagr = twr ** (365.25 / max((total_return["end_date"] - total_return["start_date"]).days, 1)) - 1.
+    twr -= 1.
+    total_return["twr%"] = round(twr * 100, 1)
+    total_return["cagr%"] = round(cagr * 100, 1)
+    print(f"JG - Jan Grzybek - TWR: {total_return['twr%']}% - CAGR: {total_return['cagr%']}%")
+    return total_return
+
+
 def main():
-    generate_webpage(get_holdings())
+    transactions, valuations = pull_data()
+    total_return = calc_twr(valuations)
+    holdings = get_holdings(transactions)
+    generate_webpage(total_return, holdings)
 
 
 if __name__ == "__main__":
