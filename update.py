@@ -327,7 +327,8 @@ class Webpage:
         lines.append('</div>')
         lines.append('<br>')
         lines.append('<div style="font-size: 14px;">')
-        lines.append('Time-weighted return, pre-capital-gains tax, net of withholding taxes and transaction costs.')
+        lines.append('Time-weighted return (TWR) calculated net of withholding taxes and transaction costs, but '
+                     'excluding capital gains taxes.')
         lines.append('</div>')
         lines.append('<br>')
         self.desktop_return = "\n".join(lines)
@@ -384,7 +385,8 @@ class Webpage:
         lines.append('</div>')
         lines.append('<br>')
         lines.append('<div style="font-size: 14px;">')
-        lines.append('Time-weighted return, pre-capital-gains tax, net of withholding taxes and transaction costs.')
+        lines.append('Time-weighted return (TWR) calculated net of withholding taxes and transaction costs, but '
+                     'excluding capital gains taxes.')
         lines.append('</div>')
         lines.append('<br>')
         self.mobile_return = "\n".join(lines)
