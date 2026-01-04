@@ -266,8 +266,11 @@ class Webpage:
                    'subject to a 15% withholding tax and cashed out.\n<br>\n'
                    'For informational purposes only. Nothing contained herein should be construed as a recommendation '
                    'to buy, sell or hold any security or pursue any investment strategy.\n<br>\n'
-                   'Logos are trademarks of their respective owners and are used for identification purposes only.\n<br>\n<br>\n'
-                   f'Updated on {update_date}.\n</div>\n<br>')
+                   'Logos are trademarks of their respective owners and are used for identification purposes only. '
+                   'The latest stock prices and dividend data used in the calculations were obtained from '
+                   '<a href="https://finance.yahoo.com/markets/stocks/trending/" '
+                   'title="Yahoo Finance">Yahoo Finance</a>.\n<br>\n<br>\n'
+                   f'Updated on {update_date}\n</div>\n<br>')
 
         txt.append('</div>\n<div class="mobile-version">')
         txt.append('<br>\n<div style="font-size: 26px; font-weight: bold;">\nAll-time performance\n</div>\n'
@@ -284,8 +287,11 @@ class Webpage:
                    'subject to a 15% withholding tax and cashed out.\n<br>\n<br>\n'
                    'For informational purposes only. Nothing contained herein should be construed as a recommendation '
                    'to buy, sell or hold any security or pursue any investment strategy.\n<br>\n<br>\n'
-                   'Logos are trademarks of their respective owners and are used for identification purposes only.\n<br>\n<br>\n'
-                   f'Updated on {update_date}.\n</div>\n<br>')
+                   'Logos are trademarks of their respective owners and are used for identification purposes only. The '
+                   'latest stock prices and dividend data used in the calculations were obtained from '
+                   '<a href="https://finance.yahoo.com/markets/stocks/trending/" title="Yahoo Finance">'
+                   'Yahoo Finance</a>.\n<br>\n<br>\n'
+                   f'Updated on {update_date}\n</div>\n<br>')
         txt.append('</div>\n')
         with open("index.html", "w") as f:
             f.write("\n".join(txt))
