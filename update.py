@@ -270,6 +270,9 @@ class Webpage:
                    f'Updated on {update_date}.\n</div>\n<br>')
 
         txt.append('</div>\n<div class="mobile-version">')
+        txt.append('<br>\n<div style="font-size: 26px; font-weight: bold;">\nAll-time performance\n</div>\n'
+                   '<hr style="height: 1px; background-color: black;">')
+        txt.append(self.mobile_return)
         txt.append('<br>\n<div style="font-size: 26px; font-weight: bold;">\nCurrent holdings\n</div>\n'
                    '<hr style="height: 1px; background-color: black;">')
         txt.append('\n<hr>\n'.join(self.mobile_current))
@@ -321,7 +324,6 @@ class Webpage:
         lines.append('Time-weighted return, pre-capital-gains tax, net of withholding taxes and transaction costs.')
         lines.append('</div>')
         lines.append('<br>')
-        lines.append('<br>')
         self.desktop_return = "\n".join(lines)
 
     def add_holding_desktop(self, holding):
@@ -353,6 +355,33 @@ class Webpage:
             self.desktop_current.append("\n".join(lines))
         else:
             self.desktop_historical.append("\n".join(lines))
+
+    def add_return_mobile(self, total_return):
+        lines = []
+        lines.append('<div style="display: flex; align-items: center;">')
+        lines.append(f'<img src="https://raw.githubusercontent.com/jan-grzybek/investing/refs/heads/main/logo.svg" width="70"/>')
+        lines.append('<div style="padding-left: 24px;">')
+        lines.append('<div style="font-size: 20px; font-weight: bold; margin-bottom: 8px;">')
+        lines.append('JG - Jan Grzybek')
+        lines.append('</div>')
+        lines.append('<div class="grid-return">')
+        lines.append('<div class="left-col">TWR:</div>')
+        lines.append(f'<div class="right-col">{total_return["twr%"]}%</div>')
+        lines.append('<div class="left-col">CAGR:</div>')
+        lines.append(f'<div class="right-col">{total_return["cagr%"]}%</div>')
+        lines.append('</div>')
+        lines.append('<div style="margin-top: 8px; display: grid; grid-template-columns: '
+                     'max-content max-content max-content; column-gap: 15px; row-gap: 2px;">')
+        lines.append(f'<div>{total_return["start_date"].strftime("%b %d, %Y")}</div><div>-</div><div>{total_return["end_date"].strftime("%b %d, %Y")}</div>')
+        lines.append('</div>')
+        lines.append('</div>')
+        lines.append('</div>')
+        lines.append('<br>')
+        lines.append('<div style="font-size: 14px;">')
+        lines.append('Time-weighted return, pre-capital-gains tax, net of withholding taxes and transaction costs.')
+        lines.append('</div>')
+        lines.append('<br>')
+        self.mobile_return = "\n".join(lines)
 
     def add_holding_mobile(self, holding):
         lines = []
@@ -390,6 +419,7 @@ class Webpage:
 
     def add_return(self, total_return):
         self.add_return_desktop(total_return)
+        self.add_return_mobile(total_return)
 
 
 def generate_webpage(total_return, holdings):
