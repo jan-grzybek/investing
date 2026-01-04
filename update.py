@@ -228,8 +228,10 @@ def get_holdings(transactions):
 
 class Webpage:
     def __init__(self):
+        self.desktop_return = ""
         self.desktop_current = []
         self.desktop_historical = []
+        self.mobile_return = ""
         self.mobile_current = []
         self.mobile_historical = []
 
@@ -248,7 +250,11 @@ class Webpage:
                    'padding-right: 30px;}\n.grid-return {\ndisplay: grid;\ngrid-template-columns: '
                    'max-content max-content;\ncolumn-gap: 15px; \nrow-gap: 2px;\n}\n.left-col {\ntext-align: left;\n'
                    '}\n.right-col {\ntext-align: right;\n}\n</style>')
+
         txt.append('<div class="desktop-version">')
+        txt.append('<br>\n<div style="font-size: 26px; font-weight: bold;">\nAll-time performance\n</div>\n<br>\n'
+                   '<hr style="height: 1px; background-color: black;">\n<br>')
+        txt.append(self.desktop_return)
         txt.append('<br>\n<div style="font-size: 26px; font-weight: bold;">\nCurrent holdings\n</div>\n<br>\n'
                    '<hr style="height: 1px; background-color: black;">\n<br>')
         txt.append('\n<br>\n<hr>\n<br>\n'.join(self.desktop_current))
@@ -256,12 +262,13 @@ class Webpage:
                    '<br>\n<hr style="height: 1px; background-color: black;">\n<br>')
         txt.append('\n<br>\n<hr>\n<br>\n'.join(self.desktop_historical))
         txt.append('<br>\n<br>\n<br>\n<div style="font-size: 14px;">\n'
-                   'All TSR figures were calculated using the modified Dietz method. '
-                   'Dividends were assumed to be subject to a 15% withholding tax.\n<br>\n'
+                   'All TSR figures were calculated using the modified Dietz method, with dividends assumed to be '
+                   'subject to a 15% withholding tax and cashed out.\n<br>\n'
                    'For informational purposes only. Nothing contained herein should be construed as a recommendation '
                    'to buy, sell or hold any security or pursue any investment strategy.\n<br>\n'
                    'Logos are trademarks of their respective owners and are used for identification purposes only.\n<br>\n<br>\n'
                    f'Updated on {update_date}.\n</div>\n<br>')
+
         txt.append('</div>\n<div class="mobile-version">')
         txt.append('<br>\n<div style="font-size: 26px; font-weight: bold;">\nCurrent holdings\n</div>\n'
                    '<hr style="height: 1px; background-color: black;">')
@@ -270,8 +277,8 @@ class Webpage:
                    '<hr style="height: 1px; background-color: black;">')
         txt.append('\n<hr>\n'.join(self.mobile_historical))
         txt.append('<br>\n<br>\n<div style="font-size: 14px;">\n'
-                   'All TSR figures were calculated using the modified Dietz method. '
-                   'Dividends were assumed to be subject to a 15% withholding tax.\n<br>\n<br>\n'
+                   'All TSR figures were calculated using the modified Dietz method, with dividends assumed to be '
+                   'subject to a 15% withholding tax and cashed out.\n<br>\n<br>\n'
                    'For informational purposes only. Nothing contained herein should be construed as a recommendation '
                    'to buy, sell or hold any security or pursue any investment strategy.\n<br>\n<br>\n'
                    'Logos are trademarks of their respective owners and are used for identification purposes only.\n<br>\n<br>\n'
@@ -288,6 +295,36 @@ class Webpage:
                 return url
         else:
             return LOGOS_ADDRESS + "courage.png"
+
+    def add_return_desktop(self, total_return):
+        lines = []
+        lines.append('<div style="display: flex; align-items: center;">')
+        lines.append(f'<img src="https://raw.githubusercontent.com/jan-grzybek/investing/refs/heads/main/logo.svg" width="100"/>')
+        lines.append('<div style="padding-left: 36px;">')
+        lines.append('<div style="font-size: 20px; font-weight: bold; margin-bottom: 8px;">')
+        lines.append('JG - Jan Grzybek')
+        lines.append('</div>')
+        lines.append('<div class="grid-return">')
+        lines.append('<div class="left-col">TWR:</div>')
+        lines.append(f'<div class="right-col">{total_return["twr%"]}%</div>')
+        lines.append('<div class="left-col">CAGR:</div>')
+        lines.append(f'<div class="right-col">{total_return["cagr%"]}%</div>')
+        lines.append('</div>')
+        lines.append('<div style="margin-top: 8px; display: grid; grid-template-columns: '
+                     'max-content max-content max-content; column-gap: 20px; row-gap: 2px;">')
+        lines.append(f'<div>{total_return["start_date"].strftime("%b %d, %Y")}</div><div>-</div><div>Present*</div>')
+        lines.append('</div>')
+        lines.append('</div>')
+        lines.append('</div>')
+        lines.append('<br>')
+        lines.append('<br>')
+        lines.append('<div style="font-size: 14px;">')
+        lines.append('Time-weighted return, pre-capital-gains tax, net of withholding taxes and transaction costs.')
+        lines.append('<br>')
+        lines.append(f'* The latest valuation was performed on {total_return["end_date"].strftime("%b %d, %Y")}.')
+        lines.append('</div>')
+        lines.append('<br>')
+        self.desktop_return = "\n".join(lines)
 
     def add_holding_desktop(self, holding):
         lines = []
@@ -353,9 +390,13 @@ class Webpage:
         self.add_holding_desktop(holding)
         self.add_holding_mobile(holding)
 
+    def add_return(self, total_return):
+        self.add_return_desktop(total_return)
+
 
 def generate_webpage(total_return, holdings):
     webpage = Webpage()
+    webpage.add_return(total_return)
     for holding in holdings["current"]:
         webpage.add_holding(holding)
     for holding in holdings["historical"]:
