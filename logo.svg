@@ -7,9 +7,9 @@
    viewBox="0 0 264.58333 264.58333"
    version="1.1"
    id="svg1"
-   inkscape:export-filename="apple-touch-icon.png"
-   inkscape:export-xdpi="17.280001"
-   inkscape:export-ydpi="17.280001"
+   inkscape:export-filename="logo.png"
+   inkscape:export-xdpi="96"
+   inkscape:export-ydpi="96"
    inkscape:version="1.4.2 (ebf0e940, 2025-05-08)"
    sodipodi:docname="logo.svg"
    xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
@@ -28,13 +28,13 @@
      inkscape:deskcolor="#d1d1d1"
      inkscape:document-units="mm"
      inkscape:export-bgcolor="#00000000"
-     inkscape:zoom="0.16"
-     inkscape:cx="234.375"
-     inkscape:cy="581.25"
+     inkscape:zoom="0.28"
+     inkscape:cx="233.92857"
+     inkscape:cy="582.14286"
      inkscape:window-width="1856"
      inkscape:window-height="973"
-     inkscape:window-x="86"
-     inkscape:window-y="25"
+     inkscape:window-x="75"
+     inkscape:window-y="49"
      inkscape:window-maximized="0"
      inkscape:current-layer="layer1" />
   <defs
@@ -227,13 +227,11 @@
        cy="132.6826"
        r="130.2155"
        clip-path="url(#clipPath37)" />
-    <text
-       xml:space="preserve"
-       transform="matrix(0.26458333,0,0,0.26458333,59.070672,130.37508)"
+    <path
+       d="M 467.09004,10.878872 V 194.79172 q -9.31641,13.80209 -29.67449,31.0547 -20.35808,16.90756 -56.24352,29.67449 -35.54038,12.42188 -91.78389,12.42188 -45.89195,0 -84.5378,-15.8724 -38.3008,-16.21746 -66.59509,-46.92711 Q 110.30602,174.08858 94.778672,129.9219 79.596374,85.410157 79.596374,29.166641 V -9.8242621 q 0,-56.2435159 13.111985,-100.4101979 13.457041,-44.16669 39.335951,-74.87634 25.87892,-31.0547 63.48962,-46.92711 37.61069,-16.21745 86.26306,-16.21745 57.62372,0 96.26957,20.01303 38.99091,19.66798 60.7292,54.51825 22.08334,34.85028 28.29428,79.362018 h -66.59508 q -4.48568,-27.259128 -17.94272,-49.687518 -13.11198,-22.4284 -37.61069,-35.88544 -24.49871,-13.80209 -63.14456,-13.80209 -34.85028,0 -60.38414,12.76694 -25.53387,12.76693 -42.09638,36.57553 -16.56251,23.80861 -24.84376,57.623728 -7.9362,33.81512 -7.9362,76.256545 v 39.681008 q 0,43.476583 10.00651,77.636759 10.35157,34.16017 29.32944,58.31382 18.97788,23.80861 45.20185,36.23049 26.56902,12.42188 58.65888,12.42188 35.54038,0 57.62372,-5.86589 22.08335,-6.21094 34.50523,-14.49219 12.42188,-8.62631 18.97787,-16.21746 V 64.707022 h -116.2826 v -53.82815 z"
        id="text36-1"
-       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:706.667px;line-height:0;font-family:Roboto;-inkscape-font-specification:'Roboto, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;text-align:start;writing-mode:lr-tb;direction:ltr;white-space:pre;shape-inside:url(#rect36-1);display:inline;fill:#000000;fill-opacity:1;stroke:#000000;stroke-width:7.55906;stroke-dasharray:none;stroke-opacity:1"><tspan
-         x="37.5"
-         y="261.04175"
-         id="tspan1">G</tspan></text>
+       style="font-size:706.667px;line-height:0;font-family:Roboto;-inkscape-font-specification:'Roboto, Normal';white-space:pre;stroke:#000000;stroke-width:7.55906"
+       transform="matrix(0.26458333,0,0,0.26458333,59.070672,130.37508)"
+       aria-label="G" />
   </g>
 </svg>
