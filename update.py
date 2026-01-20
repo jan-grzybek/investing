@@ -60,11 +60,34 @@ class Holding:
     def __init__(self, ticker):
         self._ticker = yf.Ticker(ticker)
         self._info = self._ticker.get_info()
-        self._dividends = self._ticker.get_dividends()
+        self._splits, self._dividends = self._get_splits_dividends()
         self._positions = []
         self._periods = []
         self._inflows = []
         self._outflows = []
+
+    def _get_splits_dividends(self):
+        splits = []
+        splits_acc = []
+        for date, split in self._ticker.splits.items():
+            date = datetime.strptime(date.__str__().split()[0], "%Y-%m-%d")
+            splits.append({"date": date, "split": split})
+            for _split in splits_acc:
+                _split["split"] *= split
+            splits_acc.append({"date": date, "split": split})
+        # readjust dividends for splits
+        dividends = []
+        split_idx = 0
+        for date, dividend in self._ticker.get_dividends().items():
+            date = datetime.strptime(date.__str__().split()[0], "%Y-%m-%d")
+            for split in splits_acc[split_idx:]:
+                assert date != split["date"]
+                if split["date"] > date:
+                    dividend *= split["split"]
+                    break
+                split_idx += 1
+            dividends.append({"date": date, "dividend": dividend})
+        return splits, dividends
 
     def buy(self, trade: Trade):
         try:
@@ -73,6 +96,14 @@ class Holding:
             current_quantity = 0
         if current_quantity == 0:
             self._periods.append({"start": trade.date, "end": None})
+        elif trade.date > self._positions[-1]["date"]:
+            for split in self._splits:
+                assert trade.date != split["date"]
+                if trade.date <= split["date"]:
+                    break
+                assert self._positions[-1]["date"] != split["date"]
+                if split["date"] > self._positions[-1]["date"]:
+                    current_quantity = int(current_quantity * split["split"])
         self._inflows.append({
             "date": trade.date,
             "value": trade.quantity * trade.price
@@ -86,7 +117,16 @@ class Holding:
             })
 
     def sell(self, trade: Trade):
-        if self._positions[-1]["quantity"] - trade.quantity == 0:
+        current_quantity = self._positions[-1]["quantity"]
+        if trade.date > self._positions[-1]["date"]:
+            for split in self._splits:
+                assert trade.date != split["date"]
+                if trade.date <= split["date"]:
+                    break
+                assert self._positions[-1]["date"] != split["date"]
+                if split["date"] > self._positions[-1]["date"]:
+                    current_quantity = int(current_quantity * split["split"])
+        if current_quantity - trade.quantity == 0:
             self._periods[-1]["end"] = trade.date
         self._outflows.append({
             "date": trade.date,
@@ -97,27 +137,33 @@ class Holding:
         else:
             self._positions.append({
                 "date": trade.date,
-                "quantity": self._positions[-1]["quantity"] - trade.quantity
+                "quantity": current_quantity - trade.quantity
             })
 
-    def _add_dividends(self, disable_dividends=False):
-        if disable_dividends:
-            return self._outflows
+    def _add_dividends(self):
         outflows = [outflow for outflow in self._outflows]
         position_idx = 0
-        for date, dividend in self._dividends.items():
+        for dividend in self._dividends:
             if position_idx >= len(self._positions):
                 break
-            date = datetime.strptime(date.__str__().split()[0], "%Y-%m-%d")
             while True:
                 position = self._positions[position_idx]
-                if date > position["date"]:
-                    if position_idx + 1 < len(self._positions) and self._positions[position_idx+1]["date"] < date:
+                if dividend["date"] > position["date"]:
+                    if (position_idx + 1 < len(self._positions) and
+                            self._positions[position_idx+1]["date"] < dividend["date"]):
                         position_idx += 1
                     elif position["quantity"] > 0:
+                        quantity = position["quantity"]
+                        for split in self._splits:
+                            assert dividend["date"] != split["date"]
+                            if dividend["date"] <= split["date"]:
+                                break
+                            assert split["date"] != position["date"]
+                            if split["date"] > position["date"]:
+                                quantity = int(quantity * split["split"])
                         outflows.append({
-                            "date": date,
-                            "value": position["quantity"] * dividend * (1. - WITHHOLDING_TAX_RATE)
+                            "date": dividend["date"],
+                            "value": quantity * dividend["dividend"] * (1. - WITHHOLDING_TAX_RATE)
                         })
                         break
                     else:
@@ -126,8 +172,8 @@ class Holding:
                     break
         return outflows
 
-    def summary(self, disable_dividends=False):
-        outflows = self._add_dividends(disable_dividends)
+    def summary(self):
+        outflows = self._add_dividends()
         tsr = 1.
         total_ownership_length = 0
         for period in self._periods:
