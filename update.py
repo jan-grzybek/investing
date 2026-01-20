@@ -1,3 +1,4 @@
+import os
 import gspread
 import requests
 import yfinance as yf
@@ -214,7 +215,7 @@ class Holding:
 
 def pull_data():
     gc = gspread.service_account(filename="/tmp/gsheet_creds.json")
-    sh = gc.open_by_key("1N1S95dIGEISRY7UR47yDrYYoByHarsVbsFZDfLXVDQk")
+    sh = gc.open_by_key(os.environ["GSHEET_ID"])
     transactions = []
     for transaction in sh.worksheet("Trades").get_all_values()[2:]:
         if transaction[6] not in ["Y", "YES", "y", "yes"]:

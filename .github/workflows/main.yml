@@ -25,12 +25,14 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Prepare credentials
-        run: echo "${GSHEET_CREDS}" > /tmp/gsheet_creds.json
         shell: bash
         env:
           GSHEET_CREDS: ${{ secrets.GSHEET_CREDS }}
+        run: echo "${GSHEET_CREDS}" > /tmp/gsheet_creds.json
 
       - name: Generate new webpage
+        env:
+          GSHEET_ID: ${{ secrets.GSHEET_ID }}
         run: python update.py 2>/dev/null
 
       - name: Configure git
