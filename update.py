@@ -143,6 +143,7 @@ class Holding:
     def _add_dividends(self):
         outflows = [outflow for outflow in self._outflows]
         position_idx = 0
+        split_idx = 0
         for dividend in self._dividends:
             if position_idx >= len(self._positions):
                 break
@@ -154,12 +155,14 @@ class Holding:
                         position_idx += 1
                     elif position["quantity"] > 0:
                         quantity = position["quantity"]
-                        for split in self._splits:
+                        for split in self._splits[split_idx:]:
                             if dividend["date"] <= split["date"]:
                                 break
                             assert split["date"] != position["date"]
                             if split["date"] > position["date"]:
                                 quantity = int(quantity * split["split"])
+                            else:
+                                split_idx += 1
                         outflows.append({
                             "date": dividend["date"],
                             "value": quantity * dividend["dividend"] * (1. - WITHHOLDING_TAX_RATE)
