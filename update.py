@@ -81,8 +81,7 @@ class Holding:
         for date, dividend in self._ticker.get_dividends().items():
             date = datetime.strptime(date.__str__().split()[0], "%Y-%m-%d")
             for split in splits_acc[split_idx:]:
-                assert date != split["date"]
-                if split["date"] > date:
+                if split["date"] >= date:
                     dividend *= split["split"]
                     break
                 split_idx += 1
@@ -155,7 +154,6 @@ class Holding:
                     elif position["quantity"] > 0:
                         quantity = position["quantity"]
                         for split in self._splits:
-                            assert dividend["date"] != split["date"]
                             if dividend["date"] <= split["date"]:
                                 break
                             assert split["date"] != position["date"]
