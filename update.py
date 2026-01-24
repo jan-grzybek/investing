@@ -380,7 +380,7 @@ class Webpage:
         else:
             return LOGOS_ADDRESS + "courage.png"
 
-    def add_return_desktop(self, total_return):
+    def add_return_desktop(self, total_return, equity_allocation):
         lines = []
         lines.append('<div style="display: flex; align-items: center;">')
         lines.append(f'<img src="https://raw.githubusercontent.com/jan-grzybek/investing/refs/heads/main/logo.svg" width="100"/>')
@@ -393,6 +393,8 @@ class Webpage:
         lines.append(f'<div class="right-col">{total_return["twr%"]}%</div>')
         lines.append('<div class="left-col">CAGR:</div>')
         lines.append(f'<div class="right-col">{total_return["cagr%"]}%</div>')
+        lines.append('<div class="left-col">Eq. Alloc.:</div>')
+        lines.append(f'<div class="right-col">{equity_allocation}%</div>')
         lines.append('</div>')
         lines.append('<div style="margin-top: 8px; display: grid; grid-template-columns: '
                      'max-content max-content max-content; column-gap: 20px; row-gap: 2px;">')
@@ -421,6 +423,10 @@ class Webpage:
         lines.append(f'<div class="right-col">{holding["tsr%"]}%</div>')
         lines.append('<div class="left-col">CAGR:</div>')
         lines.append(f'<div class="right-col">{holding["cagr%"]}%</div>')
+        if holding["is_current"] is True:
+            assert holding["current_weight%"] is not None
+            lines.append('<div class="left-col">Weight:</div>')
+            lines.append(f'<div class="right-col">{holding["current_weight%"]}%</div>')
         lines.append('</div>')
         lines.append('</div>')
         lines.append('</div>')
@@ -433,12 +439,12 @@ class Webpage:
                 end = period["end"].strftime("%b %d, %Y")
             lines.append(f'<div>{period["start"].strftime("%b %d, %Y")}</div><div>-</div><div>{end}</div>')
         lines.append('</div>')
-        if holding["current"] is True:
+        if holding["is_current"] is True:
             self.desktop_current.append("\n".join(lines))
         else:
             self.desktop_historical.append("\n".join(lines))
 
-    def add_return_mobile(self, total_return):
+    def add_return_mobile(self, total_return, equity_allocation):
         lines = []
         lines.append('<div style="display: flex; align-items: center;">')
         lines.append(f'<img src="https://raw.githubusercontent.com/jan-grzybek/investing/refs/heads/main/logo.svg" width="70"/>')
@@ -451,6 +457,8 @@ class Webpage:
         lines.append(f'<div class="right-col">{total_return["twr%"]}%</div>')
         lines.append('<div class="left-col">CAGR:</div>')
         lines.append(f'<div class="right-col">{total_return["cagr%"]}%</div>')
+        lines.append('<div class="left-col">Eq. Alloc.:</div>')
+        lines.append(f'<div class="right-col">{equity_allocation}%</div>')
         lines.append('</div>')
         lines.append('<div style="margin-top: 8px; display: grid; grid-template-columns: '
                      'max-content max-content max-content; column-gap: 15px; row-gap: 2px;">')
@@ -479,6 +487,10 @@ class Webpage:
         lines.append(f'<div class="right-col">{holding["tsr%"]}%</div>')
         lines.append('<div class="left-col">CAGR:</div>')
         lines.append(f'<div class="right-col">{holding["cagr%"]}%</div>')
+        if holding["is_current"] is True:
+            assert holding["current_weight%"] is not None
+            lines.append('<div class="left-col">Weight:</div>')
+            lines.append(f'<div class="right-col">{holding["current_weight%"]}%</div>')
         lines.append('</div>')
         lines.append('</div>')
         lines.append('</div>')
@@ -491,7 +503,7 @@ class Webpage:
                 end = period["end"].strftime("%b %d, %Y")
             lines.append(f'<div>{period["start"].strftime("%b %d, %Y")}</div><div>-</div><div>{end}</div>')
         lines.append('</div>')
-        if holding["current"] is True:
+        if holding["is_current"] is True:
             self.mobile_current.append("\n".join(lines))
         else:
             self.mobile_historical.append("\n".join(lines))
@@ -500,14 +512,14 @@ class Webpage:
         self.add_holding_desktop(holding)
         self.add_holding_mobile(holding)
 
-    def add_return(self, total_return):
-        self.add_return_desktop(total_return)
-        self.add_return_mobile(total_return)
+    def add_return(self, total_return, equity_allocation):
+        self.add_return_desktop(total_return, equity_allocation)
+        self.add_return_mobile(total_return, equity_allocation)
 
 
 def generate_webpage(total_return, holdings):
     webpage = Webpage()
-    webpage.add_return(total_return)
+    webpage.add_return(total_return, holdings["equity_allocation%"])
     for holding in holdings["current"]:
         webpage.add_holding(holding)
     for holding in holdings["historical"]:
