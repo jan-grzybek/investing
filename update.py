@@ -8,6 +8,22 @@ LOGOS_ADDRESS = "https://raw.githubusercontent.com/jan-grzybek/investing/refs/he
 WITHHOLDING_TAX_RATE = 0.15
 
 
+class ExchangeRate:
+    def __init__(self):
+        self._rates = {}
+
+    def __call__(self, currency):
+        if currency == "USD":
+            return 1.
+        try:
+            return self._rates[currency]
+        except KeyError:
+            self._rates[currency] = yf.Ticker(f"{currency}USD=X").info["regularMarketPrice"]
+            return self._rates[currency]
+
+exchange_rate = ExchangeRate()
+
+
 class Trade:
     def __init__(self, date, ticker, quantity, price, action):
         self.date = date
@@ -203,13 +219,16 @@ class Holding:
             tsr *= (1. + gain / avg_capital)
         cagr = tsr ** (365.25 / total_ownership_length) - 1.
         tsr -= 1.
-        print(f"{self._info['exchange']}:{self._info['symbol']} - {self._info['longName']} - TSR: {round(tsr * 100, 1)}% - CAGR: {round(cagr * 100, 1)}%")
+        current_value_usd = (self._positions[-1]["quantity"] * self._info["regularMarketPrice"] *
+                             exchange_rate(self._info["currency"]))
         return {
             "ticker": f"{self._info['exchange']}:{self._info['symbol']}",
             "name": self._info['longName'],
             "tsr%": round(tsr * 100, 1),
             "cagr%": round(cagr * 100, 1),
-            "current": self._positions[-1]["quantity"] > 0,
+            "is_current": self._positions[-1]["quantity"] > 0,
+            "current_weight%": None,
+            "current_value_usd": current_value_usd,
             "periods": list(reversed(self._periods)),
             "latest_buy": self._inflows[-1]["date"],
             "latest_sell": self._outflows[-1]["date"] if len(self._outflows) > 0 else None
@@ -220,7 +239,7 @@ def pull_data():
     gc = gspread.service_account(filename="/tmp/gsheet_creds.json")
     sh = gc.open_by_key(os.environ["GSHEET_ID"])
     transactions = []
-    for transaction in sh.worksheet("Trades").get_all_values()[2:]:
+    for transaction in sh.worksheet("Equities").get_all_values()[2:]:
         if transaction[6] not in ["Y", "YES", "y", "yes"]:
             continue
         if transaction[5] in ["B", "BUY", "b", "buy"]:
@@ -237,7 +256,7 @@ def pull_data():
             "action": action
         })
     valuations = []
-    for valuation in sh.worksheet("Reports").get_all_values()[2:]:
+    for valuation in sh.worksheet("Return").get_all_values()[2:]:
         if valuation[4] not in ["Y", "YES", "y", "yes"]:
             continue
         valuations.append({
@@ -245,7 +264,15 @@ def pull_data():
             "value": float(valuation[2].replace(",", "")),
             "flow": float(valuation[3].replace(",", ""))
         })
-    return transactions, valuations
+    cash = []
+    for currency in sh.worksheet("Cash & Cash Equivalents").get_all_values()[2:]:
+        if currency[4] not in ["Y", "YES", "y", "yes"]:
+            continue
+        cash.append({
+            "currency_code": currency[2],
+            "amount": float(currency[3].replace(",", ""))
+        })
+    return transactions, valuations, cash
 
 
 def get_holdings(transactions):
@@ -265,7 +292,7 @@ def get_holdings(transactions):
     historical_holdings = []
     for holding in holdings.values():
         summary = holding.summary()
-        if summary["current"] is True:
+        if summary["is_current"] is True:
             current_holdings.append(summary)
         else:
             historical_holdings.append(summary)
@@ -369,7 +396,7 @@ class Webpage:
         lines.append('</div>')
         lines.append('<div style="margin-top: 8px; display: grid; grid-template-columns: '
                      'max-content max-content max-content; column-gap: 20px; row-gap: 2px;">')
-        lines.append(f'<div>{total_return["start_date"].strftime("%b %d, %Y")}</div><div>-</div><div>{total_return["end_date"].strftime("%b %d, %Y")}</div>')
+        lines.append(f'<div>{total_return["start_date"].strftime("%b %d, %Y")}</div><div>-</div><div>Present</div>')
         lines.append('</div>')
         lines.append('</div>')
         lines.append('</div>')
@@ -427,7 +454,7 @@ class Webpage:
         lines.append('</div>')
         lines.append('<div style="margin-top: 8px; display: grid; grid-template-columns: '
                      'max-content max-content max-content; column-gap: 15px; row-gap: 2px;">')
-        lines.append(f'<div>{total_return["start_date"].strftime("%b %d, %Y")}</div><div>-</div><div>{total_return["end_date"].strftime("%b %d, %Y")}</div>')
+        lines.append(f'<div>{total_return["start_date"].strftime("%b %d, %Y")}</div><div>-</div><div>Present</div>')
         lines.append('</div>')
         lines.append('</div>')
         lines.append('</div>')
@@ -488,31 +515,52 @@ def generate_webpage(total_return, holdings):
     webpage.save()
 
 
-def calc_twr(valuations):
-    if len(valuations) < 2:
-        return {"start_date": datetime.today(), "end_date": datetime.today(), "twr%": 0., "cagr%": 0.}
+def calc_twr(valuations, current_value):
+    if len(valuations) == 0:
+        return {"start_date": datetime.today(), "twr%": 0., "cagr%": 0.}
     valuations = sorted(valuations, key=lambda item: item["date"])
     total_return = {
-        "start_date": valuations[0]["date"],
-        "end_date": valuations[-1]["date"]
+        "start_date": valuations[0]["date"]
     }
     start_value = valuations[0]["value"] + valuations[0]["flow"]
     twr = 1.
     for valuation in valuations[1:]:
         twr *= (valuation["value"] / start_value)
         start_value = valuation["value"] + valuation["flow"]
-    cagr = twr ** (365.25 / max((total_return["end_date"] - total_return["start_date"]).days, 1)) - 1.
+    twr *= (current_value / start_value)
+    cagr = twr ** (365.25 / max((datetime.today() - total_return["start_date"]).days, 1)) - 1.
     twr -= 1.
     total_return["twr%"] = round(twr * 100, 1)
     total_return["cagr%"] = round(cagr * 100, 1)
-    print(f"JG - Jan Grzybek - TWR: {total_return['twr%']}% - CAGR: {total_return['cagr%']}%")
+    print(f"\nJG - Jan Grzybek - TWR: {total_return['twr%']}% - CAGR: {total_return['cagr%']}%")
     return total_return
 
 
+def summarize(holdings, cash):
+    total_equity_value_usd = 0.
+    total_value_usd = 0.
+    for holding in holdings["current"]:
+        assert holding["current_value_usd"] > 0.
+        total_equity_value_usd += holding["current_value_usd"]
+        total_value_usd += holding["current_value_usd"]
+    for currency in cash:
+        total_value_usd += currency["amount"] * exchange_rate(currency["currency_code"])
+
+    equity_allocation = round(100 * total_equity_value_usd / total_value_usd, 1)
+    holdings["equity_allocation%"] = equity_allocation
+    print(f"Equity allocation: {equity_allocation}%\n")
+    for holding in holdings["current"]:
+        holding["current_weight%"] = round(100 * holding["current_value_usd"] / total_value_usd, 1)
+        print(f"{holding['ticker']} - {holding['name']} - Weight: {holding['current_weight%']}% - "
+              f"TSR: {holding['tsr%']}% - CAGR: {holding['cagr%']}%")
+
+    return total_value_usd
+
+
 def main():
-    transactions, valuations = pull_data()
-    total_return = calc_twr(valuations)
+    transactions, valuations, cash = pull_data()
     holdings = get_holdings(transactions)
+    total_return = calc_twr(valuations, summarize(holdings, cash))
     generate_webpage(total_return, holdings)
 
 
