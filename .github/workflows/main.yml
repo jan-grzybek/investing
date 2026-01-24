@@ -33,7 +33,7 @@ jobs:
       - name: Generate new webpage
         env:
           GSHEET_ID: ${{ secrets.GSHEET_ID }}
-        run: python update.py #2>/dev/null
+        run: python update.py 2>/dev/null
 
       - name: Configure git
         run: |

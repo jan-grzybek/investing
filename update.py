@@ -323,7 +323,7 @@ class Webpage:
                    '@media (max-width: 600px) {\n.desktop-version {display: none;}\n'
                    '.mobile-version {display: block;}\n}\nbody {min-width: 333px; padding-left: 30px; '
                    'padding-right: 30px;}\n.grid-return {\ndisplay: grid;\ngrid-template-columns: '
-                   'max-content max-content;\ncolumn-gap: 15px; \nrow-gap: 2px;\n}\n.left-col {\ntext-align: left;\n'
+                   'max-content max-content;\ncolumn-gap: 30px; \nrow-gap: 2px;\n}\n.left-col {\ntext-align: left;\n'
                    '}\n.right-col {\ntext-align: right;\n}\n</style>')
 
         txt.append('<div class="desktop-version">')
