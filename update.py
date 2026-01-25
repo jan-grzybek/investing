@@ -323,7 +323,7 @@ class Webpage:
                    '@media (max-width: 600px) {\n.desktop-version {display: none;}\n'
                    '.mobile-version {display: block;}\n}\nbody {min-width: 333px; padding-left: 30px; '
                    'padding-right: 30px;}\n.grid-return {\ndisplay: grid;\ngrid-template-columns: '
-                   'max-content max-content;\ncolumn-gap: 30px; \nrow-gap: 2px;\n}\n.left-col {\ntext-align: left;\n'
+                   '70px 90px;\ncolumn-gap: 15px; \nrow-gap: 2px;\n}\n.left-col {\ntext-align: left;\n'
                    '}\n.right-col {\ntext-align: right;\n}\n</style>')
 
         txt.append('<div class="desktop-version">')
@@ -380,7 +380,7 @@ class Webpage:
         else:
             return LOGOS_ADDRESS + "courage.png"
 
-    def add_return_desktop(self, total_return, equity_allocation):
+    def add_return_desktop(self, total_return, benchmarks, equity_allocation):
         lines = []
         lines.append('<div style="display: flex; align-items: center;">')
         lines.append(f'<img src="https://raw.githubusercontent.com/jan-grzybek/investing/refs/heads/main/logo.svg" width="100"/>')
@@ -407,7 +407,30 @@ class Webpage:
         lines.append('Time-weighted return (TWR) calculated excluding the impact of capital gains taxes, but including '
                      'the effects of withholding taxes and transaction costs.')
         lines.append('</div>')
-        lines.append('<br>')
+        for benchmark in benchmarks:
+            lines.append('<hr>')
+            lines.append('<br>')
+            lines.append('<div style="display: flex; align-items: center;">')
+            lines.append(f'<img src="{self._get_logo_url(benchmark["ticker"])}" width="100"/>')
+            lines.append('<div style="padding-left: 36px;">')
+            lines.append('<div style="font-size: 20px; font-weight: bold; margin-bottom: 8px;">')
+            lines.append(f'{benchmark["ticker"]} - {benchmark["name"]} [benchmark]')
+            lines.append('</div>')
+            lines.append('<div class="grid-return">')
+            lines.append('<div class="left-col">TSR:</div>')
+            lines.append(f'<div class="right-col">{benchmark["twr%"]}%</div>')
+            lines.append('<div class="left-col">CAGR:</div>')
+            lines.append(f'<div class="right-col">{benchmark["cagr%"]}%</div>')
+            lines.append('</div>')
+            lines.append('<div style="margin-top: 8px; display: grid; grid-template-columns: '
+                         'max-content max-content max-content; column-gap: 20px; row-gap: 2px;">')
+            lines.append(f'<div>{benchmark["periods"][0]["start_date"].strftime("%b %d, %Y")}'
+                         f'</div><div>-</div><div>Present</div>')
+            lines.append('</div>')
+            lines.append('</div>')
+            lines.append('</div>')
+            lines.append('<br>')
+
         self.desktop_return = "\n".join(lines)
 
     def add_holding_desktop(self, holding):
@@ -444,7 +467,7 @@ class Webpage:
         else:
             self.desktop_historical.append("\n".join(lines))
 
-    def add_return_mobile(self, total_return, equity_allocation):
+    def add_return_mobile(self, total_return, benchmarks, equity_allocation):
         lines = []
         lines.append('<div style="display: flex; align-items: center;">')
         lines.append(f'<img src="https://raw.githubusercontent.com/jan-grzybek/investing/refs/heads/main/logo.svg" width="70"/>')
@@ -471,6 +494,29 @@ class Webpage:
         lines.append('Time-weighted return (TWR) calculated excluding the impact of capital gains taxes, but including '
                      'the effects of withholding taxes and transaction costs.')
         lines.append('</div>')
+
+        for benchmark in benchmarks:
+            lines.append('<hr>')
+            lines.append('<div style="display: flex; align-items: center;">')
+            lines.append(f'<img src="{self._get_logo_url(benchmark["ticker"])}" width="70"/>')
+            lines.append('<div style="padding-left: 24px;">')
+            lines.append('<div style="font-size: 20px; font-weight: bold; margin-bottom: 8px;">')
+            lines.append(f'{benchmark["ticker"]} - {benchmark["name"]} [benchmark]')
+            lines.append('</div>')
+            lines.append('<div class="grid-return">')
+            lines.append('<div class="left-col">TSR:</div>')
+            lines.append(f'<div class="right-col">{benchmark["twr%"]}%</div>')
+            lines.append('<div class="left-col">CAGR:</div>')
+            lines.append(f'<div class="right-col">{benchmark["cagr%"]}%</div>')
+            lines.append('</div>')
+            lines.append('<div style="margin-top: 8px; display: grid; grid-template-columns: '
+                         'max-content max-content max-content; column-gap: 15px; row-gap: 2px;">')
+            lines.append(f'<div>{benchmark["periods"][0]["start_date"].strftime("%b %d, %Y")}'
+                         f'</div><div>-</div><div>Present</div>')
+            lines.append('</div>')
+            lines.append('</div>')
+            lines.append('</div>')
+
         lines.append('<br>')
         self.mobile_return = "\n".join(lines)
 
@@ -512,14 +558,14 @@ class Webpage:
         self.add_holding_desktop(holding)
         self.add_holding_mobile(holding)
 
-    def add_return(self, total_return, equity_allocation):
-        self.add_return_desktop(total_return, equity_allocation)
-        self.add_return_mobile(total_return, equity_allocation)
+    def add_return(self, total_return, benchmarks, equity_allocation):
+        self.add_return_desktop(total_return, benchmarks, equity_allocation)
+        self.add_return_mobile(total_return, benchmarks, equity_allocation)
 
 
-def generate_webpage(total_return, holdings):
+def generate_webpage(total_return, benchmarks, holdings):
     webpage = Webpage()
-    webpage.add_return(total_return, holdings["equity_allocation%"])
+    webpage.add_return(total_return, benchmarks, holdings["equity_allocation%"])
     for holding in holdings["current"]:
         webpage.add_holding(holding)
     for holding in holdings["historical"]:
@@ -569,11 +615,23 @@ def summarize(holdings, cash):
     return total_value_usd
 
 
+def get_benchmarks():
+    benchmarks = []
+    for benchmark in ["VUAA.L"]:
+        holding = Holding(benchmark)
+        holding.buy(Trade(datetime(2026, 1, 1), benchmark, 1, 132.42, "BUY"))
+        benchmarks.append(holding.summary())
+        print(f"{benchmarks[-1]['ticker']} - {benchmarks[-1]['name']} - "
+              f"TSR: {benchmarks[-1]['tsr%']}% - CAGR: {benchmarks[-1]['cagr%']}%")
+    return benchmarks
+
+
 def main():
     transactions, valuations, cash = pull_data()
     holdings = get_holdings(transactions)
     total_return = calc_twr(valuations, summarize(holdings, cash))
-    generate_webpage(total_return, holdings)
+    benchmarks = get_benchmarks()
+    generate_webpage(total_return, benchmarks, holdings)
 
 
 if __name__ == "__main__":
