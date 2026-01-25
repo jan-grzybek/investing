@@ -424,7 +424,7 @@ class Webpage:
             lines.append('</div>')
             lines.append('<div style="margin-top: 8px; display: grid; grid-template-columns: '
                          'max-content max-content max-content; column-gap: 20px; row-gap: 2px;">')
-            lines.append(f'<div>{benchmark["periods"][0]["start_date"].strftime("%b %d, %Y")}'
+            lines.append(f'<div>{benchmark["periods"][0]["start"].strftime("%b %d, %Y")}'
                          f'</div><div>-</div><div>Present</div>')
             lines.append('</div>')
             lines.append('</div>')
@@ -511,7 +511,7 @@ class Webpage:
             lines.append('</div>')
             lines.append('<div style="margin-top: 8px; display: grid; grid-template-columns: '
                          'max-content max-content max-content; column-gap: 15px; row-gap: 2px;">')
-            lines.append(f'<div>{benchmark["periods"][0]["start_date"].strftime("%b %d, %Y")}'
+            lines.append(f'<div>{benchmark["periods"][0]["start"].strftime("%b %d, %Y")}'
                          f'</div><div>-</div><div>Present</div>')
             lines.append('</div>')
             lines.append('</div>')
