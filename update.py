@@ -617,9 +617,9 @@ def summarize(holdings, cash):
 
 def get_benchmarks():
     benchmarks = []
-    for benchmark in ["VUAA.L"]:
-        holding = Holding(benchmark)
-        holding.buy(Trade(datetime(2026, 1, 1), benchmark, 1, 132.42, "BUY"))
+    for ticker, price in [("VUAA.L", 132.18)]:
+        holding = Holding(ticker)
+        holding.buy(Trade(datetime(2026, 1, 1), ticker, 1, price, "BUY"))
         benchmarks.append(holding.summary())
         print(f"{benchmarks[-1]['ticker']} - {benchmarks[-1]['name']} - "
               f"TSR: {benchmarks[-1]['tsr%']}% - CAGR: {benchmarks[-1]['cagr%']}%")
