@@ -216,6 +216,8 @@ class Holding:
                 if start < outflow["date"] <= end:
                     gain += outflow["value"]
                     avg_capital -= ((end - outflow["date"]).days / length) * outflow["value"]
+            if avg_capital == 0:
+                print(f"{self._info['exchange']}:{self._info['symbol']}")
             tsr *= (1. + gain / avg_capital)
         cagr = tsr ** (365.25 / total_ownership_length) - 1.
         tsr -= 1.
