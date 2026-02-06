@@ -642,7 +642,7 @@ def generate_horizontal_bar(data, chart_name):
     subplots = make_subplots(
         rows=len(data),
         cols=1,
-        subplot_titles=data.keys(),
+        subplot_titles=list(data.keys()),
         shared_xaxes=True,
         print_grid=False,
         vertical_spacing=0.1
