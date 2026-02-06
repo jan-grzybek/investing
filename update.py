@@ -334,14 +334,14 @@ class Webpage:
         txt.append(self.desktop_return)
         txt.append('</div>\n<br>\n<div style="font-size: 26px; font-weight: bold;">\nCurrent holdings\n</div>\n'
                    '<hr style="height: 1px; background-color: black;">\n<br>')
-        txt.append('<div style="font-size: 20px; font-weight: bold;">\nEquities:\n</div>\nhr\n'
+        txt.append('<div style="font-size: 20px; font-weight: bold;">\nEquities:\n</div>\n<hr>\n'
                    '<div style="padding-left: 30px;">\n'
                    '<img src="https://media.githubusercontent.com/media/jan-grzybek/investing/refs/heads/main/equity_allocation.svg"/>\n'
                    '<hr>\n<br>')
         txt.append('\n<br>\n<hr>\n<br>\n'.join(self.desktop_current))
         txt.append('</div>\n<br>\n<br>\n<br>\n<div style="font-size: 26px; font-weight: bold;">\nHistorical holdings\n'
                    '</div>\n<hr style="height: 1px; background-color: black;">\n<br>')
-        txt.append('<div style="font-size: 20px; font-weight: bold;">\nEquities:\n</div>\nhr\n'
+        txt.append('<div style="font-size: 20px; font-weight: bold;">\nEquities:\n</div>\n<hr>\n'
                    '<div style="padding-left: 30px;">')
         txt.append('\n<br>\n<hr>\n<br>\n'.join(self.desktop_historical))
         txt.append('</div>\n<br>\n<br>\n<br>\n<div style="font-size: 14px;">\n'
@@ -361,14 +361,14 @@ class Webpage:
         txt.append(self.mobile_return)
         txt.append('</div>\n<br>\n<div style="font-size: 26px; font-weight: bold;">\nCurrent holdings\n</div>\n'
                    '<hr style="height: 1px; background-color: black;">')
-        txt.append('<div style="font-size: 20px; font-weight: bold;">\nEquities:\n</div>\nhr\n'
+        txt.append('<div style="font-size: 20px; font-weight: bold;">\nEquities:\n</div>\n<hr>\n'
                    '<div style="padding-left: 5px;">\n'
                    '<img src="https://media.githubusercontent.com/media/jan-grzybek/investing/refs/heads/main/equity_allocation.svg" width="250"/>\n'
                    '<hr>')
         txt.append('\n<hr>\n'.join(self.mobile_current))
         txt.append('</div>\n<br>\n<br>\n<div style="font-size: 26px; font-weight: bold;">\nHistorical holdings\n</div>\n'
                    '<hr style="height: 1px; background-color: black;">')
-        txt.append('<div style="font-size: 20px; font-weight: bold;">\nEquities:\n</div>\nhr\n'
+        txt.append('<div style="font-size: 20px; font-weight: bold;">\nEquities:\n</div>\n<hr>\n'
                    '<div style="padding-left: 5px;">')
         txt.append('\n<hr>\n'.join(self.mobile_historical))
         txt.append('</div>\n<br>\n<br>\n<div style="font-size: 14px;">\n'
