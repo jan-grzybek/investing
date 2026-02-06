@@ -312,7 +312,7 @@ class Webpage:
         self.mobile_current = []
         self.mobile_historical = []
 
-    def save(self, holdings):
+    def save(self):
         update_date = datetime.now().strftime("%b %-d, %Y")
         txt = []
         txt.append('<meta charset="UTF-8">\n<meta name="viewport" content="width=device-width, initial-scale=1.0">\n'
@@ -335,14 +335,11 @@ class Webpage:
         txt.append('</div>\n<br>')
         if len(self.desktop_current) > 0:
             txt.append('<div style="font-size: 26px; font-weight: bold;">\nCurrent holdings\n</div>\n'
-                       '<hr style="height: 1px; background-color: black;">\n<br>')
+                       '<hr style="height: 1px; background-color: black;">')
             # equities, fixed income, cash & cash equivalents, other / alternatives
-            txt.append('<div style="padding-left: 30px;">\n<div class="grid-return">\n'
-                       f'<div class="left-col">Equities:</div>\n'
-                       f'<div class="right-col">{holdings["equity_allocation%"]}%</div>\n'
-                       f'<div class="left-col">Cash & Cash Equivalents:</div>\n'
-                       f'<div class="right-col">{holdings["cash_allocation%"]}%</div>\n'
-                       '</div>\n</div>\n<br>')
+            txt.append('<div style="padding-left: 30px;">\n'
+                       '<img src="https://media.githubusercontent.com/media/jan-grzybek/investing/refs/heads/main/allocation.svg"/>\n'
+                       '</div>\n<br>')
             txt.append('<div style="font-size: 20px; font-weight: bold;">\nEquities:\n</div>\n<hr>\n'
                        '<div style="padding-left: 30px;">\n'
                        '<img src="https://media.githubusercontent.com/media/jan-grzybek/investing/refs/heads/main/equity_allocation.svg"/>\n'
@@ -374,12 +371,9 @@ class Webpage:
             txt.append('<div style="font-size: 26px; font-weight: bold;">\nCurrent holdings\n</div>\n'
                        '<hr style="height: 1px; background-color: black;">')
             # equities, fixed income, cash & cash equivalents, other / alternatives
-            txt.append('<div style="padding-left: 10px;">\n<div class="grid-return">\n'
-                       f'<div class="left-col">Equities:</div>\n'
-                       f'<div class="right-col">{holdings["equity_allocation%"]}%</div>\n'
-                       f'<div class="left-col">Cash & Cash Equivalents:</div>\n'
-                       f'<div class="right-col">{holdings["cash_allocation%"]}%</div>\n'
-                       '</div>\n</div>')
+            txt.append('<div style="padding-left: 30px;">\n'
+                       '<img src="https://media.githubusercontent.com/media/jan-grzybek/investing/refs/heads/main/allocation.svg" width="250"/>\n'
+                       '</div>\n<br>')
             txt.append('<div style="font-size: 20px; font-weight: bold;">\nEquities:\n</div>\n<hr>\n'
                        '<div style="padding-left: 10px;">\n'
                        '<img src="https://media.githubusercontent.com/media/jan-grzybek/investing/refs/heads/main/equity_allocation.svg" width="250"/>\n'
@@ -600,7 +594,7 @@ def generate_webpage(total_return, benchmarks, holdings):
         webpage.add_holding(holding)
     for holding in holdings["historical"]:
         webpage.add_holding(holding)
-    webpage.save(holdings)
+    webpage.save()
 
 
 def calc_twr(valuations, current_value):
@@ -670,7 +664,7 @@ def get_benchmarks():
     return benchmarks
 
 
-def generate_horizontal_bar(data, chart_name):
+def generate_horizontal_bar(data, chart_name, color):
     if data is None:
         return
 
@@ -697,7 +691,7 @@ def generate_horizontal_bar(data, chart_name):
             hoverinfo="text",
             textposition="auto",
             textfont_size=10,
-            marker=dict(color="#e67d22"),
+            marker=dict(color=color),
         ), i + 1, 1)
     for x in subplots["layout"]["annotations"]:
         x["x"] = 0
@@ -708,13 +702,15 @@ def generate_horizontal_bar(data, chart_name):
         if axis.startswith("yaxis") or axis.startswith("xaxis"):
             subplots["layout"][axis]["visible"] = False
     subplots["layout"]["margin"] = {"l": 0, "r": 0, "t": 30, "b": 10}
-    subplots["layout"]["height"] = 50 * len(data)
+    subplots["layout"]["height"] = 50 * len(data) + 20
     subplots["layout"]["width"] = 300
     subplots.write_image(f"{chart_name}.svg")
 
 
 def generate_charts(holdings):
-    generate_horizontal_bar(holdings["top_10"], "equity_allocation")
+    generate_horizontal_bar(holdings["top_10"], "equity_allocation", "#e67d22")
+    generate_horizontal_bar({"Equities": holdings["equity_allocation%"],
+                             "Cash & Cash Equivalents": holdings["cash_allocation%"]}, "allocation", "#1f4e79")
 
 
 def main():
