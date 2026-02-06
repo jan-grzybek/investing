@@ -329,16 +329,22 @@ class Webpage:
                    '}\n.right-col {\ntext-align: right;\n}\n</style>')
 
         txt.append('<div class="desktop-version">')
-        txt.append('<br>\n<div style="font-size: 26px; font-weight: bold;">\nAll-time performance\n</div>\n<br>\n'
-                   '<hr style="height: 1px; background-color: black;">\n<br>')
+        txt.append('<br>\n<div style="font-size: 26px; font-weight: bold;">\nAll-time performance\n</div>\n'
+                   '<hr style="height: 1px; background-color: black;">\n<br>\n<div style="padding-left: 30px;">')
         txt.append(self.desktop_return)
-        txt.append('<br>\n<div style="font-size: 26px; font-weight: bold;">\nCurrent holdings\n</div>\n<br>\n'
+        txt.append('</div>\n<br>\n<div style="font-size: 26px; font-weight: bold;">\nCurrent holdings\n</div>\n'
                    '<hr style="height: 1px; background-color: black;">\n<br>')
+        txt.append('<div style="font-size: 20px; font-weight: bold;">\nEquities:\n</div>\nhr\n'
+                   '<div style="padding-left: 30px;">\n'
+                   '<img src="https://media.githubusercontent.com/media/jan-grzybek/investing/refs/heads/main/equity_allocation.svg"/>\n'
+                   '<hr>\n<br>')
         txt.append('\n<br>\n<hr>\n<br>\n'.join(self.desktop_current))
-        txt.append('<br>\n<br>\n<br>\n<div style="font-size: 26px; font-weight: bold;">\nHistorical holdings\n</div>\n'
-                   '<br>\n<hr style="height: 1px; background-color: black;">\n<br>')
+        txt.append('</div>\n<br>\n<br>\n<br>\n<div style="font-size: 26px; font-weight: bold;">\nHistorical holdings\n'
+                   '</div>\n<hr style="height: 1px; background-color: black;">\n<br>')
+        txt.append('<div style="font-size: 20px; font-weight: bold;">\nEquities:\n</div>\nhr\n'
+                   '<div style="padding-left: 30px;">')
         txt.append('\n<br>\n<hr>\n<br>\n'.join(self.desktop_historical))
-        txt.append('<br>\n<br>\n<br>\n<div style="font-size: 14px;">\n'
+        txt.append('</div>\n<br>\n<br>\n<br>\n<div style="font-size: 14px;">\n'
                    'All TSR figures were calculated using the modified Dietz method, with dividends assumed to be '
                    'subject to a 15% withholding tax and cashed out.\n<br>\n'
                    'For informational purposes only. Nothing contained herein should be construed as a recommendation '
@@ -351,15 +357,21 @@ class Webpage:
 
         txt.append('</div>\n<div class="mobile-version">')
         txt.append('<br>\n<div style="font-size: 26px; font-weight: bold;">\nAll-time performance\n</div>\n'
-                   '<hr style="height: 1px; background-color: black;">')
+                   '<hr style="height: 1px; background-color: black;">\n<div style="padding-left: 5px;">')
         txt.append(self.mobile_return)
-        txt.append('<br>\n<div style="font-size: 26px; font-weight: bold;">\nCurrent holdings\n</div>\n'
+        txt.append('</div>\n<br>\n<div style="font-size: 26px; font-weight: bold;">\nCurrent holdings\n</div>\n'
                    '<hr style="height: 1px; background-color: black;">')
+        txt.append('<div style="font-size: 20px; font-weight: bold;">\nEquities:\n</div>\nhr\n'
+                   '<div style="padding-left: 5px;">\n'
+                   '<img src="https://media.githubusercontent.com/media/jan-grzybek/investing/refs/heads/main/equity_allocation.svg" width="250"/>\n'
+                   '<hr>')
         txt.append('\n<hr>\n'.join(self.mobile_current))
-        txt.append('<br>\n<br>\n<div style="font-size: 26px; font-weight: bold;">\nHistorical holdings\n</div>\n'
+        txt.append('</div>\n<br>\n<br>\n<div style="font-size: 26px; font-weight: bold;">\nHistorical holdings\n</div>\n'
                    '<hr style="height: 1px; background-color: black;">')
+        txt.append('<div style="font-size: 20px; font-weight: bold;">\nEquities:\n</div>\nhr\n'
+                   '<div style="padding-left: 5px;">')
         txt.append('\n<hr>\n'.join(self.mobile_historical))
-        txt.append('<br>\n<br>\n<div style="font-size: 14px;">\n'
+        txt.append('</div>\n<br>\n<br>\n<div style="font-size: 14px;">\n'
                    'All TSR figures were calculated using the modified Dietz method, with dividends assumed to be '
                    'subject to a 15% withholding tax and cashed out.\n<br>\n<br>\n'
                    'For informational purposes only. Nothing contained herein should be construed as a recommendation '
