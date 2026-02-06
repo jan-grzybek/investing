@@ -1,3 +1,4 @@
 gspread
 yfinance
 plotly
+kaleido
