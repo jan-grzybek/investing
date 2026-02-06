@@ -312,7 +312,7 @@ class Webpage:
         self.mobile_current = []
         self.mobile_historical = []
 
-    def save(self):
+    def save(self, holdings):
         update_date = datetime.now().strftime("%b %-d, %Y")
         txt = []
         txt.append('<meta charset="UTF-8">\n<meta name="viewport" content="width=device-width, initial-scale=1.0">\n'
@@ -336,6 +336,13 @@ class Webpage:
         if len(self.desktop_current) > 0:
             txt.append('<div style="font-size: 26px; font-weight: bold;">\nCurrent holdings\n</div>\n'
                        '<hr style="height: 1px; background-color: black;">\n<br>')
+            # equities, fixed income, cash & cash equivalents, other / alternatives
+            txt.append('<div style="padding-left: 30px;">\n<div class="grid-return">\n'
+                       f'<div class="left-col">Equities:</div>\n'
+                       f'<div class="right-col">{holdings["equity_allocation%"]}%</div>\n'
+                       f'<div class="left-col">Cash & Cash Equivalents:</div>\n'
+                       f'<div class="right-col">{holdings["cash_allocation%"]}%</div>\n'
+                       '</div>\n</div>\n<br>')
             txt.append('<div style="font-size: 20px; font-weight: bold;">\nEquities:\n</div>\n<hr>\n'
                        '<div style="padding-left: 30px;">\n'
                        '<img src="https://media.githubusercontent.com/media/jan-grzybek/investing/refs/heads/main/equity_allocation.svg"/>\n'
@@ -366,6 +373,13 @@ class Webpage:
         if len(self.mobile_current) > 0:
             txt.append('<div style="font-size: 26px; font-weight: bold;">\nCurrent holdings\n</div>\n'
                        '<hr style="height: 1px; background-color: black;">')
+            # equities, fixed income, cash & cash equivalents, other / alternatives
+            txt.append('<div style="padding-left: 10px;">\n<div class="grid-return">\n'
+                       f'<div class="left-col">Equities:</div>\n'
+                       f'<div class="right-col">{holdings["equity_allocation%"]}%</div>\n'
+                       f'<div class="left-col">Cash & Cash Equivalents:</div>\n'
+                       f'<div class="right-col">{holdings["cash_allocation%"]}%</div>\n'
+                       '</div>\n</div>')
             txt.append('<div style="font-size: 20px; font-weight: bold;">\nEquities:\n</div>\n<hr>\n'
                        '<div style="padding-left: 10px;">\n'
                        '<img src="https://media.githubusercontent.com/media/jan-grzybek/investing/refs/heads/main/equity_allocation.svg" width="250"/>\n'
@@ -400,7 +414,7 @@ class Webpage:
         else:
             return LOGOS_ADDRESS + "courage.png"
 
-    def add_return_desktop(self, total_return, benchmarks, equity_allocation):
+    def add_return_desktop(self, total_return, benchmarks):
         lines = []
         lines.append('<div style="display: flex; align-items: center;">')
         lines.append(f'<img src="https://raw.githubusercontent.com/jan-grzybek/investing/refs/heads/main/logo.svg" width="100"/>')
@@ -413,8 +427,6 @@ class Webpage:
         lines.append(f'<div class="right-col">{total_return["twr%"]}%</div>')
         lines.append('<div class="left-col">CAGR:</div>')
         lines.append(f'<div class="right-col">{total_return["cagr%"]}%</div>')
-        lines.append('<div class="left-col">Eq. Alloc.:</div>')
-        lines.append(f'<div class="right-col">{equity_allocation}%</div>')
         lines.append('</div>')
         lines.append('<div style="margin-top: 8px; display: grid; grid-template-columns: '
                      'max-content max-content max-content; column-gap: 20px; row-gap: 2px;">')
@@ -487,7 +499,7 @@ class Webpage:
         else:
             self.desktop_historical.append("\n".join(lines))
 
-    def add_return_mobile(self, total_return, benchmarks, equity_allocation):
+    def add_return_mobile(self, total_return, benchmarks):
         lines = []
         lines.append('<div style="display: flex; align-items: center;">')
         lines.append(f'<img src="https://raw.githubusercontent.com/jan-grzybek/investing/refs/heads/main/logo.svg" width="70"/>')
@@ -500,8 +512,6 @@ class Webpage:
         lines.append(f'<div class="right-col">{total_return["twr%"]}%</div>')
         lines.append('<div class="left-col">CAGR:</div>')
         lines.append(f'<div class="right-col">{total_return["cagr%"]}%</div>')
-        lines.append('<div class="left-col">Eq. Alloc.:</div>')
-        lines.append(f'<div class="right-col">{equity_allocation}%</div>')
         lines.append('</div>')
         lines.append('<div style="margin-top: 8px; display: grid; grid-template-columns: '
                      'max-content max-content max-content; column-gap: 15px; row-gap: 2px;">')
@@ -578,19 +588,19 @@ class Webpage:
         self.add_holding_desktop(holding)
         self.add_holding_mobile(holding)
 
-    def add_return(self, total_return, benchmarks, equity_allocation):
-        self.add_return_desktop(total_return, benchmarks, equity_allocation)
-        self.add_return_mobile(total_return, benchmarks, equity_allocation)
+    def add_return(self, total_return, benchmarks):
+        self.add_return_desktop(total_return, benchmarks)
+        self.add_return_mobile(total_return, benchmarks)
 
 
 def generate_webpage(total_return, benchmarks, holdings):
     webpage = Webpage()
-    webpage.add_return(total_return, benchmarks, holdings["equity_allocation%"])
+    webpage.add_return(total_return, benchmarks)
     for holding in holdings["current"]:
         webpage.add_holding(holding)
     for holding in holdings["historical"]:
         webpage.add_holding(holding)
-    webpage.save()
+    webpage.save(holdings)
 
 
 def calc_twr(valuations, current_value):
@@ -616,17 +626,21 @@ def calc_twr(valuations, current_value):
 
 def summarize(holdings, cash):
     total_equity_value_usd = 0.
+    total_cash_value_usd = 0.
     total_value_usd = 0.
     for holding in holdings["current"]:
         assert holding["current_value_usd"] > 0.
         total_equity_value_usd += holding["current_value_usd"]
         total_value_usd += holding["current_value_usd"]
     for currency in cash:
-        total_value_usd += currency["amount"] * exchange_rate(currency["currency_code"])
+        cash_value_usd = currency["amount"] * exchange_rate(currency["currency_code"])
+        total_cash_value_usd += cash_value_usd
+        total_value_usd += cash_value_usd
 
-    equity_allocation = round(100 * total_equity_value_usd / total_value_usd, 1)
-    holdings["equity_allocation%"] = equity_allocation
-    print(f"Equity allocation: {equity_allocation}%\n")
+    holdings["equity_allocation%"] = round(100 * total_equity_value_usd / total_value_usd, 1)
+    holdings["cash_allocation%"] = round(100 * total_cash_value_usd / total_value_usd, 1)
+    print(f"Equity allocation: {holdings['equity_allocation%']}%\n")
+    print(f"Cash allocation: {holdings['cash_allocation%']}%\n")
 
     holdings["top_10"] = None
     weights = {}
