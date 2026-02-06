@@ -339,7 +339,7 @@ class Webpage:
             txt.append('<div style="font-size: 20px; font-weight: bold;">\nEquities:\n</div>\n<hr>\n'
                        '<div style="padding-left: 30px;">\n'
                        '<img src="https://media.githubusercontent.com/media/jan-grzybek/investing/refs/heads/main/equity_allocation.svg"/>\n'
-                       '<hr>\n<br>')
+                       '<div style="font-size: 14px;">\nTop equities by weight in the total portfolio.\n</div>\n<hr>\n<br>')
             txt.append('\n<br>\n<hr>\n<br>\n'.join(self.desktop_current))
             txt.append('</div>\n<br>\n<br>\n<br>')
         txt.append('<div style="font-size: 26px; font-weight: bold;">\nHistorical holdings\n'
@@ -369,7 +369,7 @@ class Webpage:
             txt.append('<div style="font-size: 20px; font-weight: bold;">\nEquities:\n</div>\n<hr>\n'
                        '<div style="padding-left: 10px;">\n'
                        '<img src="https://media.githubusercontent.com/media/jan-grzybek/investing/refs/heads/main/equity_allocation.svg" width="250"/>\n'
-                       '<hr>')
+                       '<div style="font-size: 14px;">\nTop equities by weight in the total portfolio.\n</div>\n<hr>')
             txt.append('\n<hr>\n'.join(self.mobile_current))
             txt.append('</div>\n<br>\n<br>')
         txt.append('<div style="font-size: 26px; font-weight: bold;">\nHistorical holdings\n</div>\n'
