@@ -371,7 +371,7 @@ class Webpage:
             txt.append('<div style="font-size: 26px; font-weight: bold;">\nCurrent holdings\n</div>\n'
                        '<hr style="height: 1px; background-color: black;">')
             # equities, fixed income, cash & cash equivalents, other / alternatives
-            txt.append('<div style="padding-left: 30px;">\n'
+            txt.append('<div style="padding-left: 10px;">\n'
                        '<img src="https://media.githubusercontent.com/media/jan-grzybek/investing/refs/heads/main/allocation.svg" width="250"/>\n'
                        '</div>\n<br>')
             txt.append('<div style="font-size: 20px; font-weight: bold;">\nEquities:\n</div>\n<hr>\n'
@@ -631,10 +631,14 @@ def summarize(holdings, cash):
         total_cash_value_usd += cash_value_usd
         total_value_usd += cash_value_usd
 
-    holdings["equity_allocation%"] = round(100 * total_equity_value_usd / total_value_usd, 1)
-    holdings["cash_allocation%"] = round(100 * total_cash_value_usd / total_value_usd, 1)
-    print(f"Equity allocation: {holdings['equity_allocation%']}%\n")
-    print(f"Cash allocation: {holdings['cash_allocation%']}%\n")
+    if total_value_usd > 0.:
+        holdings["allocation%"] = {}
+        holdings["allocation%"]["Equities"] = round(100 * total_equity_value_usd / total_value_usd, 1)
+        holdings["allocation%"]["Cash & Cash Equivalents"] = round(100 * total_cash_value_usd / total_value_usd, 1)
+        print(f"Equity allocation: {holdings['allocation%']['Equities']}%\n")
+        print(f"Cash allocation: {holdings['allocation%']['Cash & Cash Equivalents']}%\n")
+    else:
+        holdings["allocation%"] = None
 
     holdings["top_10"] = None
     weights = {}
@@ -702,15 +706,14 @@ def generate_horizontal_bar(data, chart_name, color):
         if axis.startswith("yaxis") or axis.startswith("xaxis"):
             subplots["layout"][axis]["visible"] = False
     subplots["layout"]["margin"] = {"l": 0, "r": 0, "t": 30, "b": 10}
-    subplots["layout"]["height"] = 50 * len(data) + 20
+    subplots["layout"]["height"] = 50 * len(data) + 15
     subplots["layout"]["width"] = 300
     subplots.write_image(f"{chart_name}.svg")
 
 
 def generate_charts(holdings):
     generate_horizontal_bar(holdings["top_10"], "equity_allocation", "#e67d22")
-    generate_horizontal_bar({"Equities": holdings["equity_allocation%"],
-                             "Cash & Cash Equivalents": holdings["cash_allocation%"]}, "allocation", "#1f4e79")
+    generate_horizontal_bar(holdings["allocation%"], "allocation", "#1f4e79")
 
 
 def main():
