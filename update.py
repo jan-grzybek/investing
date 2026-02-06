@@ -644,8 +644,7 @@ def generate_horizontal_bar(data, chart_name):
         cols=1,
         subplot_titles=list(data.keys()),
         shared_xaxes=True,
-        print_grid=False,
-        vertical_spacing=0.1
+        print_grid=False
     )
     subplots["layout"].update(
         plot_bgcolor="rgba(0,0,0,0)",
@@ -672,7 +671,7 @@ def generate_horizontal_bar(data, chart_name):
     for axis in subplots["layout"]:
         if axis.startswith("yaxis") or axis.startswith("xaxis"):
             subplots["layout"][axis]["visible"] = False
-    subplots["layout"]["margin"] = {"l": 0, "r": 0, "t": 20, "b": 1}
+    subplots["layout"]["margin"] = {"l": 0, "r": 0, "t": 30, "b": 30}
     subplots["layout"]["height"] = 50 * len(data)
     subplots["layout"]["width"] = 300
     subplots.write_image(f"{chart_name}.svg")
