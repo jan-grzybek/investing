@@ -637,7 +637,7 @@ def summarize(holdings, cash):
               f"TSR: {holding['tsr%']}% - CAGR: {holding['cagr%']}%")
     if len(weights) > 0:
         weights = sorted(weights.items(), key=lambda item: item[1], reverse=True)
-        if len(weights) > 10:
+        if len(weights) > 11:
             holdings["top_10"] = dict(weights[:10] + [("Other equities", sum([w[1] for w in weights[10:]]))])
         else:
             holdings["top_10"] = dict(weights)
