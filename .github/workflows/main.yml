@@ -33,7 +33,7 @@ jobs:
       - name: Generate new webpage
         env:
           GSHEET_ID: ${{ secrets.GSHEET_ID }}
-        run: python update.py 2>/dev/null
+        run: python update.py # 2>/dev/null
 
       - name: Configure git
         run: |
@@ -42,6 +42,6 @@ jobs:
 
       - name: Commit changes
         run: |
-          git add index.html
+          git add index.html *.svg
           git commit -m "Webpage update" || echo "No changes to commit"
           git push

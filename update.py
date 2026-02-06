@@ -3,6 +3,8 @@ import gspread
 import requests
 import yfinance as yf
 from datetime import datetime
+from plotly.subplots import make_subplots
+
 
 LOGOS_ADDRESS = "https://raw.githubusercontent.com/jan-grzybek/investing/refs/heads/main/logos/"
 WITHHOLDING_TAX_RATE = 0.15
@@ -607,10 +609,20 @@ def summarize(holdings, cash):
     equity_allocation = round(100 * total_equity_value_usd / total_value_usd, 1)
     holdings["equity_allocation%"] = equity_allocation
     print(f"Equity allocation: {equity_allocation}%\n")
+
+    holdings["top_10"] = None
+    weights = {}
     for holding in holdings["current"]:
         holding["current_weight%"] = round(100 * holding["current_value_usd"] / total_value_usd, 1)
+        weights[holding['ticker']] = holding["current_weight%"]
         print(f"{holding['ticker']} - {holding['name']} - Weight: {holding['current_weight%']}% - "
               f"TSR: {holding['tsr%']}% - CAGR: {holding['cagr%']}%")
+    if len(weights) > 0:
+        weights = sorted(weights.items(), key=lambda item: item[1], reverse=True)
+        if len(weights) > 10:
+            holdings["top_10"] = dict(weights[:10] + [("Other equities", sum([w[1] for w in weights[10:]]))])
+        else:
+            holdings["top_10"] = dict(weights)
 
     return total_value_usd
 
@@ -626,11 +638,56 @@ def get_benchmarks():
     return benchmarks
 
 
+def generate_horizontal_bar(data, chart_name):
+    subplots = make_subplots(
+        rows=len(data),
+        cols=1,
+        subplot_titles=data.keys(),
+        shared_xaxes=True,
+        print_grid=False,
+        vertical_spacing=0.1
+    )
+    subplots["layout"].update(
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
+        font=dict(size=14),
+        showlegend=False
+    )
+    for i, d in enumerate(data.items()):
+        subplots.add_trace(dict(
+            type="bar",
+            orientation="h",
+            y=[d[0]],
+            x=[d[1]],
+            text=[f"{d[1]}%"],
+            hoverinfo="text",
+            textposition="auto",
+            marker=dict(color="#e67d22"),
+        ), i + 1, 1)
+    for x in subplots["layout"]["annotations"]:
+        x["x"] = 0
+        x["xanchor"] = 'left'
+        x["align"] = 'left'
+        x["font"] = dict(size=14)
+    for axis in subplots["layout"]:
+        if axis.startswith("yaxis") or axis.startswith("xaxis"):
+            subplots["layout"][axis]["visible"] = False
+    subplots["layout"]["margin"] = {"l": 0, "r": 0, "t": 20, "b": 1}
+    subplots["layout"]["height"] = 50 * len(data)
+    subplots["layout"]["width"] = 300
+    subplots.write_image(f"{chart_name}.svg")
+
+
+def generate_charts(holdings):
+    generate_horizontal_bar(holdings["top_10"], "equity_allocation")
+
+
 def main():
     transactions, valuations, cash = pull_data()
     holdings = get_holdings(transactions)
     total_return = calc_twr(valuations, summarize(holdings, cash))
     benchmarks = get_benchmarks()
+    generate_charts(holdings)
     generate_webpage(total_return, benchmarks, holdings)
 
 
