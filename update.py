@@ -332,14 +332,17 @@ class Webpage:
         txt.append('<br>\n<div style="font-size: 26px; font-weight: bold;">\nAll-time performance\n</div>\n'
                    '<hr style="height: 1px; background-color: black;">\n<br>\n<div style="padding-left: 30px;">')
         txt.append(self.desktop_return)
-        txt.append('</div>\n<br>\n<div style="font-size: 26px; font-weight: bold;">\nCurrent holdings\n</div>\n'
-                   '<hr style="height: 1px; background-color: black;">\n<br>')
-        txt.append('<div style="font-size: 20px; font-weight: bold;">\nEquities:\n</div>\n<hr>\n'
-                   '<div style="padding-left: 30px;">\n'
-                   '<img src="https://media.githubusercontent.com/media/jan-grzybek/investing/refs/heads/main/equity_allocation.svg"/>\n'
-                   '<hr>\n<br>')
-        txt.append('\n<br>\n<hr>\n<br>\n'.join(self.desktop_current))
-        txt.append('</div>\n<br>\n<br>\n<br>\n<div style="font-size: 26px; font-weight: bold;">\nHistorical holdings\n'
+        txt.append('</div>\n<br>')
+        if len(self.desktop_current) > 0:
+            txt.append('<div style="font-size: 26px; font-weight: bold;">\nCurrent holdings\n</div>\n'
+                       '<hr style="height: 1px; background-color: black;">\n<br>')
+            txt.append('<div style="font-size: 20px; font-weight: bold;">\nEquities:\n</div>\n<hr>\n'
+                       '<div style="padding-left: 30px;">\n'
+                       '<img src="https://media.githubusercontent.com/media/jan-grzybek/investing/refs/heads/main/equity_allocation.svg"/>\n'
+                       '<hr>\n<br>')
+            txt.append('\n<br>\n<hr>\n<br>\n'.join(self.desktop_current))
+            txt.append('</div>\n<br>\n<br>\n<br>')
+        txt.append('<div style="font-size: 26px; font-weight: bold;">\nHistorical holdings\n'
                    '</div>\n<hr style="height: 1px; background-color: black;">\n<br>')
         txt.append('<div style="font-size: 20px; font-weight: bold;">\nEquities:\n</div>\n<hr>\n'
                    '<div style="padding-left: 30px;">')
@@ -357,19 +360,22 @@ class Webpage:
 
         txt.append('</div>\n<div class="mobile-version">')
         txt.append('<br>\n<div style="font-size: 26px; font-weight: bold;">\nAll-time performance\n</div>\n'
-                   '<hr style="height: 1px; background-color: black;">\n<div style="padding-left: 5px;">')
+                   '<hr style="height: 1px; background-color: black;">\n<div style="padding-left: 10px;">')
         txt.append(self.mobile_return)
-        txt.append('</div>\n<br>\n<div style="font-size: 26px; font-weight: bold;">\nCurrent holdings\n</div>\n'
+        txt.append('</div>\n<br>')
+        if len(self.mobile_current) > 0:
+            txt.append('<div style="font-size: 26px; font-weight: bold;">\nCurrent holdings\n</div>\n'
+                       '<hr style="height: 1px; background-color: black;">')
+            txt.append('<div style="font-size: 20px; font-weight: bold;">\nEquities:\n</div>\n<hr>\n'
+                       '<div style="padding-left: 10px;">\n'
+                       '<img src="https://media.githubusercontent.com/media/jan-grzybek/investing/refs/heads/main/equity_allocation.svg" width="250"/>\n'
+                       '<hr>')
+            txt.append('\n<hr>\n'.join(self.mobile_current))
+            txt.append('</div>\n<br>\n<br>')
+        txt.append('<div style="font-size: 26px; font-weight: bold;">\nHistorical holdings\n</div>\n'
                    '<hr style="height: 1px; background-color: black;">')
         txt.append('<div style="font-size: 20px; font-weight: bold;">\nEquities:\n</div>\n<hr>\n'
-                   '<div style="padding-left: 5px;">\n'
-                   '<img src="https://media.githubusercontent.com/media/jan-grzybek/investing/refs/heads/main/equity_allocation.svg" width="250"/>\n'
-                   '<hr>')
-        txt.append('\n<hr>\n'.join(self.mobile_current))
-        txt.append('</div>\n<br>\n<br>\n<div style="font-size: 26px; font-weight: bold;">\nHistorical holdings\n</div>\n'
-                   '<hr style="height: 1px; background-color: black;">')
-        txt.append('<div style="font-size: 20px; font-weight: bold;">\nEquities:\n</div>\n<hr>\n'
-                   '<div style="padding-left: 5px;">')
+                   '<div style="padding-left: 10px;">')
         txt.append('\n<hr>\n'.join(self.mobile_historical))
         txt.append('</div>\n<br>\n<br>\n<div style="font-size: 14px;">\n'
                    'All TSR figures were calculated using the modified Dietz method, with dividends assumed to be '
@@ -651,6 +657,9 @@ def get_benchmarks():
 
 
 def generate_horizontal_bar(data, chart_name):
+    if data is None:
+        return
+
     subplots = make_subplots(
         rows=len(data),
         cols=1,
@@ -673,6 +682,7 @@ def generate_horizontal_bar(data, chart_name):
             text=[f"{d[1]}%"],
             hoverinfo="text",
             textposition="auto",
+            textfont_size=10,
             marker=dict(color="#e67d22"),
         ), i + 1, 1)
     for x in subplots["layout"]["annotations"]:
