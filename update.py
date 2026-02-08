@@ -323,7 +323,7 @@ class Webpage:
                    '<link rel="icon" href="favicon.ico" sizes="any">')
         txt.append('<style>\n.desktop-version {display: block;}\n.mobile-version {display: none;}\n'
                    '@media (max-width: 600px) {\n.desktop-version {display: none;}\n'
-                   '.mobile-version {display: block;}\n}\nbody {min-width: 333px; padding-left: 30px; '
+                   '.mobile-version {display: block;}\n}\nbody {box-sizing: border-box; padding-left: 30px; '
                    'padding-right: 30px;}\n.grid-return {\ndisplay: grid;\ngrid-template-columns: '
                    '70px 90px;\ncolumn-gap: 15px; \nrow-gap: 2px;\n}\n.left-col {\ntext-align: left;\n'
                    '}\n.right-col {\ntext-align: right;\n}\n</style>')
