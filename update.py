@@ -324,8 +324,8 @@ class Webpage:
                    '<link rel="icon" href="favicon.ico">')
         txt.append('<style>\n.desktop-version {display: block;}\n.mobile-version {display: none;}\n'
                    '@media (max-width: 600px) {\n.desktop-version {display: none;}\n'
-                   '.mobile-version {display: block;}\n}\nbody {box-sizing: border-box; padding-left: 30px; '
-                   'padding-right: 30px;}\n.grid-return {\ndisplay: grid;\ngrid-template-columns: '
+                   '.mobile-version {display: block;}\n}\nbody {box-sizing: border-box; padding-left: 20px; '
+                   'padding-right: 20px;}\n.grid-return {\ndisplay: grid;\ngrid-template-columns: '
                    '70px 90px;\ncolumn-gap: 15px; \nrow-gap: 2px;\n}\n.left-col {\ntext-align: left;\n'
                    '}\n.right-col {\ntext-align: right;\n}\n</style>\n</head>\n<body>')
 
@@ -338,18 +338,18 @@ class Webpage:
             txt.append('<div style="font-size: 26px; font-weight: bold;">\nCurrent holdings\n</div>\n'
                        '<hr style="height: 1px; background-color: black;">')
             # equities, fixed income, cash & cash equivalents, other / alternatives
-            txt.append('<div style="padding-left: 30px;">\n'
+            txt.append('<div style="padding-left: 20px;">\n'
                        '<img src="https://media.githubusercontent.com/media/jan-grzybek/investing/refs/heads/main/allocation.svg"/>\n'
                        '<br>')
             txt.append('<div style="font-size: 20px; font-weight: bold;">\nEquities:\n</div>\n<hr>\n'
-                       '<div style="padding-left: 30px;">\n'
+                       '<div style="padding-left: 20px;">\n'
                        '<img src="https://media.githubusercontent.com/media/jan-grzybek/investing/refs/heads/main/equity_allocation.svg"/>\n'
                        '<div style="font-size: 14px;">\nTop equities by weight in the total portfolio.\n</div>\n<hr>\n<br>')
             txt.append('\n<br>\n<hr>\n<br>\n'.join(self.desktop_current))
             txt.append('</div>\n</div>\n<br>\n<br>\n<br>')
         txt.append('<div style="font-size: 26px; font-weight: bold;">\nHistorical holdings\n</div>\n'
-                   '<hr style="height: 1px; background-color: black;">\n<br>\n<div style="padding-left: 30px;">')
-        txt.append('<div style="font-size: 20px; font-weight: bold;">\nEquities:\n</div>\n<hr>\n<div style="padding-left: 30px;">')
+                   '<hr style="height: 1px; background-color: black;">\n<br>\n<div style="padding-left: 20px;">')
+        txt.append('<div style="font-size: 20px; font-weight: bold;">\nEquities:\n</div>\n<hr>\n<div style="padding-left: 20px;">')
         txt.append('\n<br>\n<hr>\n<br>\n'.join(self.desktop_historical))
         txt.append('</div>\n</div>\n<br>\n<br>\n<br>\n<div style="font-size: 14px;">\n'
                    'All TSR figures were calculated using the modified Dietz method, with dividends assumed to be '
