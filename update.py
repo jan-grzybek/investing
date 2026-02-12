@@ -342,9 +342,9 @@ class Webpage:
                        '<img src="https://media.githubusercontent.com/media/jan-grzybek/investing/refs/heads/main/allocation.svg"/>\n'
                        '<br>')
             txt.append('<div style="font-size: 20px; font-weight: bold;">\nEquities:\n</div>\n<hr>\n'
-                       '<div style="padding-left: 20px;">\n'
+                       '<div style="padding-left: 20px;">\nTop equities by weight in the total portfolio.\n'
                        '<img src="https://media.githubusercontent.com/media/jan-grzybek/investing/refs/heads/main/equity_allocation.svg"/>\n'
-                       '<div style="font-size: 14px;">\nTop equities by weight in the total portfolio.\n</div>\n<hr>\n<br>')
+                       '<div style="font-size: 14px;">\n</div>\n<hr>\n<br>')
             txt.append('\n<br>\n<hr>\n<br>\n'.join(self.desktop_current))
             txt.append('</div>\n</div>\n<br>\n<br>\n<br>')
         txt.append('<div style="font-size: 26px; font-weight: bold;">\nHistorical holdings\n</div>\n'
@@ -375,9 +375,9 @@ class Webpage:
                        '<img src="https://media.githubusercontent.com/media/jan-grzybek/investing/refs/heads/main/allocation.svg" width="250"/>\n'
                        '<br>')
             txt.append('<div style="font-size: 20px; font-weight: bold;">\nEquities:\n</div>\n<hr>\n'
-                       '<div style="padding-left: 10px;">\n'
+                       '<div style="padding-left: 10px;">\nTop equities by weight in the total portfolio.\n'
                        '<img src="https://media.githubusercontent.com/media/jan-grzybek/investing/refs/heads/main/equity_allocation.svg" width="250"/>\n'
-                       '<div style="font-size: 14px;">\nTop equities by weight in the total portfolio.\n</div>\n<hr>')
+                       '<div style="font-size: 14px;">\n</div>\n<hr>')
             txt.append('\n<hr>\n'.join(self.mobile_current))
             txt.append('</div>\n</div>\n<br>\n<br>')
         txt.append('<div style="font-size: 26px; font-weight: bold;">\nHistorical holdings\n</div>\n'
