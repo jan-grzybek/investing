@@ -318,10 +318,16 @@ class Webpage:
         txt.append('<!DOCTYPE html>\n<html>\n<head>\n<meta charset="UTF-8">\n'
                    '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n'
                    '<meta name="description" content="Overview of my investment portfolio, including historical '
-                   'holdings with TSR, CAGR, and ownership periods.">\n<title>Jan Grzybek Investing</title>\n'
+                   'holdings with TSR, CAGR, and ownership periods.">\n<title>JG Investing</title>\n'
                    '<link rel="icon" type="image/png" href="favicon.png">\n'
                    '<link rel="apple-touch-icon" href="apple-touch-icon.png">\n'
-                   '<link rel="icon" href="favicon.ico">')
+                   '<link rel="icon" href="favicon.ico">\n'
+                   '<meta property="og:title" content="JG Investing">\n'
+                   '<meta property="og:description" content="Overview of my investment portfolio, including historical '
+                   'holdings with TSR, CAGR, and ownership periods.">\n'
+                   '<meta property="og:image" content="https://raw.githubusercontent.com/jan-grzybek/investing/refs/heads/main/apple-touch-icon.png">\n'
+                   '<meta property="og:url" content="https://jan-grzybek.github.io/investing/">\n'
+                   '<meta property="og:type" content="website">')
         txt.append('<style>\n.desktop-version {display: block;}\n.mobile-version {display: none;}\n'
                    '@media (max-width: 600px) {\n.desktop-version {display: none;}\n'
                    '.mobile-version {display: block;}\n}\nbody {box-sizing: border-box; padding-left: 20px; '
@@ -343,7 +349,7 @@ class Webpage:
                        '<br>')
             txt.append('<div style="font-size: 20px; font-weight: bold;">\nEquities:\n</div>\n<hr>\n'
                        '<div style="padding-left: 20px;">\n'
-                       '<div style="font-size: 14px;">\nTop equities by weight in the total portfolio.\n</div>\n'
+                       '<div style="font-size: 14px;">\nTop equities by weight in the total portfolio:\n</div>\n<br>\n'
                        '<img src="https://media.githubusercontent.com/media/jan-grzybek/investing/refs/heads/main/equity_allocation.svg"/>\n'
                        '<hr>\n<br>')
             txt.append('\n<br>\n<hr>\n<br>\n'.join(self.desktop_current))
@@ -377,7 +383,7 @@ class Webpage:
                        '<br>')
             txt.append('<div style="font-size: 20px; font-weight: bold;">\nEquities:\n</div>\n<hr>\n'
                        '<div style="padding-left: 10px;">\n'
-                       '<div style="font-size: 14px;">\nTop equities by weight in the total portfolio.\n</div>\n'
+                       '<div style="font-size: 14px;">\nTop equities by weight in the total portfolio:\n</div>\n<br>\n'
                        '<img src="https://media.githubusercontent.com/media/jan-grzybek/investing/refs/heads/main/equity_allocation.svg" width="250"/>\n'
                        '<hr>')
             txt.append('\n<hr>\n'.join(self.mobile_current))
