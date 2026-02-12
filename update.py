@@ -315,18 +315,19 @@ class Webpage:
     def save(self):
         update_date = datetime.now().strftime("%b %-d, %Y")
         txt = []
-        txt.append('<meta charset="UTF-8">\n<meta name="viewport" content="width=device-width, initial-scale=1.0">\n'
-                   '<meta name="description" content="Overview of investment portfolio, including historical holdings '
-                   'with TSR, CAGR, and ownership periods.">')
-        txt.append('<title>JG Investing</title>\n<link rel="icon" type="image/png" href="apple-touch-icon.png">\n'
-                   '<link rel="apple-touch-icon" href="apple-touch-icon.png" sizes="180x180">\n'
-                   '<link rel="icon" href="favicon.ico" sizes="any">')
+        txt.append('<!DOCTYPE html>\n<html>\n<head>\n<meta charset="UTF-8">\n'
+                   '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n'
+                   '<meta name="description" content="Overview of my investment portfolio, including historical '
+                   'holdings with TSR, CAGR, and ownership periods.">\n<title>Jan Grzybek Investing</title>\n'
+                   '<link rel="icon" type="image/png" href="favicon.png">\n'
+                   '<link rel="apple-touch-icon" href="apple-touch-icon.png">\n'
+                   '<link rel="icon" href="favicon.ico">')
         txt.append('<style>\n.desktop-version {display: block;}\n.mobile-version {display: none;}\n'
                    '@media (max-width: 600px) {\n.desktop-version {display: none;}\n'
                    '.mobile-version {display: block;}\n}\nbody {box-sizing: border-box; padding-left: 30px; '
                    'padding-right: 30px;}\n.grid-return {\ndisplay: grid;\ngrid-template-columns: '
                    '70px 90px;\ncolumn-gap: 15px; \nrow-gap: 2px;\n}\n.left-col {\ntext-align: left;\n'
-                   '}\n.right-col {\ntext-align: right;\n}\n</style>')
+                   '}\n.right-col {\ntext-align: right;\n}\n</style>\n</head>\n<body>')
 
         txt.append('<div class="desktop-version">')
         txt.append('<br>\n<div style="font-size: 26px; font-weight: bold;">\nAll-time performance\n</div>\n'
@@ -395,7 +396,7 @@ class Webpage:
                    '<a href="https://finance.yahoo.com/markets/stocks/trending/" title="Yahoo Finance">'
                    'Yahoo Finance</a>.\n<br>\n<br>\n'
                    f'Updated on {update_date}\n</div>\n<br>')
-        txt.append('</div>\n')
+        txt.append('</div>\n</body>\n</html>\n')
         with open("index.html", "w") as f:
             f.write("\n".join(txt))
 
@@ -411,8 +412,8 @@ class Webpage:
     def add_return_desktop(self, total_return, benchmarks):
         lines = []
         lines.append('<div style="display: flex; align-items: center;">')
-        lines.append(f'<img src="https://raw.githubusercontent.com/jan-grzybek/investing/refs/heads/main/logo.svg" width="100"/>')
-        lines.append('<div style="padding-left: 36px;">')
+        lines.append(f'<img src="https://raw.githubusercontent.com/jan-grzybek/investing/refs/heads/main/logos/courage.png" width="90"/>')
+        lines.append('<div style="padding-left: 46px;">')
         lines.append('<div style="font-size: 20px; font-weight: bold; margin-bottom: 8px;">')
         lines.append('JG - Jan Grzybek')
         lines.append('</div>')
@@ -496,8 +497,8 @@ class Webpage:
     def add_return_mobile(self, total_return, benchmarks):
         lines = []
         lines.append('<div style="display: flex; align-items: center;">')
-        lines.append(f'<img src="https://raw.githubusercontent.com/jan-grzybek/investing/refs/heads/main/logo.svg" width="70"/>')
-        lines.append('<div style="padding-left: 24px;">')
+        lines.append(f'<img src="https://raw.githubusercontent.com/jan-grzybek/investing/refs/heads/main/logos/courage.png" width="60"/>')
+        lines.append('<div style="padding-left: 34px;">')
         lines.append('<div style="font-size: 20px; font-weight: bold; margin-bottom: 8px;">')
         lines.append('JG - Jan Grzybek')
         lines.append('</div>')
