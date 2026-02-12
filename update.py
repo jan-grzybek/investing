@@ -340,19 +340,18 @@ class Webpage:
             # equities, fixed income, cash & cash equivalents, other / alternatives
             txt.append('<div style="padding-left: 30px;">\n'
                        '<img src="https://media.githubusercontent.com/media/jan-grzybek/investing/refs/heads/main/allocation.svg"/>\n'
-                       '</div>\n<br>')
+                       '<br>')
             txt.append('<div style="font-size: 20px; font-weight: bold;">\nEquities:\n</div>\n<hr>\n'
                        '<div style="padding-left: 30px;">\n'
                        '<img src="https://media.githubusercontent.com/media/jan-grzybek/investing/refs/heads/main/equity_allocation.svg"/>\n'
                        '<div style="font-size: 14px;">\nTop equities by weight in the total portfolio.\n</div>\n<hr>\n<br>')
             txt.append('\n<br>\n<hr>\n<br>\n'.join(self.desktop_current))
-            txt.append('</div>\n<br>\n<br>\n<br>')
-        txt.append('<div style="font-size: 26px; font-weight: bold;">\nHistorical holdings\n'
-                   '</div>\n<hr style="height: 1px; background-color: black;">\n<br>')
-        txt.append('<div style="font-size: 20px; font-weight: bold;">\nEquities:\n</div>\n<hr>\n'
-                   '<div style="padding-left: 30px;">')
+            txt.append('</div>\n</div>\n<br>\n<br>\n<br>')
+        txt.append('<div style="font-size: 26px; font-weight: bold;">\nHistorical holdings\n</div>\n'
+                   '<hr style="height: 1px; background-color: black;">\n<br>\n<div style="padding-left: 30px;">')
+        txt.append('<div style="font-size: 20px; font-weight: bold;">\nEquities:\n</div>\n<hr>\n<div style="padding-left: 30px;">')
         txt.append('\n<br>\n<hr>\n<br>\n'.join(self.desktop_historical))
-        txt.append('</div>\n<br>\n<br>\n<br>\n<div style="font-size: 14px;">\n'
+        txt.append('</div>\n</div>\n<br>\n<br>\n<br>\n<div style="font-size: 14px;">\n'
                    'All TSR figures were calculated using the modified Dietz method, with dividends assumed to be '
                    'subject to a 15% withholding tax and cashed out.\n<br>\n'
                    'For informational purposes only. Nothing contained herein should be construed as a recommendation '
@@ -374,19 +373,19 @@ class Webpage:
             # equities, fixed income, cash & cash equivalents, other / alternatives
             txt.append('<div style="padding-left: 10px;">\n'
                        '<img src="https://media.githubusercontent.com/media/jan-grzybek/investing/refs/heads/main/allocation.svg" width="250"/>\n'
-                       '</div>\n<br>')
+                       '<br>')
             txt.append('<div style="font-size: 20px; font-weight: bold;">\nEquities:\n</div>\n<hr>\n'
                        '<div style="padding-left: 10px;">\n'
                        '<img src="https://media.githubusercontent.com/media/jan-grzybek/investing/refs/heads/main/equity_allocation.svg" width="250"/>\n'
                        '<div style="font-size: 14px;">\nTop equities by weight in the total portfolio.\n</div>\n<hr>')
             txt.append('\n<hr>\n'.join(self.mobile_current))
-            txt.append('</div>\n<br>\n<br>')
+            txt.append('</div>\n</div>\n<br>\n<br>')
         txt.append('<div style="font-size: 26px; font-weight: bold;">\nHistorical holdings\n</div>\n'
-                   '<hr style="height: 1px; background-color: black;">')
+                   '<hr style="height: 1px; background-color: black;">\n<div style="padding-left: 10px;">')
         txt.append('<div style="font-size: 20px; font-weight: bold;">\nEquities:\n</div>\n<hr>\n'
                    '<div style="padding-left: 10px;">')
         txt.append('\n<hr>\n'.join(self.mobile_historical))
-        txt.append('</div>\n<br>\n<br>\n<div style="font-size: 14px;">\n'
+        txt.append('</div>\n</div>\n<br>\n<br>\n<div style="font-size: 14px;">\n'
                    'All TSR figures were calculated using the modified Dietz method, with dividends assumed to be '
                    'subject to a 15% withholding tax and cashed out.\n<br>\n<br>\n'
                    'For informational purposes only. Nothing contained herein should be construed as a recommendation '
@@ -433,7 +432,7 @@ class Webpage:
         lines.append('<div style="font-size: 14px;">')
         lines.append('Time-weighted return (TWR) calculated excluding the impact of capital gains taxes, but including '
                      'the effects of withholding taxes and transaction costs.')
-        lines.append('</div>')
+        lines.append('</div>\n<br>\n<div style="font-size: 20px; font-weight: bold;">\nBenchmark:\n</div>')
         for benchmark in benchmarks:
             lines.append('<hr>')
             lines.append('<br>')
@@ -497,8 +496,8 @@ class Webpage:
     def add_return_mobile(self, total_return, benchmarks):
         lines = []
         lines.append('<div style="display: flex; align-items: center;">')
-        lines.append(f'<img src="https://raw.githubusercontent.com/jan-grzybek/investing/refs/heads/main/logos/courage.png" width="60"/>')
-        lines.append('<div style="padding-left: 34px;">')
+        lines.append(f'<img src="https://raw.githubusercontent.com/jan-grzybek/investing/refs/heads/main/logos/courage.png" width="70"/>')
+        lines.append('<div style="padding-left: 24px;">')
         lines.append('<div style="font-size: 20px; font-weight: bold; margin-bottom: 8px;">')
         lines.append('JG - Jan Grzybek')
         lines.append('</div>')
@@ -518,8 +517,7 @@ class Webpage:
         lines.append('<div style="font-size: 14px;">')
         lines.append('Time-weighted return (TWR) calculated excluding the impact of capital gains taxes, but including '
                      'the effects of withholding taxes and transaction costs.')
-        lines.append('</div>')
-
+        lines.append('</div>\n<br>\n<div style="font-size: 20px; font-weight: bold;">\nBenchmark:\n</div>')
         for benchmark in benchmarks:
             lines.append('<hr>')
             lines.append('<div style="display: flex; align-items: center;">')
@@ -636,7 +634,7 @@ def summarize(holdings, cash):
         holdings["allocation%"] = {}
         holdings["allocation%"]["Equities"] = round(100 * total_equity_value_usd / total_value_usd, 1)
         holdings["allocation%"]["Cash & Cash Equivalents"] = round(100 * total_cash_value_usd / total_value_usd, 1)
-        print(f"Equity allocation: {holdings['allocation%']['Equities']}%\n")
+        print(f"Equity allocation: {holdings['allocation%']['Equities']}%")
         print(f"Cash allocation: {holdings['allocation%']['Cash & Cash Equivalents']}%\n")
     else:
         holdings["allocation%"] = None
