@@ -781,15 +781,14 @@ def generate_return_plot(total_return, benchmarks):
         go.Scatter(x=time_dense, y=interpolate(np.array(return_jg)), mode="lines", name="JG", line=dict(width=4)))
     for k, v in return_benchmarks.items():
         try:
-            k = {"LSE:VUAA.L": "S&P 500"}[k]
+            k = {"LSE:VUAA.L": "S&P 500 "}[k]
         except KeyError:
             pass
         fig.add_trace(go.Scatter(x=time_dense, y=interpolate(np.array(v)), mode="lines", name=k, line=dict(width=4)))
     fig["layout"]["width"] = 800
     fig["layout"]["height"] = 500
-    # showline=False, zeroline=False,
-    fig["layout"]["xaxis"] = dict(showticklabels=False, showgrid=False, title="Time")
-    fig["layout"]["yaxis"] = dict(showticklabels=False, showgrid=False, title="Return")
+    fig["layout"]["xaxis"] = dict(showticklabels=False, showgrid=False, showline=False, zeroline=False, title="Time")
+    fig["layout"]["yaxis"] = dict(showticklabels=False, showgrid=False, showline=False, zeroline=False, title="Return")
     fig["layout"]["font"] = dict(size=24)
     fig["layout"]["legend"]["font"] = dict(size=30)
     fig.add_hline(y=1.0, line_width=2, opacity=0.7, line_dash="dash")
