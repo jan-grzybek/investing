@@ -693,17 +693,17 @@ def get_benchmarks(total_return_history):
             if date.date() < ref_date.date():
                 continue
             elif date.date() == ref_date.date():
-                summary["history"].append((ref_date, history["Open"].iloc[idx] / start_price))
+                summary["history"].append((ref_date, float(history["Open"].iloc[idx] / start_price)))
                 ref_idx += 1
             else:
-                summary["history"].append((ref_date, history["Close"].iloc[idx-1] / start_price))
+                summary["history"].append((ref_date, float(history["Close"].iloc[idx-1] / start_price)))
                 ref_idx += 1
                 ref_date = total_return_history[ref_idx][0]
                 if date.date() == ref_date.date():
-                    summary["history"].append((ref_date, history["Open"].iloc[idx] / start_price))
+                    summary["history"].append((ref_date, float(history["Open"].iloc[idx] / start_price)))
                     ref_idx += 1
         if len(summary["history"]) < len(total_return_history):
-            summary["history"].append((total_return_history[-1][0], history["Close"].iloc[-1] / start_price))
+            summary["history"].append((total_return_history[-1][0], float(history["Close"].iloc[-1] / start_price)))
         assert len(summary["history"]) == len(total_return_history)
 
         benchmarks.append(summary)
