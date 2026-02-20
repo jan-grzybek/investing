@@ -1,3 +1,3 @@
-!["Smooth sailing."](https://raw.githubusercontent.com/jan-grzybek/investing/refs/heads/main/apple-touch-icon.png)
+!["Smooth sailing."](https://media.githubusercontent.com/media/jan-grzybek/investing/refs/heads/main/return.svg)
 
-[---------> JG Investing](https://jan-grzybek.github.io/investing/)
+[--> JG Investing](https://jan-grzybek.github.io/investing/)
