@@ -606,17 +606,21 @@ def generate_webpage(total_return, benchmarks, holdings):
 
 def calc_twr(valuations, current_value):
     if len(valuations) == 0:
-        return {"start_date": datetime.today(), "twr%": 0., "cagr%": 0.}
+        return {"start_date": datetime.today(), "history": [], "twr%": 0., "cagr%": 0.}
     valuations = sorted(valuations, key=lambda item: item["date"])
     total_return = {
-        "start_date": valuations[0]["date"]
+        "start_date": valuations[0]["date"],
+        "history": []
     }
     start_value = valuations[0]["value"] + valuations[0]["flow"]
     twr = 1.
+    total_return["history"].append((valuations[0]["date"], twr))
     for valuation in valuations[1:]:
         twr *= (valuation["value"] / start_value)
         start_value = valuation["value"] + valuation["flow"]
+        total_return["history"].append((valuation["date"], twr))
     twr *= (current_value / start_value)
+    total_return["history"].append((datetime.today(), twr))
     cagr = twr ** (365.25 / max((datetime.today() - total_return["start_date"]).days, 1)) - 1.
     twr -= 1.
     total_return["twr%"] = round(twr * 100, 1)
@@ -664,12 +668,45 @@ def summarize(holdings, cash):
     return total_value_usd
 
 
-def get_benchmarks():
+def get_benchmarks(total_return_history):
+    start_date = total_return_history[0][0]
+    start_date_str = start_date.strftime("%Y-%m-%d")
     benchmarks = []
-    for ticker, price in [("VUAA.L", 132.18)]:
+    for ticker in ["VUAA.L"]:
         holding = Holding(ticker)
-        holding.buy(Trade(datetime(2026, 1, 1), ticker, 1, price, "BUY"))
-        benchmarks.append(holding.summary())
+        holding.buy(Trade(
+            start_date,
+            ticker,
+            1,
+            holding._ticker.history(start=start_date_str, interval="1d", auto_adjust=False)["Open"][0],
+            "BUY")
+        )
+        summary = holding.summary()
+
+        history = holding._ticker.history(start=start_date_str, interval="1d", auto_adjust=True)
+        start_price = history["Open"][0]
+        summary["history"] = [(start_date, 1.)]
+        ref_idx = 1
+        for idx, row in enumerate(history.itertuples()):
+            ref_date = total_return_history[ref_idx][0]
+            date = row.Index.to_pydatetime()
+            if date.date() < ref_date.date():
+                continue
+            elif date.date() == ref_date.date():
+                summary["history"].append((ref_date, history["Open"][idx] / start_price))
+                ref_idx += 1
+            else:
+                summary["history"].append((ref_date, history["Close"][idx-1] / start_price))
+                ref_idx += 1
+                ref_date = total_return_history[ref_idx][0]
+                if date.date() == ref_date.date():
+                    summary["history"].append((ref_date, history["Open"][idx] / start_price))
+                    ref_idx += 1
+        if len(summary["history"]) < len(total_return_history):
+            summary["history"].append((total_return_history[-1][0], history["Close"][-1] / start_price))
+        assert len(summary["history"]) == len(total_return_history)
+
+        benchmarks.append(summary)
         print(f"{benchmarks[-1]['ticker']} - {benchmarks[-1]['name']} - "
               f"TSR: {benchmarks[-1]['tsr%']}% - CAGR: {benchmarks[-1]['cagr%']}%")
     return benchmarks
@@ -718,7 +755,12 @@ def generate_horizontal_bar(data, chart_name, color):
     subplots.write_image(f"{chart_name}.svg")
 
 
-def generate_charts(holdings):
+def generate_plot(total_return, benchmarks):
+    print(total_return["history"])
+    print(benchmarks[0]["history"])
+
+def generate_charts(holdings, total_return, benchmarks):
+    generate_plot(total_return, benchmarks)
     generate_horizontal_bar(holdings["top_10"], "equity_allocation", "#e67d22")
     generate_horizontal_bar(holdings["allocation%"], "allocation", "#1f4e79")
 
@@ -727,8 +769,8 @@ def main():
     transactions, valuations, cash = pull_data()
     holdings = get_holdings(transactions)
     total_return = calc_twr(valuations, summarize(holdings, cash))
-    benchmarks = get_benchmarks()
-    generate_charts(holdings)
+    benchmarks = get_benchmarks(total_return["history"])
+    generate_charts(holdings, total_return, benchmarks)
     generate_webpage(total_return, benchmarks, holdings)
 
 
