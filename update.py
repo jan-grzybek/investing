@@ -671,22 +671,20 @@ def summarize(holdings, cash):
 def get_benchmarks(total_return_history):
     start_date = total_return_history[0][0]
     start_date_str = start_date.strftime("%Y-%m-%d")
-    print(start_date_str)
     benchmarks = []
     for ticker in ["VUAA.L"]:
         holding = Holding(ticker)
-        print(holding._ticker.history(start=start_date_str, interval="1d", auto_adjust=False))
         holding.buy(Trade(
             start_date,
             ticker,
             1,
-            holding._ticker.history(start=start_date_str, interval="1d", auto_adjust=False)["Open"][0],
+            holding._ticker.history(start=start_date_str, interval="1d", auto_adjust=False)["Open"].iloc[0],
             "BUY")
         )
         summary = holding.summary()
 
         history = holding._ticker.history(start=start_date_str, interval="1d", auto_adjust=True)
-        start_price = history["Open"][0]
+        start_price = history["Open"].iloc[0]
         summary["history"] = [(start_date, 1.)]
         ref_idx = 1
         for idx, row in enumerate(history.itertuples()):
@@ -695,17 +693,17 @@ def get_benchmarks(total_return_history):
             if date.date() < ref_date.date():
                 continue
             elif date.date() == ref_date.date():
-                summary["history"].append((ref_date, history["Open"][idx] / start_price))
+                summary["history"].append((ref_date, history["Open"].iloc[idx] / start_price))
                 ref_idx += 1
             else:
-                summary["history"].append((ref_date, history["Close"][idx-1] / start_price))
+                summary["history"].append((ref_date, history["Close"].iloc[idx-1] / start_price))
                 ref_idx += 1
                 ref_date = total_return_history[ref_idx][0]
                 if date.date() == ref_date.date():
-                    summary["history"].append((ref_date, history["Open"][idx] / start_price))
+                    summary["history"].append((ref_date, history["Open"].iloc[idx] / start_price))
                     ref_idx += 1
         if len(summary["history"]) < len(total_return_history):
-            summary["history"].append((total_return_history[-1][0], history["Close"][-1] / start_price))
+            summary["history"].append((total_return_history[-1][0], history["Close"].iloc[-1] / start_price))
         assert len(summary["history"]) == len(total_return_history)
 
         benchmarks.append(summary)
