@@ -793,7 +793,7 @@ def generate_return_plot(total_return, benchmarks):
     fig["layout"]["legend"]["font"] = dict(size=30)
     fig.add_hline(y=1.0, line_width=2, opacity=0.7, line_dash="dash")
     fig["layout"].update(plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)")
-    fig.write_image("return.svg")
+    fig.write_image("return.svg", width=800, height=500, scale=1)
 
 def generate_charts(holdings, total_return, benchmarks):
     generate_return_plot(total_return, benchmarks)
