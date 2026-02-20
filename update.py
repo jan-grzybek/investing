@@ -671,6 +671,7 @@ def summarize(holdings, cash):
 def get_benchmarks(total_return_history):
     start_date = total_return_history[0][0]
     start_date_str = start_date.strftime("%Y-%m-%d")
+    print(start_date_str)
     benchmarks = []
     for ticker in ["VUAA.L"]:
         holding = Holding(ticker)
