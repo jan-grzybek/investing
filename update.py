@@ -766,9 +766,9 @@ def generate_return_plot(total_return, benchmarks):
     time = [0]
     returns = {benchmark["ticker"]: [1.] for benchmark in benchmarks}
     returns["JG"] = [1.]
-    prev_date = total_return["history"][0][0]
+    start_date = total_return["history"][0][0]
     for date, value in total_return["history"][1:]:
-        time.append(int(date - prev_date))
+        time.append(int((date - start_date).days))
         returns["JG"].append(value)
     for benchmark in benchmarks:
         for _, value in benchmark["history"][1:]:
