@@ -785,9 +785,9 @@ def generate_return_plot(total_return, benchmarks):
         except KeyError:
             pass
         fig.add_trace(go.Scatter(x=time_dense, y=interpolate(np.array(v)), mode="lines", name=k, line=dict(width=4)))
-    fig["layout"]["width"] = 800
+    fig["layout"]["width"] = 1000
     fig["layout"]["height"] = 500
-    fig["layout"]["margin"] = {"l": 0, "r": 30, "t": 0, "b": 0}
+    fig["layout"]["margin"] = {"l": 30, "r": 30, "t": 0, "b": 0}
     fig["layout"]["xaxis"] = dict(showticklabels=False, showgrid=False, showline=False, zeroline=False, title="Time")
     fig["layout"]["yaxis"] = dict(showticklabels=False, showgrid=False, showline=False, zeroline=False, title="Return")
     fig["layout"]["font"] = dict(size=24)
