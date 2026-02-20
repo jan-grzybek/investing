@@ -469,8 +469,8 @@ class Webpage:
             lines.append('</div>')
             lines.append('<br>')
         lines.append('<br>')
-        lines.append('<img src="https://media.githubusercontent.com/media/jan-grzybek/investing/refs/heads/main/return.svg" width="320"/>')
-        lines.append('<br>')
+        lines.append('<img src="https://media.githubusercontent.com/media/jan-grzybek/investing/refs/heads/main/return.svg" width="380"/>')
+        lines.append('<br>\n<br>')
         self.desktop_return = "\n".join(lines)
 
     def add_holding_desktop(self, holding):
@@ -553,10 +553,9 @@ class Webpage:
             lines.append('</div>')
             lines.append('</div>')
             lines.append('</div>')
-
-        lines.append('<br>')
-        lines.append('<img src="https://media.githubusercontent.com/media/jan-grzybek/investing/refs/heads/main/return.svg" width="300"/>')
-        lines.append('<br>')
+        lines.append('<br>\n<br>')
+        lines.append('<img src="https://media.githubusercontent.com/media/jan-grzybek/investing/refs/heads/main/return.svg" width="320"/>')
+        lines.append('<br>\n<br>')
         self.mobile_return = "\n".join(lines)
 
     def add_holding_mobile(self, holding):
