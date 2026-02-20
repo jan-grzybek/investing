@@ -1,9 +1,13 @@
 import os
 import gspread
 import requests
+import numpy as np
 import yfinance as yf
+import plotly.graph_objects as go
+
 from datetime import datetime
 from plotly.subplots import make_subplots
+from scipy.interpolate import PchipInterpolator
 
 
 LOGOS_ADDRESS = "https://raw.githubusercontent.com/jan-grzybek/investing/refs/heads/main/logos/"
@@ -755,12 +759,38 @@ def generate_horizontal_bar(data, chart_name, color):
     subplots.write_image(f"{chart_name}.svg")
 
 
-def generate_plot(total_return, benchmarks):
-    print(total_return["history"])
-    print(benchmarks[0]["history"])
+def generate_return_plot(total_return, benchmarks):
+    def interpolate(values):
+        return np.exp(PchipInterpolator(time, np.log(values))(time_dense))
+
+    time = [0]
+    returns = {benchmark["ticker"]: [1.] for benchmark in benchmarks}
+    returns["JG"] = [1.]
+    prev_date = total_return["history"][0][0]
+    for date, value in total_return["history"][1:]:
+        time.append(int(date - prev_date))
+        returns["JG"].append(value)
+    for benchmark in benchmarks:
+        for _, value in benchmark["history"][1:]:
+            returns[benchmark["ticker"]].append(value)
+    time = np.array(time)
+    time_dense = np.linspace(time.min(), time.max(), 800)
+
+    fig = go.Figure()
+    for k, v in returns.items():
+        fig.add_trace(go.Scatter(x=time_dense, y=interpolate(np.array(v)), mode="lines", name=k, line=dict(width=4)))
+    fig["layout"]["width"] = 800
+    fig["layout"]["height"] = 500
+    fig["layout"]["xaxis"] = dict(showticklabels=False, showgrid=False, title="Time")
+    fig["layout"]["yaxis"] = dict(showticklabels=False, showgrid=False, title="Return")
+    fig["layout"]["font"] = dict(size=24)
+    fig["layout"]["legend"]["font"] = dict(size=30)
+    fig.add_hline(y=1.0, line_width=2, opacity=0.7, line_dash="dash")
+    fig["layout"].update(plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)")
+    fig.write_image("return.svg")
 
 def generate_charts(holdings, total_return, benchmarks):
-    generate_plot(total_return, benchmarks)
+    generate_return_plot(total_return, benchmarks)
     generate_horizontal_bar(holdings["top_10"], "equity_allocation", "#e67d22")
     generate_horizontal_bar(holdings["allocation%"], "allocation", "#1f4e79")
 

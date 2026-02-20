@@ -2,3 +2,5 @@ gspread
 yfinance
 plotly
 kaleido
+scipy
+numpy
