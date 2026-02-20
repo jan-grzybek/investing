@@ -789,7 +789,8 @@ def generate_return_plot(total_return, benchmarks):
             x=time_dense, y=interpolate(np.array(v)),
             marker=dict(color="#1f4e79"), mode="lines", name=k, line=dict(width=6)))
     fig["layout"]["width"] = 800
-    fig["layout"]["height"] = 500
+    fig["layout"]["height"] = 400
+    fig["layout"]["margin"] = {"l": 0, "r": 0, "t": 0, "b": 0}
     fig["layout"]["xaxis"] = dict(showticklabels=False, showgrid=False, showline=False, zeroline=False, title="Time")
     fig["layout"]["yaxis"] = dict(showticklabels=False, showgrid=False, showline=False, zeroline=False, title="Return")
     fig["layout"]["font"] = dict(size=24)
