@@ -675,6 +675,7 @@ def get_benchmarks(total_return_history):
     benchmarks = []
     for ticker in ["VUAA.L"]:
         holding = Holding(ticker)
+        print(holding._ticker.history(start=start_date_str, interval="1d", auto_adjust=False))
         holding.buy(Trade(
             start_date,
             ticker,
