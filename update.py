@@ -764,25 +764,31 @@ def generate_return_plot(total_return, benchmarks):
         return np.exp(PchipInterpolator(time, np.log(values))(time_dense))
 
     time = [0]
-    returns = {benchmark["ticker"]: [1.] for benchmark in benchmarks}
-    returns["JG"] = [1.]
+    return_benchmarks = {benchmark["ticker"]: [1.] for benchmark in benchmarks}
+    return_jg = [1.]
     start_date = total_return["history"][0][0]
     for date, value in total_return["history"][1:]:
         time.append(int((date - start_date).days))
-        returns["JG"].append(value)
+        return_jg.append(value)
     for benchmark in benchmarks:
         for _, value in benchmark["history"][1:]:
-            returns[benchmark["ticker"]].append(value)
+            return_benchmarks[benchmark["ticker"]].append(value)
     time = np.array(time)
     time_dense = np.linspace(time.min(), time.max(), 800)
 
     fig = go.Figure()
-    for k, v in returns.items():
+    fig.add_trace(
+        go.Scatter(x=time_dense, y=interpolate(np.array(return_jg)), mode="lines", name="JG", line=dict(width=4)))
+    for k, v in return_benchmarks.items():
+        try:
+            k = {"LSE:VUAA.L": "S&P 500"}[k]
+        except KeyError:
+            pass
         fig.add_trace(go.Scatter(x=time_dense, y=interpolate(np.array(v)), mode="lines", name=k, line=dict(width=4)))
     fig["layout"]["width"] = 800
     fig["layout"]["height"] = 500
-    fig["layout"]["xaxis"] = dict(showticklabels=False, showgrid=False, title="Time")
-    fig["layout"]["yaxis"] = dict(showticklabels=False, showgrid=False, title="Return")
+    fig["layout"]["xaxis"] = dict(showticklabels=False, showgrid=False, showline=False, title="Time")
+    fig["layout"]["yaxis"] = dict(showticklabels=False, showgrid=False, showline=False, title="Return")
     fig["layout"]["font"] = dict(size=24)
     fig["layout"]["legend"]["font"] = dict(size=30)
     fig.add_hline(y=1.0, line_width=2, opacity=0.7, line_dash="dash")
