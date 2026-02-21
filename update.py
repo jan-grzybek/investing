@@ -10,7 +10,7 @@ from plotly.subplots import make_subplots
 from scipy.interpolate import PchipInterpolator
 
 
-LOGOS_ADDRESS = "https://raw.githubusercontent.com/jan-grzybek/investing/refs/heads/main/logos/"
+LOGOS_ADDRESS = "https://jan-grzybek.github.io/investing/logos/"
 WITHHOLDING_TAX_RATE = 0.15
 
 
@@ -329,7 +329,7 @@ class Webpage:
                    '<meta property="og:title" content="JG Investing">\n'
                    '<meta property="og:description" content="Overview of my investment portfolio, including historical '
                    'holdings with TSR, CAGR, and ownership periods.">\n'
-                   '<meta property="og:image" content="https://raw.githubusercontent.com/jan-grzybek/investing/refs/heads/main/apple-touch-icon.png">\n'
+                   '<meta property="og:image" content="https://jan-grzybek.github.io/investing/apple-touch-icon.png">\n'
                    '<meta property="og:url" content="https://jan-grzybek.github.io/investing/">\n'
                    '<meta property="og:type" content="website">')
         txt.append('<style>\n.desktop-version {display: block;}\n.mobile-version {display: none;}\n'
@@ -423,7 +423,7 @@ class Webpage:
     def add_return_desktop(self, total_return, benchmarks):
         lines = []
         lines.append('<div style="display: flex; align-items: center;">')
-        lines.append(f'<img src="https://raw.githubusercontent.com/jan-grzybek/investing/refs/heads/main/logos/courage.png" width="90"/>')
+        lines.append(f'<img src="{LOGOS_ADDRESS}courage.png" width="90"/>')
         lines.append('<div style="padding-left: 46px;">')
         lines.append('<div style="font-size: 20px; font-weight: bold; margin-bottom: 8px;">')
         lines.append('JG - Jan Grzybek')
@@ -510,7 +510,7 @@ class Webpage:
     def add_return_mobile(self, total_return, benchmarks):
         lines = []
         lines.append('<div style="display: flex; align-items: center;">')
-        lines.append(f'<img src="https://raw.githubusercontent.com/jan-grzybek/investing/refs/heads/main/logos/courage.png" width="70"/>')
+        lines.append(f'<img src="{LOGOS_ADDRESS}courage.png" width="70"/>')
         lines.append('<div style="padding-left: 24px;">')
         lines.append('<div style="font-size: 20px; font-weight: bold; margin-bottom: 8px;">')
         lines.append('JG - Jan Grzybek')
