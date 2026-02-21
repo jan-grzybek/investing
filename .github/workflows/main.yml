@@ -19,7 +19,12 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v6
         with:
-          python-version: '3.13' 
+          python-version: '3.13'
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
 
       - name: Install deps
         run: pip install -r requirements.txt
@@ -33,7 +38,9 @@ jobs:
       - name: Generate new webpage
         env:
           GSHEET_ID: ${{ secrets.GSHEET_ID }}
-        run: python update.py 2>/dev/null
+        run: |
+          python update.py 2>/dev/null
+          npx svgo *.svg
 
       - name: Configure git
         run: |
