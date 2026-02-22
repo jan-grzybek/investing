@@ -370,7 +370,8 @@ class Webpage:
                    'Logos are trademarks of their respective owners and are used for identification purposes only. '
                    'The latest stock prices and dividend data used in the calculations were obtained from '
                    '<a href="https://finance.yahoo.com/markets/stocks/trending/" '
-                   'title="Yahoo Finance">Yahoo Finance</a>.\n<br>\n<br>\n'
+                   'title="Yahoo Finance">Yahoo Finance</a>.\n<br>\nThis webpage uses Cloudflare Web Analytics to '
+                   'measure anonymous traffic statistics. No cookies or tracking identifiers are used.\n<br>\n<br>\n'
                    f'Updated on {update_date}\n</div>\n<br>')
 
         txt.append('</div>\n<div class="mobile-version">')
@@ -405,7 +406,8 @@ class Webpage:
                    'Logos are trademarks of their respective owners and are used for identification purposes only. The '
                    'latest stock prices and dividend data used in the calculations were obtained from '
                    '<a href="https://finance.yahoo.com/markets/stocks/trending/" title="Yahoo Finance">'
-                   'Yahoo Finance</a>.\n<br>\n<br>\n'
+                   'Yahoo Finance</a>.\n<br>\n<br>\nThis webpage uses Cloudflare Web Analytics to measure anonymous '
+                   'traffic statistics. No cookies or tracking identifiers are used.\n<br>\n<br>\n'
                    f'Updated on {update_date}\n</div>\n<br>')
         txt.append('</div>')
         txt.append("<!-- Cloudflare Web Analytics --><script defer src='https://static.cloudflareinsights.com/beacon.min.js' "
