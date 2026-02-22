@@ -334,7 +334,7 @@ class Webpage:
                    '<meta property="og:type" content="website">')
         txt.append('<style>\n.desktop-version {display: block;}\n.mobile-version {display: none;}\n'
                    'body {box-sizing: border-box; padding-left: 20%; padding-right: 20%;}\n'
-                   '@media (max-width: 600px) {\n.desktop-version {display: none;}\n'
+                   '@media (max-width: 768px) {\n.desktop-version {display: none;}\n'
                    '.mobile-version {display: block;}\nbody {box-sizing: border-box; padding-left: 20px; '
                    'padding-right: 20px;}\n}\n.grid-return {\ndisplay: grid;\ngrid-template-columns: '
                    '70px 90px;\ncolumn-gap: 15px; \nrow-gap: 2px;\n}\n.left-col {\ntext-align: left;\n'
