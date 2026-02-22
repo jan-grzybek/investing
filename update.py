@@ -333,44 +333,45 @@ class Webpage:
                    '<meta property="og:url" content="https://jan-grzybek.github.io/investing/">\n'
                    '<meta property="og:type" content="website">')
         txt.append('<style>\n.desktop-version {display: block;}\n.mobile-version {display: none;}\n'
+                   'body {box-sizing: border-box; padding-left: 20%; padding-right: 20%;}\n'
                    '@media (max-width: 600px) {\n.desktop-version {display: none;}\n'
-                   '.mobile-version {display: block;}\n}\nbody {box-sizing: border-box; padding-left: 20px; '
-                   'padding-right: 20px;}\n.grid-return {\ndisplay: grid;\ngrid-template-columns: '
+                   '.mobile-version {display: block;}\nbody {box-sizing: border-box; padding-left: 20px; '
+                   'padding-right: 20px;}\n}\n.grid-return {\ndisplay: grid;\ngrid-template-columns: '
                    '70px 90px;\ncolumn-gap: 15px; \nrow-gap: 2px;\n}\n.left-col {\ntext-align: left;\n'
                    '}\n.right-col {\ntext-align: right;\n}\n</style>\n</head>\n<body>')
 
         txt.append('<div class="desktop-version">')
         txt.append('<br>\n<div style="font-size: 26px; font-weight: bold;">\nAll-time performance\n</div>\n'
-                   '<hr style="height: 1px; background-color: black;">\n<br>\n<div style="padding-left: 30px;">')
+                   '<hr style="height: 1px; background-color: black;">\n<br>\n<div style="padding-left: 5%;">')
         txt.append(self.desktop_return)
         txt.append('</div>\n<br>')
         if len(self.desktop_current) > 0:
             txt.append('<div style="font-size: 26px; font-weight: bold;">\nCurrent holdings\n</div>\n'
                        '<hr style="height: 1px; background-color: black;">')
             # equities, fixed income, cash & cash equivalents, other / alternatives
-            txt.append('<div style="padding-left: 20px;">\n'
+            txt.append('<div style="padding-left: 5%;">\n'
                        '<img src="https://jan-grzybek.github.io/investing/assets/allocation.svg"/>\n'
                        '<br>')
             txt.append('<div style="font-size: 20px; font-weight: bold;">\nEquities:\n</div>\n<hr>\n'
-                       '<div style="padding-left: 20px;">\n'
+                       '<div style="padding-left: 5%;">\n'
                        '<div style="font-size: 14px;">\nTop equities by weight in the total portfolio:\n</div>\n'
                        '<img src="https://jan-grzybek.github.io/investing/assets/equity_allocation.svg"/>\n'
                        '<hr>\n<br>')
             txt.append('\n<br>\n<hr>\n<br>\n'.join(self.desktop_current))
             txt.append('</div>\n</div>\n<br>\n<br>\n<br>')
         txt.append('<div style="font-size: 26px; font-weight: bold;">\nHistorical holdings\n</div>\n'
-                   '<hr style="height: 1px; background-color: black;">\n<br>\n<div style="padding-left: 20px;">')
-        txt.append('<div style="font-size: 20px; font-weight: bold;">\nEquities:\n</div>\n<hr>\n<div style="padding-left: 20px;">')
+                   '<hr style="height: 1px; background-color: black;">\n<br>\n<div style="padding-left: 5%;">')
+        txt.append('<div style="font-size: 20px; font-weight: bold;">\nEquities:\n</div>\n<hr>\n<div style="padding-left: 5%;">')
         txt.append('\n<br>\n<hr>\n<br>\n'.join(self.desktop_historical))
         txt.append('</div>\n</div>\n<br>\n<br>\n<br>\n<div style="font-size: 14px;">\n'
                    'All TSR figures were calculated using the modified Dietz method, with dividends assumed to be '
                    'subject to a 15% withholding tax and cashed out. The latest stock prices and dividend data used in '
                    'the calculations were obtained from <a href="https://finance.yahoo.com/markets/stocks/trending/" '
-                   'title="Yahoo Finance">Yahoo Finance</a>.\n<br>\n'
+                   'title="Yahoo Finance">Yahoo Finance</a>.\n<br>\n<br>\n'
                    'For informational purposes only. Nothing contained herein should be construed as a recommendation '
-                   'to buy, sell or hold any security or pursue any investment strategy.\n<br>\nLogos are trademarks '
-                   'of their respective owners and are used for identification purposes only. This webpage uses '
-                   'Cloudflare Web Analytics to measure anonymous traffic statistics. No cookies or tracking '
+                   'to buy, sell or hold any security or pursue any investment strategy.\n<br>\n<br>\nLogos are '
+                   'trademarks of their respective owners and are used for identification purposes only. This webpage '
+                   'uses Cloudflare Web Analytics to measure anonymous traffic statistics. No cookies or tracking '
                    f'identifiers are used.\n<br>\n<br>\nUpdated on {update_date}\n</div>\n<br>')
 
         txt.append('</div>\n<div class="mobile-version">')
