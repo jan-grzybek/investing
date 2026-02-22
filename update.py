@@ -349,12 +349,12 @@ class Webpage:
                        '<hr style="height: 1px; background-color: black;">')
             # equities, fixed income, cash & cash equivalents, other / alternatives
             txt.append('<div style="padding-left: 20px;">\n'
-                       '<img src="https://media.githubusercontent.com/media/jan-grzybek/investing/refs/heads/main/allocation.svg"/>\n'
+                       '<img src="https://jan-grzybek.github.io/investing/assets/allocation.svg"/>\n'
                        '<br>')
             txt.append('<div style="font-size: 20px; font-weight: bold;">\nEquities:\n</div>\n<hr>\n'
                        '<div style="padding-left: 20px;">\n'
                        '<div style="font-size: 14px;">\nTop equities by weight in the total portfolio:\n</div>\n'
-                       '<img src="https://media.githubusercontent.com/media/jan-grzybek/investing/refs/heads/main/equity_allocation.svg"/>\n'
+                       '<img src="https://jan-grzybek.github.io/investing/assets/equity_allocation.svg"/>\n'
                        '<hr>\n<br>')
             txt.append('\n<br>\n<hr>\n<br>\n'.join(self.desktop_current))
             txt.append('</div>\n</div>\n<br>\n<br>\n<br>')
@@ -383,12 +383,12 @@ class Webpage:
                        '<hr style="height: 1px; background-color: black;">')
             # equities, fixed income, cash & cash equivalents, other / alternatives
             txt.append('<div style="padding-left: 10px;">\n'
-                       '<img src="https://media.githubusercontent.com/media/jan-grzybek/investing/refs/heads/main/allocation.svg" width="250"/>\n'
+                       '<img src="https://jan-grzybek.github.io/investing/assets/allocation.svg" width="250"/>\n'
                        '<br>')
             txt.append('<div style="font-size: 20px; font-weight: bold;">\nEquities:\n</div>\n<hr>\n'
                        '<div style="padding-left: 10px;">\n'
                        '<div style="font-size: 14px;">\nTop equities by weight in the total portfolio:\n</div>\n'
-                       '<img src="https://media.githubusercontent.com/media/jan-grzybek/investing/refs/heads/main/equity_allocation.svg" width="250"/>\n'
+                       '<img src="https://jan-grzybek.github.io/investing/assets/equity_allocation.svg" width="250"/>\n'
                        '<hr>')
             txt.append('\n<hr>\n'.join(self.mobile_current))
             txt.append('</div>\n</div>\n<br>\n<br>')
@@ -469,7 +469,7 @@ class Webpage:
             lines.append('</div>')
             lines.append('<br>')
         lines.append('<br>')
-        lines.append('<img src="https://media.githubusercontent.com/media/jan-grzybek/investing/refs/heads/main/return.svg" width="380"/>')
+        lines.append('<img src="https://jan-grzybek.github.io/investing/assets/return.svg" width="380"/>')
         lines.append('<br>\n<br>')
         self.desktop_return = "\n".join(lines)
 
@@ -554,7 +554,7 @@ class Webpage:
             lines.append('</div>')
             lines.append('</div>')
         lines.append('<br>')
-        lines.append('<img src="https://media.githubusercontent.com/media/jan-grzybek/investing/refs/heads/main/return.svg" width="320"/>')
+        lines.append('<img src="https://jan-grzybek.github.io/investing/assets/return.svg" width="320"/>')
         lines.append('<br>')
         self.mobile_return = "\n".join(lines)
 
@@ -759,7 +759,7 @@ def generate_horizontal_bar(data, chart_name, color):
     subplots["layout"]["margin"] = {"l": 0, "r": 0, "t": 30, "b": 10}
     subplots["layout"]["height"] = 50 * len(data) + 15
     subplots["layout"]["width"] = 300
-    subplots.write_image(f"{chart_name}.svg")
+    subplots.write_image(f"assets/{chart_name}.svg")
 
 
 def generate_return_plot(total_return, benchmarks):
@@ -800,7 +800,7 @@ def generate_return_plot(total_return, benchmarks):
     fig["layout"]["legend"]["font"] = dict(size=30)
     fig.add_hline(y=1.0, line_width=4, opacity=0.7, line_dash="dash")
     fig["layout"].update(plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)")
-    fig.write_image("return.svg")
+    fig.write_image("assets/return.svg")
 
 def generate_charts(holdings, total_return, benchmarks):
     generate_return_plot(total_return, benchmarks)

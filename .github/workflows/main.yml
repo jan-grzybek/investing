@@ -1,16 +1,22 @@
-name: Update webpage
+name: Update and deploy webpage
 
 on:
   schedule:
     - cron: "0 9,15,21 * * *"
   workflow_dispatch: {}
 
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+    group: "pages"
+    cancel-in-progress: true
+
 jobs:
   update:
     runs-on: ubuntu-latest
-
-    permissions:
-      contents: write
 
     steps:
       - name: Checkout
@@ -39,8 +45,9 @@ jobs:
         env:
           GSHEET_ID: ${{ secrets.GSHEET_ID }}
         run: |
+          mkdir -p assets
           python update.py 2>/dev/null
-          npx svgo *.svg
+          npx svgo -f assets
 
       - name: Configure git
         run: |
@@ -49,6 +56,21 @@ jobs:
 
       - name: Commit changes
         run: |
-          git add index.html *.svg
+          git add index.html
           git commit -m "Webpage update" || echo "No changes to commit"
           git push
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+
+  deploy:
+    needs: update
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
