@@ -1,3 +1,0 @@
-equity_allocation.svg filter=lfs diff=lfs merge=lfs -text
-allocation.svg filter=lfs diff=lfs merge=lfs -text
-return.svg filter=lfs diff=lfs merge=lfs -text
