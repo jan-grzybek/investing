@@ -334,9 +334,9 @@ class Webpage:
                    '<meta property="og:type" content="website">')
         txt.append('<style>\n.desktop-version {display: block;}\n.mobile-version {display: none;}\n'
                    'body {box-sizing: border-box; padding-left: 20%; padding-right: 20%;}\n'
-                   '@media (max-width: 768px) {\n.desktop-version {display: none;}\n'
-                   '.mobile-version {display: block;}\nbody {box-sizing: border-box; padding-left: 20px; '
-                   'padding-right: 20px;}\n}\n.grid-return {\ndisplay: grid;\ngrid-template-columns: '
+                   '@media (max-width: 768px) {\nbody {box-sizing: border-box; padding-left: 20px; '
+                   'padding-right: 20px;}\n}\n@media (max-width: 500px) {\n.desktop-version {display: none;}\n'
+                   '.mobile-version {display: block;}\n}\n.grid-return {\ndisplay: grid;\ngrid-template-columns: '
                    '70px 90px;\ncolumn-gap: 15px; \nrow-gap: 2px;\n}\n.left-col {\ntext-align: left;\n'
                    '}\n.right-col {\ntext-align: right;\n}\n</style>\n</head>\n<body>')
 
