@@ -407,7 +407,10 @@ class Webpage:
                    '<a href="https://finance.yahoo.com/markets/stocks/trending/" title="Yahoo Finance">'
                    'Yahoo Finance</a>.\n<br>\n<br>\n'
                    f'Updated on {update_date}\n</div>\n<br>')
-        txt.append('</div>\n</body>\n</html>\n')
+        txt.append('</div>')
+        txt.append("<!-- Cloudflare Web Analytics --><script defer src='https://static.cloudflareinsights.com/beacon.min.js' "
+                   "data-cf-beacon='{\"token\": \"8f450af27c86439fb0e9ab0031c76d6e\"}'></script><!-- End Cloudflare Web Analytics -->")
+        txt.append('</body>\n</html>\n')
         with open("index.html", "w") as f:
             f.write("\n".join(txt))
 
