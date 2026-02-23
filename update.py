@@ -1,4 +1,5 @@
 import os
+import math
 import gspread
 import requests
 import numpy as np
@@ -489,7 +490,10 @@ class Webpage:
         lines.append('<div class="left-col">TSR:</div>')
         lines.append(f'<div class="right-col">{holding["tsr%"]}%</div>')
         lines.append('<div class="left-col">CAGR:</div>')
-        lines.append(f'<div class="right-col">{holding["cagr%"]}%</div>')
+        if holding["cagr%"] > math.nextafter(1_000_000, 0):
+            lines.append('<div class="right-col">TBA</div>')
+        else:
+            lines.append(f'<div class="right-col">{holding["cagr%"]}%</div>')
         if holding["is_current"] is True:
             assert holding["current_weight%"] is not None
             lines.append('<div class="left-col">Weight:</div>')
@@ -574,7 +578,10 @@ class Webpage:
         lines.append('<div class="left-col">TSR:</div>')
         lines.append(f'<div class="right-col">{holding["tsr%"]}%</div>')
         lines.append('<div class="left-col">CAGR:</div>')
-        lines.append(f'<div class="right-col">{holding["cagr%"]}%</div>')
+        if holding["cagr%"] > math.nextafter(1_000_000, 0):
+            lines.append('<div class="right-col">TBA</div>')
+        else:
+            lines.append(f'<div class="right-col">{holding["cagr%"]}%</div>')
         if holding["is_current"] is True:
             assert holding["current_weight%"] is not None
             lines.append('<div class="left-col">Weight:</div>')
