@@ -40,10 +40,13 @@ class Trade:
         self.action = action
 
 
+ACTIONS = ["BUY", "SELL"]
+
+
 def combine_and_sort(transactions):
     trades = {}
     for transaction in transactions:
-        assert transaction["action"] in ["BUY", "SELL"], f"Action unknown: {transaction['action']}"
+        assert transaction["action"] in ACTIONS, f"Action unknown: {transaction['action']}"
         if transaction["ticker"] not in trades.keys():
             if transaction["action"] == "BUY":
                 trades[transaction["ticker"]] = {transaction["date"]: {"BUY": [transaction], "SELL": []}}
@@ -63,7 +66,7 @@ def combine_and_sort(transactions):
     _trades = []
     for ticker, transactions in trades.items():
         for date, _transactions in transactions.items():
-            for action in ["BUY", "SELL"]:
+            for action in ACTIONS:
                 __transactions = _transactions[action]
                 if len(__transactions) == 0:
                     continue
@@ -77,7 +80,9 @@ def combine_and_sort(transactions):
                 _trades.append(Trade(
                     datetime.strptime(date, "%d-%m-%Y"), ticker, quantity, value / quantity, action))
 
-    return sorted(_trades, key=lambda item: item.date)
+    assert "BUY" in ACTIONS and "SELL" in ACTIONS
+    # sorts by action name (purchases first) to handle intraday transactions correctly - primarily with tax-loss harvesting in mind
+    return sorted(_trades, key=lambda item: (item.date, item.action))
 
 
 class Holding:
@@ -289,7 +294,7 @@ def get_holdings(transactions):
     for trade in trades:
         if trade.ticker not in holdings.keys():
             holdings[trade.ticker] = Holding(trade.ticker)
-        assert trade.action in ["BUY", "SELL"]
+        assert trade.action in ACTIONS
         if trade.action == "BUY":
             holdings[trade.ticker].buy(trade)
         else:
