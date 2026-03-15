@@ -25,7 +25,10 @@ class ExchangeRate:
         try:
             return self._rates[currency]
         except KeyError:
-            self._rates[currency] = yf.Ticker(f"{currency}USD=X").info["regularMarketPrice"]
+            rate = yf.Ticker(f"{currency}USD=X").info["regularMarketPrice"]
+            if currency == "GBp":
+                rate /= 100
+            self._rates[currency] = rate
             return self._rates[currency]
 
 exchange_rate = ExchangeRate()
