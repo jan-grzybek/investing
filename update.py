@@ -730,7 +730,7 @@ def get_benchmarks(total_return_history):
                     ref_idx += 1
         if len(summary["history"]) < len(total_return_history):
             summary["history"].append((total_return_history[-1][0], float(history["Close"].iloc[-1] / start_price)))
-        assert len(summary["history"]) == len(total_return_history)
+        assert len(summary["history"]) == len(total_return_history), (len(summary["history"]), len(total_return_history))
 
         benchmarks.append(summary)
         print(f"{benchmarks[-1]['ticker']} - {benchmarks[-1]['name']} - "
