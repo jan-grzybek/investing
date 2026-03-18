@@ -645,8 +645,9 @@ def calc_twr(valuations, current_value):
         twr *= (valuation["value"] / start_value)
         start_value = valuation["value"] + valuation["flow"]
         total_return["history"].append((valuation["date"], twr))
-    twr *= (current_value / start_value)
-    total_return["history"].append((datetime.today(), twr))
+    if datetime.today().date() > valuations[-1]["date"].date():
+        twr *= (current_value / start_value)
+        total_return["history"].append((datetime.today(), twr))
     cagr = twr ** (365.25 / max((datetime.today() - total_return["start_date"]).days, 1)) - 1.
     twr -= 1.
     total_return["twr%"] = round(twr * 100, 1)
