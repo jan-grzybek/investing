@@ -2,7 +2,7 @@ name: Update and deploy webpage
 
 on:
   schedule:
-    - cron: "0 9,15,21 * * *"
+    - cron: "30 8,14,20 * * *"
   workflow_dispatch: {}
 
 permissions:
