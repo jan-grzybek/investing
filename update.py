@@ -711,26 +711,35 @@ def get_benchmarks(total_return_history):
         summary = holding.summary()
 
         history = holding._ticker.history(start=start_date_str, interval="1d", auto_adjust=True)
-        start_price = history["Open"].iloc[0]
+        start_price = float(history["Open"].iloc[0])
         summary["history"] = [(start_date, 1.)]
         ref_idx = 1
         for idx, row in enumerate(history.itertuples()):
+            close_price = float(history["Close"].iloc[idx])
+            prev_close_price = float(history["Close"].iloc[idx-1])
+            if math.isnan(close_price):
+                assert not math.isnan(prev_close_price)
+                close_price = prev_close_price
             ref_date = total_return_history[ref_idx][0]
             date = row.Index.to_pydatetime()
             if date.date() < ref_date.date():
                 continue
             elif date.date() == ref_date.date():
-                summary["history"].append((ref_date, float(history["Close"].iloc[idx] / start_price)))
+                summary["history"].append((ref_date, close_price / start_price))
                 ref_idx += 1
             else:
-                summary["history"].append((ref_date, float(history["Close"].iloc[idx-1] / start_price)))
+                summary["history"].append((ref_date, prev_close_price / start_price))
                 ref_idx += 1
                 ref_date = total_return_history[ref_idx][0]
                 if date.date() == ref_date.date():
-                    summary["history"].append((ref_date, float(history["Close"].iloc[idx] / start_price)))
+                    summary["history"].append((ref_date, close_price / start_price))
                     ref_idx += 1
         if len(summary["history"]) < len(total_return_history):
-            summary["history"].append((total_return_history[-1][0], float(history["Close"].iloc[-1] / start_price)))
+            close_price = float(history["Close"].iloc[-1])
+            if math.isnan(close_price):
+                close_price = float(history["Close"].iloc[-2])
+                assert not math.isnan(close_price)
+            summary["history"].append((total_return_history[-1][0], close_price / start_price))
         assert len(summary["history"]) == len(total_return_history), (len(summary["history"]), len(total_return_history))
 
         benchmarks.append(summary)
@@ -808,7 +817,6 @@ def generate_return_plot(total_return, benchmarks):
             k = {"LSE:VUAA.L": f"S&P 500{5*' '}"}[k]
         except KeyError:
             pass
-        print(v)
         fig.add_trace(go.Scatter(
             x=time_dense, y=interpolate(np.array(v)),
             marker=dict(color="#1f4e79"), mode="lines", name=k, line=dict(width=6)))
