@@ -784,8 +784,6 @@ def generate_horizontal_bar(data, chart_name, color):
 
 def generate_return_plot(total_return, benchmarks):
     def interpolate(values):
-        print(np.log(values))
-        print(time)
         return np.exp(PchipInterpolator(time, np.log(values))(time_dense))
 
     time = [0]
@@ -810,6 +808,7 @@ def generate_return_plot(total_return, benchmarks):
             k = {"LSE:VUAA.L": f"S&P 500{5*' '}"}[k]
         except KeyError:
             pass
+        print(v)
         fig.add_trace(go.Scatter(
             x=time_dense, y=interpolate(np.array(v)),
             marker=dict(color="#1f4e79"), mode="lines", name=k, line=dict(width=6)))
