@@ -7,6 +7,7 @@ import yfinance as yf
 import plotly.graph_objects as go
 
 from datetime import datetime
+from dateutil.relativedelta import relativedelta
 from plotly.subplots import make_subplots
 from scipy.interpolate import PchipInterpolator
 
@@ -799,12 +800,16 @@ def generate_return_plot(total_return, benchmarks):
     return_benchmarks = {benchmark["ticker"]: [1.] for benchmark in benchmarks}
     return_jg = [1.]
     start_date = total_return["history"][0][0]
+    min_y, max_y = 1., 1.
     for date, value in total_return["history"][1:]:
         time.append(int((date - start_date).days))
         return_jg.append(value)
+        min_y, max_y = min(min_y, value), max(max_y, value)
     for benchmark in benchmarks:
         for _, value in benchmark["history"][1:]:
             return_benchmarks[benchmark["ticker"]].append(value)
+            min_y, max_y = min(min_y, value), max(max_y, value)
+    rd = relativedelta(total_return["history"][-1][0], start_date)
     time = np.array(time)
     time_dense = np.linspace(time.min(), time.max(), 800)
 
@@ -823,8 +828,34 @@ def generate_return_plot(total_return, benchmarks):
     fig["layout"]["width"] = 800
     fig["layout"]["height"] = 400
     fig["layout"]["margin"] = {"l": 0, "r": 0, "t": 0, "b": 0}
-    fig["layout"]["xaxis"] = dict(showticklabels=False, showgrid=False, showline=False, zeroline=False, title="Time")
-    fig["layout"]["yaxis"] = dict(showticklabels=False, showgrid=False, showline=False, zeroline=False, title="Return")
+    if rd.years > 0:
+        if rd.years > 1:
+            if rd.months > 0:
+                if rd.months > 1:
+                    x_title = f"Time [{rd.years} years, {rd.months} months]"
+                else:
+                    x_title = f"Time [{rd.years} years, 1 month]"
+            else:
+                x_title = f"Time [{rd.years} years]"
+        else:
+            if rd.months > 0:
+                if rd.months > 1:
+                    x_title = f"Time [1 year, {rd.months} months]"
+                else:
+                    x_title = "Time [1 year, 1 month]"
+            else:
+                x_title = "Time [1 year]"
+    else:
+        if rd.months > 0:
+            if rd.months > 1:
+                x_title = f"Time [{rd.months} months]"
+            else:
+                x_title = "Time [1 month]"
+        else:
+            x_title = "Time"
+    fig["layout"]["xaxis"] = dict(showticklabels=False, showgrid=False, showline=False, zeroline=False, title=x_title)
+    fig["layout"]["yaxis"] = dict(showticklabels=False, showgrid=False, showline=False, zeroline=False,
+                                  title=f"Return [{min_y:.1f}x-{max_y:.1f}x]")
     fig["layout"]["font"] = dict(size=24)
     fig["layout"]["legend"]["font"] = dict(size=30)
     fig.add_hline(y=1.0, line_width=4, opacity=0.7, line_dash="dash")
