@@ -784,6 +784,8 @@ def generate_horizontal_bar(data, chart_name, color):
 
 def generate_return_plot(total_return, benchmarks):
     def interpolate(values):
+        print(np.log(values))
+        print(time)
         return np.exp(PchipInterpolator(time, np.log(values))(time_dense))
 
     time = [0]
