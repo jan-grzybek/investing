@@ -46,7 +46,7 @@ jobs:
           GSHEET_ID: ${{ secrets.GSHEET_ID }}
         run: |
           mkdir -p assets
-          python update.py 2>/dev/null
+          python update.py # 2>/dev/null
           npx svgo -f assets
 
       - name: Upload Pages artifact
