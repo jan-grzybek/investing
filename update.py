@@ -14,6 +14,7 @@ from scipy.interpolate import PchipInterpolator
 
 LOGOS_ADDRESS = "https://jan-grzybek.github.io/investing/logos/"
 WITHHOLDING_TAX_RATE = 0.15
+DAYS_YEAR = 365.2425
 
 
 class ExchangeRate:
@@ -233,7 +234,7 @@ class Holding:
                     gain += outflow["value"]
                     avg_capital -= ((end - outflow["date"]).days / length) * outflow["value"]
             tsr *= (1. + gain / avg_capital)
-        cagr = tsr ** (365.25 / total_ownership_length) - 1.
+        cagr = tsr ** (DAYS_YEAR / total_ownership_length) - 1.
         tsr -= 1.
         current_value_usd = (self._positions[-1]["quantity"] * self._info["regularMarketPrice"] *
                              exchange_rate(self._info["currency"]))
@@ -649,7 +650,7 @@ def calc_twr(valuations, current_value):
     if datetime.today().date() > valuations[-1]["date"].date():
         twr *= (current_value / start_value)
         total_return["history"].append((datetime.today(), twr))
-    cagr = twr ** (365.25 / max((datetime.today() - total_return["start_date"]).days, 1)) - 1.
+    cagr = twr ** (DAYS_YEAR / max((datetime.today() - total_return["start_date"]).days, 1)) - 1.
     twr -= 1.
     total_return["twr%"] = round(twr * 100, 1)
     total_return["cagr%"] = round(cagr * 100, 1)
