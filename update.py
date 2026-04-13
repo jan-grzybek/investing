@@ -104,6 +104,8 @@ class Holding:
         splits = []
         splits_acc = []
         for date, split in self._ticker.splits.items():
+            print(date)
+            print(date.__str__())
             date = datetime.strptime(date.__str__().split()[0], "%Y-%m-%d")
             splits.append({"date": date, "split": split})
             for _split in splits_acc:
