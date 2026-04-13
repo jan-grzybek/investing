@@ -103,8 +103,8 @@ class Holding:
     def _get_splits_dividends(self):
         splits = []
         splits_acc = []
-        for date, split in self._ticker.splits.items():
-            print(self._info["symbol"])
+        for row in self._ticker.splits.itertuples():
+            date, split = row.Index, row._1
             date = datetime.strptime(date.__str__().split()[0], "%Y-%m-%d")
             splits.append({"date": date, "split": split})
             for _split in splits_acc:
@@ -113,7 +113,8 @@ class Holding:
         # readjust dividends for splits
         dividends = []
         split_idx = 0
-        for date, dividend in self._ticker.get_dividends().items():
+        for row in self._ticker.get_dividends().itertuples():
+            date, dividend = row.Index, row.Dividends
             date = datetime.strptime(date.__str__().split()[0], "%Y-%m-%d")
             for split in splits_acc[split_idx:]:
                 if split["date"] >= date:
