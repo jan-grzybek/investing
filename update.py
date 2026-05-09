@@ -829,7 +829,9 @@ def generate_return_plot(total_return, benchmarks):
     fig["layout"]["width"] = 800
     fig["layout"]["height"] = 400
     fig["layout"]["margin"] = {"l": 0, "r": 0, "t": 0, "b": 0}
-    if rd.years > 0:
+    if rd.years >= 10:
+        x_title = f"Time [{rd.years} years]"
+    elif rd.years > 0:
         if rd.years > 1:
             if rd.months > 0:
                 if rd.months > 1:
@@ -855,8 +857,10 @@ def generate_return_plot(total_return, benchmarks):
         else:
             x_title = "Time"
     fig["layout"]["xaxis"] = dict(showticklabels=False, showgrid=False, showline=False, zeroline=False, title=x_title)
+
+    return_fmt = ".0f" if max_y >= 10. else ".1f"
     fig["layout"]["yaxis"] = dict(showticklabels=False, showgrid=False, showline=False, zeroline=False,
-                                  title=f"Return [{min_y:.1f}x-{max_y:.1f}x]")
+                                  title=f"Return [{min_y:{return_fmt}}-{max_y:{return_fmt}}x]")
     fig["layout"]["font"] = dict(size=24)
     fig["layout"]["legend"]["font"] = dict(size=30)
     fig.add_hline(y=1.0, line_width=4, opacity=0.7, line_dash="dash")
