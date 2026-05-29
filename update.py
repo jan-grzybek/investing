@@ -1,5 +1,6 @@
 import os
 import math
+import bisect
 import gspread
 import requests
 import numpy as np
@@ -20,8 +21,9 @@ DAYS_YEAR = 365.2425
 class ExchangeRate:
     def __init__(self):
         self._rates = {}
+        self._history = {}
 
-    def __call__(self, currency):
+    def _current(self, currency):
         if currency == "USD":
             return 1.
         try:
@@ -32,6 +34,37 @@ class ExchangeRate:
                 rate /= 100
             self._rates[currency] = rate
             return self._rates[currency]
+
+    def _historical(self, currency, date):
+        if currency == "USD":
+            return 1.
+        if currency not in self._history:
+            hist = yf.Ticker(f"{currency}USD=X").history(
+                period="max", interval="1d", auto_adjust=False)
+            dates = []
+            rates = []
+            for ts, close in hist["Close"].items():
+                if math.isnan(close):
+                    continue
+                dates.append(datetime.strptime(ts.__str__().split()[0], "%Y-%m-%d").date())
+                rates.append(float(close))
+            self._history[currency] = (dates, rates)
+        dates, rates = self._history[currency]
+        if not dates:
+            return self._current(currency)
+        target = date.date() if isinstance(date, datetime) else date
+        idx = bisect.bisect_right(dates, target) - 1
+        if idx < 0:
+            idx = 0
+        rate = rates[idx]
+        if currency == "GBp":
+            rate /= 100
+        return rate
+
+    def __call__(self, currency, date=None):
+        if date is None:
+            return self._current(currency)
+        return self._historical(currency, date)
 
 exchange_rate = ExchangeRate()
 
@@ -139,7 +172,7 @@ class Holding:
                     current_quantity = int(current_quantity * split["split"])
         self._inflows.append({
             "date": trade.date,
-            "value": trade.quantity * trade.price
+            "value": trade.quantity * trade.price * exchange_rate(self._info["currency"], trade.date)
         })
         if len(self._positions) > 0 and self._positions[-1]["date"] == trade.date:
             self._positions[-1]["quantity"] += trade.quantity
@@ -163,7 +196,7 @@ class Holding:
             self._periods[-1]["end"] = trade.date
         self._outflows.append({
             "date": trade.date,
-            "value": trade.quantity * trade.price
+            "value": trade.quantity * trade.price * exchange_rate(self._info["currency"], trade.date)
         })
         if self._positions[-1]["date"] == trade.date:
             self._positions[-1]["quantity"] -= trade.quantity
@@ -198,7 +231,8 @@ class Holding:
                                 split_idx += 1
                         outflows.append({
                             "date": dividend["date"],
-                            "value": quantity * dividend["dividend"] * (1. - WITHHOLDING_TAX_RATE)
+                            "value": (quantity * dividend["dividend"] * (1. - WITHHOLDING_TAX_RATE) *
+                                      exchange_rate(self._info["currency"], dividend["date"]))
                         })
                         break
                     else:
@@ -217,7 +251,8 @@ class Holding:
                 end = datetime.today()
                 outflows.append({
                     "date": end,
-                    "value": self._positions[-1]["quantity"] * self._info["regularMarketPrice"]
+                    "value": (self._positions[-1]["quantity"] * self._info["regularMarketPrice"] *
+                              exchange_rate(self._info["currency"]))
                 })
             else:
                 end = period["end"]
