@@ -962,8 +962,18 @@ main:focus-visible { outline: none; }
 .return-chart { margin: 0 0 24px; }
 .return-chart__plot { position: relative; }
 .return-chart svg { width: 100%; height: auto; display: block; }
-.return-chart__ref { stroke: var(--muted); stroke-width: 1.75; stroke-dasharray: 4 6; opacity: 0.7; }
-.return-chart__line { fill: none; stroke-width: 2.4; stroke-linejoin: round; stroke-linecap: round; }
+/* ``vector-effect: non-scaling-stroke`` on both the reference
+   line and the data curves makes their stroke widths render in
+   screen pixels rather than viewBox units. Without it, the
+   1000x400 viewBox compresses strokes to ~1px wide on phone
+   widths (the SVG uses ``preserveAspectRatio="none"``, so x and
+   y both scale down), leaving the chart looking hair-thin and
+   washed out. With it, the curves stay at a consistent 2.4px
+   thickness from a wide desktop all the way down to a 320px
+   phone, and the baseline at 1.75px keeps a clear hierarchy
+   beneath the data lines. */
+.return-chart__ref { stroke: var(--muted); stroke-width: 1.75; stroke-dasharray: 4 6; opacity: 0.7; vector-effect: non-scaling-stroke; }
+.return-chart__line { fill: none; stroke-width: 2.4; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
 .return-chart__line--jg { stroke: var(--accent); }
 .return-chart__line--bench { stroke: var(--accent-bench); }
 /* The delta overlay is a full-bleed positioning canvas; the bar and
@@ -975,14 +985,36 @@ main:focus-visible { outline: none; }
   inset: 0;
   pointer-events: none;
 }
+/* The bracket is styled like a measurement caliper: a vertical
+   spine running between the two curve endpoints, with short
+   horizontal "jaws" (the ``::before`` / ``::after`` pseudos) at
+   the top and bottom that visibly hook onto each curve's last
+   point. The whole annotation picks up the directional
+   ``--delta-color`` set inline by the renderer -- green when JG
+   outperformed the benchmark, red when it didn't -- so the
+   bracket itself carries the verdict and the reader doesn't
+   have to glance at the label to know which way the wind is
+   blowing. ``var(--muted)`` is the safety fallback if the
+   inline custom property is missing for any reason. */
 .return-chart__delta-bar {
   position: absolute;
   left: 88%;
   top: var(--top);
   height: var(--height);
   width: 0;
-  border-left: 1.5px solid var(--muted);
+  border-left: 1.75px solid var(--delta-color, var(--muted));
 }
+.return-chart__delta-bar::before,
+.return-chart__delta-bar::after {
+  content: "";
+  position: absolute;
+  left: -8px;
+  width: 8px;
+  height: 1.75px;
+  background: var(--delta-color, var(--muted));
+}
+.return-chart__delta-bar::before { top: 0; transform: translateY(-50%); }
+.return-chart__delta-bar::after { bottom: 0; transform: translateY(50%); }
 .return-chart__delta-label {
   position: absolute;
   left: 88%;
@@ -2416,9 +2448,19 @@ class Webpage:
             bench_y_pct = map_y(bench_final) / height * 100.0
             top_pct = min(jg_y_pct, bench_y_pct)
             height_pct = abs(jg_y_pct - bench_y_pct)
+            # ``--delta-color`` is consumed by the caliper bracket
+            # (vertical spine + top/bottom jaws) in ``_PAGE_STYLES``.
+            # Encoding the sign here keeps the colour logic in one
+            # place: the same green/red mapping that drives the label
+            # also tints the bracket so its visual meaning is
+            # self-evident.
+            delta_color = (
+                "var(--positive)" if delta_pp >= 0 else "var(--negative)"
+            )
             delta_html = (
                 '<div class="return-chart__delta" '
-                f'style="--top: {top_pct:.2f}%; --height: {height_pct:.2f}%;">'
+                f'style="--top: {top_pct:.2f}%; --height: {height_pct:.2f}%; '
+                f'--delta-color: {delta_color};">'
                 '<span class="return-chart__delta-bar"></span>'
                 f'<span class="return-chart__delta-label {_value_class(delta_pp)}">'
                 f'{delta_pp:+.1f} pp</span>'
