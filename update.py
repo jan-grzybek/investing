@@ -23,6 +23,8 @@ import io
 import json
 import math
 import os
+import sys
+import traceback
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
@@ -788,6 +790,18 @@ main:focus-visible { outline: none; }
   backdrop-filter: saturate(180%) blur(14px);
   -webkit-backdrop-filter: saturate(180%) blur(14px);
   border-bottom: 1px solid var(--line);
+  /* Force a dedicated GPU compositing layer so the sticky header
+     does not flicker on iOS Safari while the page scrolls. Without
+     this hint Safari briefly drops the header's backdrop-filter
+     on each anchor-driven scroll (visible as a "blink" when
+     tapping the nav links on iPhone). The translateZ(0) +
+     isolation pair stabilises both the stacking context and the
+     paint layer; ``will-change`` keeps the layer warm so the
+     blur isn't rebuilt on every frame. */
+  -webkit-transform: translateZ(0);
+          transform: translateZ(0);
+  isolation: isolate;
+  will-change: backdrop-filter;
 }
 /* When the decorative current-holdings ticker is on the page it
    sits directly under the sticky nav. The header's bottom margin
@@ -1482,6 +1496,86 @@ _HASH_CLEAR_SCRIPT = (
 )
 
 
+# Custom smooth-scroll for the sticky-nav links. Native CSS
+# ``scroll-behavior: smooth`` is fast and abrupt, and on iOS Safari
+# the sticky header's ``backdrop-filter`` re-composites mid-scroll
+# which reads as a brief "blink" right after the tap. Driving the
+# scroll from JS lets us:
+#
+#   * use a slower, cubic-eased animation that genuinely "slides"
+#     between sections instead of snapping;
+#   * cancel ``preventDefault()`` the anchor click so the browser
+#     never performs the instant-jump that fights our animation;
+#   * call ``window.scrollTo`` programmatically (which does NOT
+#     fire wheel/touchmove), so the animation runs uninterrupted
+#     while the existing ``_HASH_CLEAR_SCRIPT`` happily stays put;
+#   * still write the section anchor into the URL via
+#     ``history.pushState`` so the link is shareable, matching
+#     pre-existing behaviour.
+#
+# Scoped to ``.site-nav a[href^='#']`` only -- the skip link and any
+# other in-page anchors keep their default (instant) behaviour, which
+# is what assistive-tech users expect from a skip link. Honours
+# ``prefers-reduced-motion`` by jumping directly to the target.
+#
+# Kept as a tight ES5-flavoured IIFE so the inline payload stays
+# small and gets a single stable SHA-256 hash (pinned in CSP).
+_NAV_SCROLL_SCRIPT = (
+    "(function(){"
+    "var rm=false;"
+    "try{rm=matchMedia('(prefers-reduced-motion: reduce)').matches;}"
+    "catch(e){}"
+    "function ease(t){"
+    "return t<0.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2;"
+    "}"
+    "function sy(){"
+    "return window.pageYOffset||document.documentElement.scrollTop||0;"
+    "}"
+    "var raf=null;"
+    "function slide(ty,d){"
+    "if(raf!==null)cancelAnimationFrame(raf);"
+    "var sy0=sy(),dist=ty-sy0,t0=null;"
+    "if(dist===0)return;"
+    "function step(ts){"
+    "if(t0===null)t0=ts;"
+    "var t=Math.min(1,(ts-t0)/d);"
+    "window.scrollTo(0,sy0+dist*ease(t));"
+    "if(t<1)raf=requestAnimationFrame(step);else raf=null;"
+    "}"
+    "raf=requestAnimationFrame(step);"
+    "}"
+    "function targetY(el){"
+    "var r=el.getBoundingClientRect(),top=r.top+sy(),smt=0;"
+    "try{smt=parseInt(getComputedStyle(el).scrollMarginTop,10)||0;}"
+    "catch(e){}"
+    "return Math.max(0,top-smt);"
+    "}"
+    "document.addEventListener('click',function(e){"
+    "if(e.defaultPrevented)return;"
+    "if(e.button!==0)return;"
+    "if(e.metaKey||e.ctrlKey||e.shiftKey||e.altKey)return;"
+    "var t=e.target;"
+    "if(!t||!t.closest)return;"
+    "var a=t.closest('.site-nav a[href^=\"#\"]');"
+    "if(!a)return;"
+    "var href=a.getAttribute('href');"
+    "if(!href||href==='#')return;"
+    "var el=document.getElementById(href.slice(1));"
+    "if(!el)return;"
+    "e.preventDefault();"
+    "var ty=targetY(el);"
+    "if(rm){window.scrollTo(0,ty);}"
+    "else{"
+    "var dist=Math.abs(ty-sy());"
+    "var dur=Math.min(900,Math.max(450,dist*0.45));"
+    "slide(ty,dur);"
+    "}"
+    "try{history.pushState(null,'',href);}catch(err){}"
+    "});"
+    "})();"
+)
+
+
 class Webpage:
     """Builds the JG Investing index page as a single responsive document."""
 
@@ -1731,10 +1825,12 @@ class Webpage:
         style_hash = _sha256_b64(_PAGE_STYLES)
         jsonld_hash = _sha256_b64(jsonld_str)
         hash_clear_hash = _sha256_b64(_HASH_CLEAR_SCRIPT)
+        nav_scroll_hash = _sha256_b64(_NAV_SCROLL_SCRIPT)
         csp = (
             "default-src 'self'; "
             f"script-src 'self' 'sha256-{jsonld_hash}' "
             f"'sha256-{hash_clear_hash}' "
+            f"'sha256-{nav_scroll_hash}' "
             "https://static.cloudflareinsights.com; "
             "style-src 'self' 'unsafe-inline'; "
             f"style-src-elem 'self' 'sha256-{style_hash}'; "
@@ -1801,6 +1897,12 @@ class Webpage:
             # of re-jumping to the last-clicked nav section. See the
             # ``_HASH_CLEAR_SCRIPT`` docstring for the full rationale.
             f'<script>{_HASH_CLEAR_SCRIPT}</script>\n'
+            # Custom smooth-scroll for the in-page nav links: cubic
+            # easing across the section gap, plus the iOS Safari
+            # ``backdrop-filter`` flicker workaround in
+            # ``.site-header``. Falls back to instant scroll when
+            # ``prefers-reduced-motion`` is set.
+            f'<script>{_NAV_SCROLL_SCRIPT}</script>\n'
             f'<style>{_PAGE_STYLES}</style>\n'
             '</head>'
         )
@@ -1905,12 +2007,15 @@ class Webpage:
         # background so the same OG image looks correct whether a
         # social platform places it on a light, dark, or branded
         # surface. Readability on both extremes is preserved by:
-        #   - a white halo (stroke) around every text run (invisible
-        #     against white, provides a legible outline against
-        #     dark);
-        #   - a soft white card behind the holdings logo strip
-        #     (most logos are dark wordmarks that would otherwise
-        #     vanish on dark backgrounds).
+        #   - a tiny crisp white stroke around dark text (invisible
+        #     against white -- white-on-white blends away -- and
+        #     just enough of a bright edge to lift dark glyphs off
+        #     dark backgrounds without the fat outlined-bubble
+        #     letter look that wider strokes produce);
+        #   - a semi-transparent white pill with its own soft outer
+        #     glow behind the holdings logo strip (most logos are
+        #     dark wordmarks that would otherwise vanish on dark
+        #     backgrounds).
         TRANSPARENT = (255, 255, 255, 0)
         HALO = (255, 255, 255)
         FG = (17, 17, 17)
@@ -1919,12 +2024,26 @@ class Webpage:
         POS = (31, 122, 61)
         NEG = (179, 38, 30)
 
-        # Halo widths tuned per font size so the outline is visible
-        # on dark backgrounds without bloating glyphs visibly on
-        # light ones.
-        HALO_BIG = 5    # 96pt+ display type
-        HALO_MED = 3    # 32pt caption
-        HALO_SM = 2     # 22pt footer
+        # Tiny stroke width (in px) for the dark-mode readability
+        # outline around the byline. Sized down hard from the
+        # original 5px so the stroke reads as a crisp edge, not a
+        # chunky outlined glyph; PIL renders ``stroke_width`` as
+        # opaque pixels, so the stroke disappears completely on
+        # white backgrounds regardless of width. The caption,
+        # footer, and hero number are drawn without a stroke
+        # because:
+        #   - the caption (32pt) and footer (22pt) are small
+        #     enough that PIL's minimum 1px stroke is
+        #     proportionally chunky and renders the glyphs as
+        #     puffy outlined letters rather than crisp text;
+        #     dropping the stroke keeps them razor-sharp on white
+        #     and trades a little dark-mode contrast for the
+        #     sharpness;
+        #   - the hero number's saturated accent green / red
+        #     already carries enough contrast on both modes, and
+        #     a stroke around a vivid 140pt numeral muddies the
+        #     colour rather than helping read it.
+        STROKE_BIG = 2    # 96pt display type ("Jan Grzybek")
 
         bench = benchmarks[0] if benchmarks else None
         cagr = float(total_return.get("cagr%", 0.0))
@@ -1954,7 +2073,7 @@ class Webpage:
         # share preview is recognisable from the name first.
         draw.text(
             (pad_l, 36), "Jan Grzybek", font=f_name, fill=FG,
-            stroke_width=HALO_BIG, stroke_fill=HALO,
+            stroke_width=STROKE_BIG, stroke_fill=HALO,
         )
         # Accent rule under the name doubles as a visual anchor for
         # the rest of the layout. Mid-luminance orange is legible on
@@ -1979,29 +2098,28 @@ class Webpage:
             label_emph = "CAGR"
             label_tail = ")"
 
-        draw.text(
-            (pad_l, 210), hero_text, font=f_hero, fill=hero_color,
-            stroke_width=HALO_BIG, stroke_fill=HALO,
-        )
+        draw.text((pad_l, 210), hero_text, font=f_hero, fill=hero_color)
 
         # Caption below the hero: "Outperformance of S&P 500 on CAGR"
         # with the benchmark name bolded so the reader's eye lands on
-        # the comparison subject.
+        # the comparison subject. Rendered without a stroke so the
+        # 32pt glyphs stay sharp on both modes; the bold benchmark
+        # name carries the same MUTED fill as the surrounding text
+        # so the emphasis lives in the weight alone -- a darker
+        # fill on the emphasis would look great on white but vanish
+        # on a dark background where MUTED is already at the dim
+        # end of legible.
         cap_y = 388
-        draw.text(
-            (pad_l, cap_y), label, font=f_caption, fill=MUTED,
-            stroke_width=HALO_MED, stroke_fill=HALO,
-        )
+        draw.text((pad_l, cap_y), label, font=f_caption, fill=MUTED)
         label_w = int(draw.textlength(label, font=f_caption))
         draw.text(
-            (pad_l + label_w, cap_y), label_emph, font=f_caption_b, fill=FG,
-            stroke_width=HALO_MED, stroke_fill=HALO,
+            (pad_l + label_w, cap_y), label_emph,
+            font=f_caption_b, fill=MUTED,
         )
         emph_w = int(draw.textlength(label_emph, font=f_caption_b))
         draw.text(
-            (pad_l + label_w + emph_w, cap_y),
-            label_tail, font=f_caption, fill=MUTED,
-            stroke_width=HALO_MED, stroke_fill=HALO,
+            (pad_l + label_w + emph_w, cap_y), label_tail,
+            font=f_caption, fill=MUTED,
         )
 
         # Logo strip: top-10 current holdings by weight. The strip
@@ -2021,10 +2139,7 @@ class Webpage:
             f"Since {_fmt_date(start_date)}  \u00b7  {duration}  \u00b7  "
             "jan-grzybek.github.io/investing"
         )
-        draw.text(
-            (pad_l, H - 40), foot, font=f_foot, fill=MUTED,
-            stroke_width=HALO_SM, stroke_fill=HALO,
-        )
+        draw.text((pad_l, H - 40), foot, font=f_foot, fill=MUTED)
 
         img.save("og-image.png", optimize=True)
 
@@ -2114,15 +2229,19 @@ class Webpage:
 
         Each logo is fitted into a same-width cell with consistent
         gaps so the strip reads as a uniform "what's inside" row
-        regardless of the underlying logos' aspect ratios. A subtle
-        white card sits behind the row so that the predominantly
-        dark logo wordmarks (Adobe, Lam Research, Samsung, ...) stay
-        legible when the OG image is composited on a dark surface;
-        on white backgrounds the card blends in and is invisible.
-        The strip is left untouched when there are no current
-        holdings yet (e.g. on the very first build) so the rest of
-        the layout still reads cleanly."""
-        from PIL import ImageDraw
+        regardless of the underlying logos' aspect ratios. A
+        semi-transparent white pill sits behind the row so that the
+        predominantly dark logo wordmarks (Adobe, Lam Research,
+        Samsung, ...) stay legible when the OG image is composited
+        on a dark surface. The pill itself is rendered with a soft
+        outer halo (a Gaussian-blurred copy of the same shape)
+        composited underneath so the strip feels lifted off the
+        background rather than stamped on top of it; on white
+        backgrounds the halo blends in and is invisible. The strip
+        is left untouched when there are no current holdings yet
+        (e.g. on the very first build) so the rest of the layout
+        still reads cleanly."""
+        from PIL import Image, ImageDraw, ImageFilter
 
         tickers = self._top_holdings_for_og(limit=10)
         if not tickers:
@@ -2140,24 +2259,40 @@ class Webpage:
         used_w = slots * cell_w + (slots - 1) * gap
         offset_x = x + (w - used_w) // 2
 
-        # Card backdrop. Opaque white with rounded corners; invisible
-        # against a white-page bg, visible as a soft pill against a
-        # dark bg -- gives the dark logo wordmarks somewhere to live.
-        # The padding values are tuned so the card hugs the row of
-        # logos with a bit of breathing room on all sides.
-        backdrop = ImageDraw.Draw(canvas)
+        # Card backdrop. Semi-transparent white pill (alpha 225
+        # gives a slight "frosted glass" softness on dark
+        # backgrounds while keeping dark logo wordmarks high
+        # contrast) wrapped in a tight Gaussian-blurred outer halo
+        # of the same shape, lifting the card visually off dark
+        # backgrounds; on white pages both layers blend into the
+        # page so the strip reads as plain logos. The blur radius
+        # is intentionally tight (~6px) so the halo's bottom edge
+        # stays well clear of the footer text below the card --
+        # a wider glow looks pretty in isolation but its faint
+        # white wash crosses into the footer and dims the contrast
+        # of the small muted glyphs there. The padding values are
+        # tuned so the pill hugs the row of logos with a bit of
+        # breathing room on all sides.
         pad_x = 24
         pad_y = 18
-        backdrop.rounded_rectangle(
-            (
-                offset_x - pad_x,
-                y - pad_y,
-                offset_x + used_w + pad_x,
-                y + cell_h + pad_y,
-            ),
-            radius=20,
-            fill=(255, 255, 255, 255),
+        card_rect = (
+            offset_x - pad_x,
+            y - pad_y,
+            offset_x + used_w + pad_x,
+            y + cell_h + pad_y,
         )
+        # White-RGB transparent canvas (not (0,0,0,0)) so the
+        # GaussianBlur pass below doesn't average dark transparent
+        # pixels into the halo's RGB and fringe the pill's outer
+        # glow with grey on white backgrounds. Only the alpha
+        # channel needs to spread; RGB stays pure white throughout.
+        card_layer = Image.new("RGBA", canvas.size, (255, 255, 255, 0))
+        ImageDraw.Draw(card_layer).rounded_rectangle(
+            card_rect, radius=24, fill=(255, 255, 255, 225),
+        )
+        glow_layer = card_layer.filter(ImageFilter.GaussianBlur(radius=6))
+        canvas.alpha_composite(glow_layer)
+        canvas.alpha_composite(card_layer)
 
         for idx, ticker in enumerate(tickers):
             cell_x = offset_x + idx * (cell_w + gap)
@@ -2697,5 +2832,115 @@ def main():
     generate_webpage(total_return, benchmarks, holdings)
 
 
+# ---------------------------------------------------------------------------
+# Leak-safe entrypoint
+# ---------------------------------------------------------------------------
+#
+# The CI workflow that drives this script (``.github/workflows/main.yml``)
+# runs in a public repository, so its job logs are world-readable. The
+# run handles two classes of data that must not surface there:
+#
+#   1. Secrets injected by GitHub Actions: ``GSHEET_ID`` and the
+#      service-account JSON written to ``/tmp/gsheet_creds.json``.
+#   2. Nominal portfolio values used to derive the percentages we *do*
+#      publish: share counts, cash balances, per-trade prices, dividend
+#      payouts, FX rates, etc.
+#
+# Both leak easily through stderr. Library code (``yfinance`` rate-limit
+# notices, ``gspread`` HTTP error bodies, NumPy/Pandas runtime warnings)
+# echoes amounts and identifiers back; Python tracebacks routinely
+# embed offending values via ``str(exc)`` -- e.g. ``KeyError: '<sheet
+# id>'`` or ``ValueError: could not convert string to float: '12,345.67'``.
+# The previous mitigation was a blanket ``2>/dev/null`` on the workflow
+# command, which traded leakage for total opacity: a failed run gave
+# zero signal as to *why* it failed.
+#
+# ``_run_main_safely`` is the structured replacement. While ``main``
+# executes, stderr is fully suppressed -- both ``sys.stderr`` and the
+# underlying file descriptor, so output from C extensions that bypass
+# the Python wrapper is silenced too. On a clean run nothing leaks. On
+# failure we restore stderr and emit a *hand-formatted* summary made up
+# exclusively of identifiers that already live in the public repository
+# (or in third-party packages on PyPI): the exception class name and,
+# for every frame in the chained traceback, the file path, line number,
+# function name and the offending source line. We deliberately omit
+# ``str(exc)``, exception ``__notes__`` and any local variables, since
+# those are the channels through which runtime values normally surface.
+
+
+def _print_sanitized_failure(exc: BaseException) -> None:
+    """Emit a leak-safe traceback for ``exc`` on the real stderr.
+
+    Only identifiers drawn from public source code are written: the
+    exception type, plus per-frame ``filename:lineno`` / function name
+    / source line. Exception messages, ``__notes__`` and local
+    variables -- the usual carriers of runtime values -- are dropped.
+    """
+    def _emit(prefix: str, error: BaseException) -> None:
+        sys.stderr.write(f"{prefix}{type(error).__qualname__}\n")
+        for frame in traceback.extract_tb(error.__traceback__):
+            sys.stderr.write(
+                f"  at {frame.filename}:{frame.lineno} in {frame.name}\n"
+            )
+            if frame.line:
+                sys.stderr.write(f"    {frame.line}\n")
+
+    _emit("update.py failed: ", exc)
+    # Walk the cause/context chain so the root cause isn't lost when an
+    # outer frame just re-raises. ``seen`` guards against pathological
+    # cycles (``raise X from X``) that would otherwise loop forever.
+    seen: set[int] = {id(exc)}
+    cause = exc.__cause__ or exc.__context__
+    while cause is not None and id(cause) not in seen:
+        seen.add(id(cause))
+        _emit("caused by: ", cause)
+        cause = cause.__cause__ or cause.__context__
+    sys.stderr.flush()
+
+
+def _run_main_safely() -> None:
+    """Run :func:`main` with stderr fully redacted.
+
+    See the section comment above for rationale. The function exits
+    the process with status 1 on any exception (including
+    ``KeyboardInterrupt`` / ``SystemExit`` with a non-zero code) after
+    printing a sanitized failure summary; on success it returns
+    normally so the caller can chain further work if it ever needs to.
+    """
+    real_stderr = sys.stderr
+    devnull_py = open(os.devnull, "w")
+    devnull_fd = os.open(os.devnull, os.O_WRONLY)
+    saved_stderr_fd = os.dup(2)
+
+    def _restore() -> None:
+        sys.stderr = real_stderr
+        try:
+            devnull_py.close()
+        finally:
+            os.dup2(saved_stderr_fd, 2)
+            os.close(saved_stderr_fd)
+            os.close(devnull_fd)
+
+    os.dup2(devnull_fd, 2)
+    sys.stderr = devnull_py
+    try:
+        main()
+    except SystemExit as exc:
+        _restore()
+        # Preserve an explicit ``sys.exit(0)`` from inside ``main``; only
+        # synthesise a sanitized report when the exit signals failure.
+        code = exc.code if isinstance(exc.code, int) else 1
+        if code != 0:
+            _print_sanitized_failure(exc)
+            sys.exit(1)
+        return
+    except BaseException as exc:
+        _restore()
+        _print_sanitized_failure(exc)
+        sys.exit(1)
+    else:
+        _restore()
+
+
 if __name__ == "__main__":
-    main()
+    _run_main_safely()

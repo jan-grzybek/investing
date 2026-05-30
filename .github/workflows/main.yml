@@ -62,7 +62,20 @@ jobs:
       - name: Generate new webpage
         env:
           GSHEET_ID: ${{ secrets.GSHEET_ID }}
-        run: python update.py 2>/dev/null
+        # ``update.py`` runs ``main()`` through a leak-safe wrapper
+        # (``_run_main_safely``) that silences both ``sys.stderr`` and
+        # the underlying file descriptor for the duration of the
+        # build, so library warnings and tracebacks cannot smuggle
+        # secrets (``GSHEET_ID``, the service-account credentials) or
+        # nominal portfolio values (share counts, cash balances, FX
+        # rates) into these public job logs. On failure the wrapper
+        # restores stderr and prints a hand-formatted summary made of
+        # only public identifiers (exception class plus per-frame
+        # file:lineno / function / source line), so we still get
+        # enough breadcrumbs to debug without a redirect that would
+        # mask everything. Do NOT reintroduce ``2>/dev/null`` here --
+        # it would defeat the visibility half of that contract.
+        run: python update.py
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
