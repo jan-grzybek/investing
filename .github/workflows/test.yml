@@ -26,6 +26,14 @@ jobs:
             requirements.txt
             requirements-dev.txt
 
+      - name: Install system deps
+        # ``cairosvg`` (pulled in via ``requirements.txt``) needs the
+        # system-level ``libcairo2`` shared library; pip can't
+        # install that for us.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libcairo2
+
       - name: Install deps
         run: pip install -r requirements-dev.txt
 

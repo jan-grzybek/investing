@@ -19,6 +19,7 @@ import base64
 import bisect
 import hashlib
 import html
+import io
 import json
 import math
 import os
@@ -37,6 +38,15 @@ from scipy.interpolate import PchipInterpolator
 LOGOS_ADDRESS = "https://jan-grzybek.github.io/investing/logos/"
 COURAGE_LOGO = LOGOS_ADDRESS + "courage.png"
 LOGO_EXTENSIONS = (".svg", ".png", ".jpg")
+
+# Local mirror of ``LOGOS_ADDRESS`` -- the same files served at the URL
+# above live next to ``update.py`` in the repo (and ship as part of the
+# Pages artifact). The OG image renderer rasterises logos for the
+# top-10 strip and reads them straight from disk so it doesn't depend
+# on the previous deploy being reachable.
+_REPO_LOGOS_DIR = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "logos"
+)
 
 WITHHOLDING_TAX_RATE = 0.15
 DAYS_YEAR = 365.2425
@@ -622,13 +632,30 @@ _PAGE_STYLES = """
     --bg: #111418;
     --fg: #e8eaed;
     --muted: #a0a4ab;
-    --line: #2c3138;
+    --line: #4a5260;
     --accent: #f29a4f;
     --accent-bench: #6ea8d8;
     --positive: #58c97f;
     --negative: #ff6b63;
-    --card-bg: #181c22;
+    /* Card surfaces (holding capsules, JG/benchmark compare
+       capsule, ticker strip) sit a clear elevation step above
+       the page background so the predominantly dark brand
+       wordmarks (Adobe, S&P Global, Baidu, Meta, Salesforce,
+       Samsung, ...) gain enough surrounding luminance to be
+       legible against the card without resorting to a stark
+       white backdrop behind each logo. Light foreground text
+       (#e8eaed) on this surface still clears WCAG AA for body
+       text (~6.5:1 contrast). */
+    --card-bg: #3a424e;
   }
+  /* The dashed 0% reference line on the return chart inherits
+     ``var(--muted)`` and a 0.55 opacity (see the base rule
+     above). That combo nearly disappears against the dark page
+     background, so swap the stroke to the lighter foreground
+     colour, bump the opacity, and thicken the dashes a touch in
+     dark mode -- the dashed pattern stays elegant but the
+     baseline is now clearly traceable across the chart. */
+  .return-chart__ref { stroke: var(--fg); opacity: 0.7; stroke-width: 1.75; }
 }
 @media print {
   body { background: white; color: black; }
@@ -1609,11 +1636,14 @@ class Webpage:
 
         The image is what platforms like LinkedIn, Slack, Discord, X,
         and Facebook display when the URL is pasted into a chat or
-        feed. We bake in the live TWR, the delta vs the benchmark, and
-        a sparkline so the preview is informative on its own without
-        needing a click. Failures (Pillow missing, unwritable disk,
-        etc.) are swallowed - the page still renders fine without a
-        regenerated OG image."""
+        feed. The composition is tuned for that single-glance context:
+        a prominent ``Jan Grzybek`` byline, the headline outperformance
+        vs the S&P 500 on CAGR (the metric that matters once a long
+        enough track record exists), and a strip of the top-10 equity
+        holdings' logos so the preview hints at *what* is in the
+        portfolio without needing a click. Failures (Pillow missing,
+        unwritable disk, etc.) are swallowed - the page still renders
+        fine without a regenerated OG image."""
         if self._total_return is None:
             return
         try:
@@ -1634,108 +1664,119 @@ class Webpage:
         from PIL import Image, ImageDraw
 
         W, H = 1200, 630
-        BG = (255, 255, 255)
+        # Transparent canvas: we draw on RGBA with a fully-clear
+        # background so the same OG image looks correct whether a
+        # social platform places it on a light, dark, or branded
+        # surface. Readability on both extremes is preserved by:
+        #   - a white halo (stroke) around every text run (invisible
+        #     against white, provides a legible outline against
+        #     dark);
+        #   - a soft white card behind the holdings logo strip
+        #     (most logos are dark wordmarks that would otherwise
+        #     vanish on dark backgrounds).
+        TRANSPARENT = (255, 255, 255, 0)
+        HALO = (255, 255, 255)
         FG = (17, 17, 17)
         MUTED = (95, 99, 106)
-        LINE = (216, 221, 227)
         ACCENT = (230, 125, 34)
-        BENCH_C = (31, 78, 121)
         POS = (31, 122, 61)
         NEG = (179, 38, 30)
 
+        # Halo widths tuned per font size so the outline is visible
+        # on dark backgrounds without bloating glyphs visibly on
+        # light ones.
+        HALO_BIG = 5    # 96pt+ display type
+        HALO_MED = 3    # 32pt caption
+        HALO_SM = 2     # 22pt footer
+
         bench = benchmarks[0] if benchmarks else None
-        twr = float(total_return.get("twr%", 0.0))
         cagr = float(total_return.get("cagr%", 0.0))
-        twr_delta = (twr - float(bench["tsr%"])) if bench else None
+        bench_cagr = float(bench["cagr%"]) if bench else None
+        cagr_delta = (cagr - bench_cagr) if bench_cagr is not None else None
         bench_label = self._benchmark_label(bench) if bench else None
         history = list(total_return.get("history") or [])
-        bench_history = list((bench or {}).get("history") or [])
         start_date = (
             total_return.get("start_date")
             or (history[0][0] if history else datetime.today())
         )
         duration = _format_duration(relativedelta(datetime.today(), start_date))
 
-        f_eyebrow = self._load_font("regular", 30)
-        f_title = self._load_font("bold", 60)
-        f_label = self._load_font("regular", 28)
-        f_hero = self._load_font("bold", 160)
-        f_meta = self._load_font("regular", 32)
-        f_meta_b = self._load_font("bold", 32)
-        f_foot = self._load_font("regular", 24)
+        f_name = self._load_font("bold", 96)
+        f_hero = self._load_font("bold", 140)
+        f_caption = self._load_font("regular", 32)
+        f_caption_b = self._load_font("bold", 32)
+        f_foot = self._load_font("regular", 22)
 
-        img = Image.new("RGB", (W, H), BG)
+        img = Image.new("RGBA", (W, H), TRANSPARENT)
         draw = ImageDraw.Draw(img)
 
-        pad_l = 70
+        pad_l = 60
 
-        # Header (eyebrow + title + accent rule).
-        draw.text((pad_l, 60), "Jan Grzybek", font=f_eyebrow, fill=MUTED)
-        draw.text((pad_l, 100), "Investment Portfolio", font=f_title, fill=FG)
-        draw.rectangle((pad_l, 184, pad_l + 84, 192), fill=ACCENT)
-
-        # Hero label + TWR. Sign-coloured so the headline number
-        # carries its own valence even before you read the label.
-        draw.text((pad_l, 224), "Time-weighted return", font=f_label, fill=MUTED)
-        hero_color = POS if twr >= 0 else NEG
-        draw.text((pad_l, 262), f"{twr:+.1f}%", font=f_hero, fill=hero_color)
-
-        # Sparkline panel: top-right, both series share the y-range so
-        # the visual delta matches the numerical one in the header.
-        if len(history) >= 2:
-            sx, sy, sw, sh = W - 470, 80, 400, 280
-            all_vals = [v for _, v in history]
-            if bench_history:
-                all_vals.extend(v for _, v in bench_history)
-            ymin, ymax = min(all_vals), max(all_vals)
-            span = max(ymax - ymin, 1e-6)
-            # 1.0 reference line (initial value).
-            ref_y = sy + sh - (1.0 - ymin) / span * sh
-            if sy <= ref_y <= sy + sh:
-                draw.line((sx, ref_y, sx + sw, ref_y), fill=LINE, width=2)
-            if bench_history:
-                self._draw_sparkline(
-                    draw, bench_history, sx, sy, sw, sh, ymin, span, BENCH_C, 4,
-                )
-            self._draw_sparkline(
-                draw, history, sx, sy, sw, sh, ymin, span, ACCENT, 6,
-            )
-            if bench_label:
-                # Two-tone legend: each bullet inherits its line colour
-                # so the key matches the chart at a glance.
-                ly = sy + sh + 14
-                draw.text((sx, ly), "\u25cf", font=f_foot, fill=ACCENT)
-                bullet_w = int(draw.textlength("\u25cf  ", font=f_foot))
-                draw.text((sx + bullet_w, ly), "JG", font=f_foot, fill=MUTED)
-                jg_w = bullet_w + int(draw.textlength("JG    ", font=f_foot))
-                draw.text((sx + jg_w, ly), "\u25cf", font=f_foot, fill=BENCH_C)
-                draw.text(
-                    (sx + jg_w + bullet_w, ly),
-                    bench_label,
-                    font=f_foot,
-                    fill=MUTED,
-                )
-
-        # Comparison line (left column, below the hero number).
-        if bench is not None and twr_delta is not None:
-            prefix = f"vs {bench_label}: "
-            draw.text((pad_l, 470), prefix, font=f_meta, fill=FG)
-            prefix_w = int(draw.textlength(prefix, font=f_meta))
-            delta_color = POS if twr_delta >= 0 else NEG
-            draw.text(
-                (pad_l + prefix_w, 470),
-                f"{twr_delta:+.1f} pp",
-                font=f_meta_b,
-                fill=delta_color,
-            )
-        cagr_color = POS if cagr >= 0 else NEG
-        draw.text((pad_l, 520), "CAGR ", font=f_meta, fill=FG)
-        cagr_label_w = int(draw.textlength("CAGR ", font=f_meta))
+        # ``Jan Grzybek`` is the byline header -- promoted from a
+        # small eyebrow to the dominant identity element so the
+        # share preview is recognisable from the name first.
         draw.text(
-            (pad_l + cagr_label_w, 520),
-            f"{cagr:+.1f}%",
-            font=f_meta_b,
-            fill=cagr_color,
+            (pad_l, 36), "Jan Grzybek", font=f_name, fill=FG,
+            stroke_width=HALO_BIG, stroke_fill=HALO,
+        )
+        # Accent rule under the name doubles as a visual anchor for
+        # the rest of the layout. Mid-luminance orange is legible on
+        # both light and dark backgrounds without a halo.
+        draw.rectangle((pad_l, 168, pad_l + 96, 176), fill=ACCENT)
+
+        # Hero: outperformance vs the benchmark on CAGR. CAGR is the
+        # metric that compares portfolios fairly across periods, so
+        # it earns the headline slot. When no benchmark is available
+        # yet we fall back to the portfolio's own CAGR so the image
+        # still has a meaningful headline.
+        if cagr_delta is not None:
+            hero_text = f"{cagr_delta:+.1f} pp"
+            hero_color = POS if cagr_delta >= 0 else NEG
+            label = "Outperformance of "
+            label_emph = bench_label or "S&P 500"
+            label_tail = " on CAGR"
+        else:
+            hero_text = f"{cagr:+.1f}%"
+            hero_color = POS if cagr >= 0 else NEG
+            label = "Annualized return ("
+            label_emph = "CAGR"
+            label_tail = ")"
+
+        draw.text(
+            (pad_l, 210), hero_text, font=f_hero, fill=hero_color,
+            stroke_width=HALO_BIG, stroke_fill=HALO,
+        )
+
+        # Caption below the hero: "Outperformance of S&P 500 on CAGR"
+        # with the benchmark name bolded so the reader's eye lands on
+        # the comparison subject.
+        cap_y = 388
+        draw.text(
+            (pad_l, cap_y), label, font=f_caption, fill=MUTED,
+            stroke_width=HALO_MED, stroke_fill=HALO,
+        )
+        label_w = int(draw.textlength(label, font=f_caption))
+        draw.text(
+            (pad_l + label_w, cap_y), label_emph, font=f_caption_b, fill=FG,
+            stroke_width=HALO_MED, stroke_fill=HALO,
+        )
+        emph_w = int(draw.textlength(label_emph, font=f_caption_b))
+        draw.text(
+            (pad_l + label_w + emph_w, cap_y),
+            label_tail, font=f_caption, fill=MUTED,
+            stroke_width=HALO_MED, stroke_fill=HALO,
+        )
+
+        # Logo strip: top-10 current holdings by weight. The strip
+        # is the visual proof that the headline number is backed by
+        # a real portfolio, and it's the only place on the image
+        # that hints at *what* is held.
+        self._draw_top_holdings_strip(
+            img,
+            x=pad_l,
+            y=470,
+            w=W - 2 * pad_l,
+            h=90,
         )
 
         # Footer line: anchor period + URL for visual grounding.
@@ -1743,23 +1784,156 @@ class Webpage:
             f"Since {_fmt_date(start_date)}  \u00b7  {duration}  \u00b7  "
             "jan-grzybek.github.io/investing"
         )
-        draw.text((pad_l, H - 50), foot, font=f_foot, fill=MUTED)
+        draw.text(
+            (pad_l, H - 40), foot, font=f_foot, fill=MUTED,
+            stroke_width=HALO_SM, stroke_fill=HALO,
+        )
 
         img.save("og-image.png", optimize=True)
 
+    # Tickers in ``top_10`` keys that are not real holdings (e.g. the
+    # synthetic "Other equities" bucket added when there are >11
+    # current positions). Skipped when picking logos for the strip.
+    _NON_TICKER_TOP10_KEYS = frozenset({"Other equities"})
+
+    def _top_holdings_for_og(self, limit: int = 10) -> list[str]:
+        """Return up to ``limit`` ticker symbols for the OG logo strip.
+
+        ``self.top_10`` is already sorted by weight (descending) and
+        may contain a synthetic "Other equities" key when there are
+        more than 11 current positions; we filter that out so only
+        real tickers reach the logo loader."""
+        if not self.top_10:
+            return []
+        tickers: list[str] = []
+        for ticker in self.top_10.keys():
+            if ticker in self._NON_TICKER_TOP10_KEYS:
+                continue
+            tickers.append(ticker)
+            if len(tickers) >= limit:
+                break
+        return tickers
+
     @staticmethod
-    def _draw_sparkline(draw, history, x, y, w, h, ymin, span, color, width):
-        """Plot a normalized line series inside an (x, y, w, h) box."""
-        if len(history) < 2:
+    def _load_logo_for_og(ticker: str, max_w: int, max_h: int):
+        """Load a ticker's logo as an RGBA ``PIL.Image`` fitted to a
+        ``max_w x max_h`` box (preserving aspect ratio).
+
+        Reads from the local ``logos/`` directory next to ``update.py``
+        rather than going over HTTP, so the OG image is reproducible
+        without a network round-trip and works the first time the
+        site is deployed (before any logo is live behind
+        ``LOGOS_ADDRESS``). SVG logos are rasterised with ``cairosvg``
+        at 2x the target dimensions for crispness; raster logos
+        (PNG/JPG) are loaded directly. Falls back to ``courage.png``
+        when no per-ticker logo is on file, and returns ``None`` when
+        even that fails so the caller can leave a gap rather than
+        crash the whole image."""
+        from PIL import Image
+
+        candidates = [
+            os.path.join(_REPO_LOGOS_DIR, f"{ticker}{ext}")
+            for ext in LOGO_EXTENSIONS
+        ]
+        candidates.append(os.path.join(_REPO_LOGOS_DIR, "courage.png"))
+
+        for path in candidates:
+            if not os.path.exists(path):
+                continue
+            try:
+                if path.lower().endswith(".svg"):
+                    import cairosvg
+
+                    # Pass ``output_height`` only -- cairosvg would
+                    # *stretch* the SVG to a non-native aspect ratio
+                    # if both dimensions were pinned, which squashes
+                    # wide logos (Salesforce, NVIDIA, etc.). Pinning
+                    # the height alone keeps the natural aspect
+                    # ratio; the LANCZOS resize below caps the width
+                    # at ``max_w``. 2x supersample for crispness.
+                    png_bytes = cairosvg.svg2png(
+                        url=path,
+                        output_height=max_h * 2,
+                    )
+                    src = Image.open(io.BytesIO(png_bytes)).convert("RGBA")
+                else:
+                    src = Image.open(path).convert("RGBA")
+            except Exception:
+                continue
+
+            # Fit to the target box while preserving aspect ratio.
+            scale = min(max_w / src.width, max_h / src.height)
+            new_w = max(1, int(round(src.width * scale)))
+            new_h = max(1, int(round(src.height * scale)))
+            return src.resize((new_w, new_h), Image.LANCZOS)
+
+        return None
+
+    def _draw_top_holdings_strip(
+        self, canvas, *, x: int, y: int, w: int, h: int,
+    ) -> None:
+        """Render up to 10 logos of the largest current holdings in a
+        single horizontal row inside the ``(x, y, w, h)`` rectangle.
+
+        Each logo is fitted into a same-width cell with consistent
+        gaps so the strip reads as a uniform "what's inside" row
+        regardless of the underlying logos' aspect ratios. A subtle
+        white card sits behind the row so that the predominantly
+        dark logo wordmarks (Adobe, Lam Research, Samsung, ...) stay
+        legible when the OG image is composited on a dark surface;
+        on white backgrounds the card blends in and is invisible.
+        The strip is left untouched when there are no current
+        holdings yet (e.g. on the very first build) so the rest of
+        the layout still reads cleanly."""
+        from PIL import ImageDraw
+
+        tickers = self._top_holdings_for_og(limit=10)
+        if not tickers:
             return
-        x0 = (history[0][0] - history[0][0]).days  # 0
-        x_max = (history[-1][0] - history[0][0]).days or 1
-        points = []
-        for d, v in history:
-            px = x + (d - history[0][0]).days / x_max * w
-            py = y + h - (v - ymin) / span * h
-            points.append((px, py))
-        draw.line(points, fill=color, width=width, joint="curve")
+
+        slots = max(len(tickers), 1)
+        # Tight gap on small counts, looser gap once the row fills up,
+        # so a 3-ticker row doesn't look unintentionally airy.
+        gap = 20 if slots >= 6 else 28
+        cell_w = (w - gap * (slots - 1)) // slots
+        cell_h = h
+        # Center the strip horizontally within the requested width
+        # when there are fewer than 10 slots so a short row still
+        # feels balanced under the hero number.
+        used_w = slots * cell_w + (slots - 1) * gap
+        offset_x = x + (w - used_w) // 2
+
+        # Card backdrop. Opaque white with rounded corners; invisible
+        # against a white-page bg, visible as a soft pill against a
+        # dark bg -- gives the dark logo wordmarks somewhere to live.
+        # The padding values are tuned so the card hugs the row of
+        # logos with a bit of breathing room on all sides.
+        backdrop = ImageDraw.Draw(canvas)
+        pad_x = 24
+        pad_y = 18
+        backdrop.rounded_rectangle(
+            (
+                offset_x - pad_x,
+                y - pad_y,
+                offset_x + used_w + pad_x,
+                y + cell_h + pad_y,
+            ),
+            radius=20,
+            fill=(255, 255, 255, 255),
+        )
+
+        for idx, ticker in enumerate(tickers):
+            cell_x = offset_x + idx * (cell_w + gap)
+            logo = self._load_logo_for_og(ticker, cell_w, cell_h)
+            if logo is None:
+                continue
+            # Center the logo within its cell -- horizontally because
+            # narrow logos otherwise hug the left edge, and
+            # vertically so wide logos line up on a consistent
+            # midline with square ones.
+            paste_x = cell_x + (cell_w - logo.width) // 2
+            paste_y = y + (cell_h - logo.height) // 2
+            canvas.paste(logo, (paste_x, paste_y), logo)
 
     @staticmethod
     def _footer(update_date: str, update_iso: str) -> str:

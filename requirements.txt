@@ -3,4 +3,5 @@ yfinance
 requests
 python-dateutil
 Pillow
+cairosvg
 scipy

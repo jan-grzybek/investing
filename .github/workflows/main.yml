@@ -27,6 +27,14 @@ jobs:
         with:
           python-version: '3.13'
 
+      - name: Install system deps
+        # ``cairosvg`` (used to rasterise the SVG holding logos in
+        # the OG image) needs the system-level ``libcairo2`` shared
+        # library; pip can't install that for us.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libcairo2
+
       - name: Install deps
         run: pip install -r requirements.txt
 
