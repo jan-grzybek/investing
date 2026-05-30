@@ -163,6 +163,7 @@ def _build_dataset() -> dict:
     ]
     allocation = {"Equities": 88.3, "Cash & Cash Equivalents": 11.7}
     top_10 = {h["ticker"]: h["current_weight%"] for h in current}
+    trades = _build_trade_events(end)
     return {
         "total_return": total_return,
         "benchmarks": benchmarks,
@@ -170,7 +171,99 @@ def _build_dataset() -> dict:
         "historical": historical,
         "allocation": allocation,
         "top_10": top_10,
+        "trades": trades,
     }
+
+
+def _trade(
+    ticker: str,
+    name: str,
+    currency: str,
+    category: str,
+    price: float,
+    start: datetime,
+    end: datetime | None = None,
+    delta_pct: float | None = None,
+) -> dict:
+    """Shape matches what ``Holding.trade_events`` produces in production.
+
+    ``delta_pct`` is the magnitude of the position change as a
+    percentage of the pre-burst holding (set on INCREASE / DECREASE
+    rows, ``None`` on OPEN / CLOSE). In production it's derived by
+    ``_combine_trade_events`` from per-event ``pre_quantity``; the
+    preview short-circuits that computation and just sets the value
+    directly so we don't have to thread synthetic quantities all the
+    way through.
+    """
+    return {
+        "ticker": ticker,
+        "name": name,
+        "currency": currency,
+        "category": category,
+        "price": price,
+        "start_date": start,
+        "end_date": end or start,
+        "delta_pct": delta_pct,
+    }
+
+
+def _build_trade_events(today: datetime) -> list[dict]:
+    """Synthesise a believable recent-trades log for the preview.
+
+    Each entry mimics one of the four real categories
+    (``OPEN`` / ``INCREASE`` / ``DECREASE`` / ``CLOSE``) and includes
+    a couple of multi-day bursts so the "rolling-month combined"
+    rendering is exercised. The list is intentionally a mix of
+    tickers that also appear in ``current``/``historical`` so the
+    logos resolve and the cross-section linking feels coherent. The
+    ``delta_pct`` values on INCREASE / DECREASE rows are made up but
+    plausible so the badge text demonstrates the magnitude readout
+    in the rendered preview."""
+    events = [
+        _trade("NMS:NVDA",   "NVIDIA Corporation",
+               "USD", "INCREASE", 921.40,
+               datetime(2025, 1, 14),
+               delta_pct=32.0),
+        _trade("NYQ:CRM",    "Salesforce, Inc.",
+               "USD", "OPEN",     247.85,
+               datetime(2024, 5, 22), datetime(2024, 6, 11)),
+        _trade("NMS:BIDU",   "Baidu, Inc.",
+               "USD", "CLOSE",     98.30,
+               datetime(2024, 4, 12)),
+        _trade("DUS:SSU.DU", "SAP SE",
+               "EUR", "OPEN",     181.25,
+               datetime(2024, 7, 1)),
+        _trade("NYQ:UNH",    "UnitedHealth Group Inc.",
+               "USD", "INCREASE", 472.10,
+               datetime(2024, 3, 17), datetime(2024, 4, 9),
+               delta_pct=100.0),
+        _trade("NMS:META",   "Meta Platforms, Inc.",
+               "USD", "DECREASE", 504.60,
+               datetime(2024, 2, 23),
+               delta_pct=25.0),
+        _trade("NMS:FRSH",   "Freshworks Inc.",
+               "USD", "CLOSE",     15.85,
+               datetime(2024, 11, 30)),
+        _trade("NMS:FRSH",   "Freshworks Inc.",
+               "USD", "OPEN",      13.40,
+               datetime(2024, 1, 22)),
+        _trade("NMS:LRCX",   "Lam Research Corporation",
+               "USD", "OPEN",     742.30,
+               datetime(2024, 1, 8)),
+        _trade("NMS:GOOGL",  "Alphabet Inc.",
+               "USD", "OPEN",     142.65,
+               datetime(2024, 2, 1)),
+        _trade("NMS:NVDA",   "NVIDIA Corporation",
+               "USD", "OPEN",     458.20,
+               datetime(2023, 8, 14), datetime(2023, 9, 5)),
+    ]
+    # Filter against the preview's effective ``today`` so a stale
+    # repo clone (or a future tweak of the synthetic dates) still
+    # produces a list bounded to the last 5 years.
+    cutoff = today - timedelta(days=int(365.2425 * 5))
+    events = [e for e in events if e["end_date"] >= cutoff]
+    return sorted(events, key=lambda e: (e["end_date"], e["start_date"]),
+                  reverse=True)
 
 
 def render(out_dir: Path) -> Path:
@@ -199,6 +292,7 @@ def render(out_dir: Path) -> Path:
             page.add_holding(h)
         for h in data["historical"]:
             page.add_holding(h)
+        page.add_trades(data["trades"])
         page.save()
     finally:
         os.chdir(cwd)

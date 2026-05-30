@@ -647,6 +647,291 @@ class TestTicker:
         assert len(calls) == 1
 
 
+def _trade_event(
+    *,
+    ticker="NMS:AAA",
+    name="Alpha Inc.",
+    currency="USD",
+    category="OPEN",
+    price=100.0,
+    start=None,
+    end=None,
+    delta_pct=None,
+):
+    """Match the shape ``Holding.trade_events`` produces."""
+    start = start or datetime(2024, 6, 1)
+    end = end or start
+    return {
+        "ticker": ticker,
+        "name": name,
+        "currency": currency,
+        "category": category,
+        "price": price,
+        "start_date": start,
+        "end_date": end,
+        "delta_pct": delta_pct,
+    }
+
+
+class TestAddTrades:
+    def test_renders_one_card_per_event(self, stub_logo_lookup):
+        w = Webpage()
+        w.add_trades([
+            _trade_event(ticker="NMS:AAA", category="OPEN"),
+            _trade_event(ticker="NMS:BBB", category="CLOSE",
+                         start=datetime(2024, 5, 1)),
+        ])
+        assert len(w.trades) == 2
+        assert all('class="trade"' in card for card in w.trades)
+
+    def test_no_trades_means_no_cards(self, stub_logo_lookup):
+        w = Webpage()
+        w.add_trades([])
+        assert w.trades == []
+
+    def test_category_drives_badge_modifier(self, stub_logo_lookup):
+        # Each category maps to its own pill colour via a BEM modifier
+        # so a reader scanning the list can identify the kind of
+        # action at a glance.
+        w = Webpage()
+        w.add_trades([
+            _trade_event(category="OPEN"),
+            _trade_event(category="INCREASE", delta_pct=30.0),
+            _trade_event(category="DECREASE", delta_pct=25.0),
+            _trade_event(category="CLOSE"),
+        ])
+        assert "trade__badge--open"     in w.trades[0]
+        assert "trade__badge--increase" in w.trades[1]
+        assert "trade__badge--decrease" in w.trades[2]
+        assert "trade__badge--close"    in w.trades[3]
+        # Labels are past tense ("Initiated" / "Divested") because
+        # this section is an executed-trades log -- everything shown
+        # has already happened. The verbs come from the long-term-
+        # investor / fund-letter idiom so they pair with the rest of
+        # the page's "owner of businesses" framing. INCREASE /
+        # DECREASE rows attach " by X%" so the scale lands in the
+        # same glance as the verb; the magnitude is whole-number
+        # (one-decimal precision is reserved for the performance /
+        # return rows where it's meaningful). The ``open`` / ``close``
+        # modifier slugs stay aligned with the underlying tokens so
+        # the CSS keeps describing what the badge marks regardless
+        # of the surface label choice.
+        assert ">Initiated<"          in w.trades[0]
+        assert ">Increased by 30%<"   in w.trades[1]
+        assert ">Decreased by 25%<"   in w.trades[2]
+        assert ">Divested<"           in w.trades[3]
+
+    def test_single_day_trade_renders_one_date_not_a_range(
+        self, stub_logo_lookup,
+    ):
+        # Bursts of one event collapse to a single date -- rendering
+        # "Jan 14, 2025 - Jan 14, 2025" would read as a typo.
+        w = Webpage()
+        w.add_trades([
+            _trade_event(start=datetime(2025, 1, 14)),
+        ])
+        card = w.trades[0]
+        assert "Jan 14, 2025" in card
+        # No date separator -- the en-dash is only used for ranges.
+        assert "&ndash;" not in card
+
+    def test_multi_day_burst_renders_date_range(self, stub_logo_lookup):
+        w = Webpage()
+        w.add_trades([
+            _trade_event(
+                start=datetime(2024, 5, 22),
+                end=datetime(2024, 6, 11),
+            ),
+        ])
+        card = w.trades[0]
+        # Both ends wrapped in <time> for machine readability; visible
+        # label uses the page-wide ``%b %-d, %Y`` convention.
+        assert '<time datetime="2024-05-22">May 22, 2024</time>' in card
+        assert '<time datetime="2024-06-11">Jun 11, 2024</time>' in card
+        # Separated by an en-dash, not a hyphen, to mirror how the
+        # holding cards render closed periods elsewhere on the page.
+        assert "&ndash;" in card
+
+    def test_price_carries_currency_prefix(self, stub_logo_lookup):
+        # Prices in the security's native currency; the ISO code is
+        # prefixed (not suffixed) and the ``@`` glyph reads as the
+        # finance shorthand "at the price of". A multi-market
+        # portfolio mixes EUR / USD / GBp etc., so a leading ``$``
+        # would silently misrepresent them.
+        w = Webpage()
+        w.add_trades([
+            _trade_event(price=247.85, currency="USD"),
+            _trade_event(price=181.25, currency="EUR"),
+        ])
+        assert ">@ USD 247.85<" in w.trades[0]
+        assert ">@ EUR 181.25<" in w.trades[1]
+
+    def test_price_uses_thousands_separator(self, stub_logo_lookup):
+        # Large prices (GBp pence quotes, JPY etc.) get a comma so a
+        # 4-digit number is readable at a glance.
+        w = Webpage()
+        w.add_trades([
+            _trade_event(price=4820.50, currency="GBp"),
+        ])
+        assert ">@ GBp 4,820.50<" in w.trades[0]
+
+    def test_delta_pct_renders_only_for_increase_and_decrease(
+        self, stub_logo_lookup,
+    ):
+        # OPEN ("Initiated") and CLOSE ("Divested") have no meaningful
+        # denominator: there's no prior holding to compare to on the
+        # way in, and the whole position is gone on the way out.
+        # Surfacing a percentage on those rows would either divide
+        # by zero or read as redundant "100% Divested" noise next to
+        # the verb that already conveys the magnitude.
+        w = Webpage()
+        w.add_trades([
+            _trade_event(category="OPEN",     delta_pct=None),
+            _trade_event(category="CLOSE",    delta_pct=None),
+            _trade_event(category="INCREASE", delta_pct=42.0),
+            _trade_event(category="DECREASE", delta_pct=10.0),
+        ])
+        assert ">Initiated<" in w.trades[0]
+        assert ">Divested<"  in w.trades[1]
+        # No stray "%" on OPEN / CLOSE badges, and crucially no
+        # "by" prefix slipping in either (would happen if the
+        # renderer fell through to the magnitude branch).
+        for closed in (w.trades[0], w.trades[1]):
+            badge_text = closed.split('trade__badge')[1].split('</span>')[0]
+            assert "%"  not in badge_text
+            assert " by " not in badge_text
+        assert ">Increased by 42%<" in w.trades[2]
+        assert ">Decreased by 10%<" in w.trades[3]
+
+    def test_delta_pct_renders_as_whole_number(self, stub_logo_lookup):
+        # Whole-number percentages by design in this section: the
+        # one-decimal page convention from ``_fmt_pct`` is reserved
+        # for the performance rows where that extra digit is
+        # meaningful. For position-change magnitudes a 4% vs 4.3%
+        # split is below the noise floor of how we report sizes.
+        w = Webpage()
+        w.add_trades([
+            _trade_event(category="INCREASE", delta_pct=30.0),
+            _trade_event(category="INCREASE", delta_pct=100.0),
+            _trade_event(category="DECREASE", delta_pct=99.5),
+            _trade_event(category="INCREASE", delta_pct=42.4),
+        ])
+        assert ">Increased by 30%<"  in w.trades[0]
+        assert ">Increased by 100%<" in w.trades[1]
+        # 99.5 rounds up to 100; 42.4 rounds down to 42 -- standard
+        # banker's-rounding-adjacent ``{:.0f}`` behaviour, which is
+        # close enough to "round half to even" that the rendering
+        # convention is uncontroversial for the values that show up
+        # in practice.
+        assert ">Decreased by 100%<" in w.trades[2]
+        assert ">Increased by 42%<"  in w.trades[3]
+
+    def test_ticker_and_name_appear_in_title(self, stub_logo_lookup):
+        w = Webpage()
+        w.add_trades([
+            _trade_event(ticker="NMS:NVDA", name="NVIDIA Corporation"),
+        ])
+        card = w.trades[0]
+        # Combined "TICKER - Name" header, same pattern as the
+        # holding cards.
+        assert "NMS:NVDA - NVIDIA Corporation" in card
+
+    def test_logo_is_lazy_loaded_with_dimensions(self, stub_logo_lookup):
+        # Below-the-fold logos in the trades section reuse the same
+        # lazy-loading + reserved dimensions discipline as the holding
+        # cards so CLS stays at zero while the bitmaps stream in.
+        w = Webpage()
+        w.add_trades([_trade_event()])
+        card = w.trades[0]
+        assert 'class="trade__logo"' in card
+        assert 'loading="lazy"' in card
+        assert 'decoding="async"' in card
+        assert 'width="48"' in card
+        assert 'height="48"' in card
+
+    def test_name_and_currency_are_html_escaped(self, stub_logo_lookup):
+        # Even though tickers/names are sourced from a trusted sheet,
+        # we still escape so an "&" or "<" in a security name can't
+        # break the rendered HTML.
+        w = Webpage()
+        w.add_trades([
+            _trade_event(name="S&P Global Inc."),
+        ])
+        card = w.trades[0]
+        assert "S&amp;P Global Inc." in card
+        # No raw ``&P`` leaks.
+        assert "S&P Global" not in card
+
+
+class TestSaveTradesSection:
+    def test_save_emits_trades_section_when_present(
+        self, stub_logo_lookup, chdir_tmp, freeze_today,
+    ):
+        freeze_today(datetime(2025, 6, 1))
+        w = Webpage()
+        w.add_return(_total_return(), [])
+        w.add_trades([
+            _trade_event(ticker="NMS:AAA", category="OPEN",
+                         start=datetime(2024, 1, 1)),
+        ])
+        w.save()
+        out = (chdir_tmp / "index.html").read_text()
+        # Section anchor + heading + methodology subtitle are present.
+        assert 'id="trades"' in out
+        assert "Recent trades" in out
+        assert "Last 5 years" in out
+        assert "rolling 30-day window" in out
+        # Nav picks up the new section once trades are present.
+        assert 'href="#trades"' in out
+        # Section sits below historical / current sections in the
+        # source order so the activity log reads as detail after the
+        # high-level portfolio summary.
+        idx_perf = out.index('id="performance"')
+        idx_trades = out.index('id="trades"')
+        assert idx_perf < idx_trades
+
+    def test_save_skips_trades_section_when_empty(
+        self, stub_logo_lookup, chdir_tmp, freeze_today,
+    ):
+        freeze_today(datetime(2025, 6, 1))
+        w = Webpage()
+        w.add_return(_total_return(), [])
+        # No add_trades call -> ``self.trades`` is empty.
+        w.save()
+        out = (chdir_tmp / "index.html").read_text()
+        # Anchor, heading element, and nav link are all gone. We
+        # match the rendered ``<h2>`` heading rather than the bare
+        # "Recent trades" substring -- the section's name also lives
+        # in a CSS comment in the embedded stylesheet, so a plain
+        # substring search would yield a false positive.
+        assert 'id="trades"' not in out
+        assert ">Recent trades</h2>" not in out
+        assert 'href="#trades"' not in out
+        assert 'class="trade"' not in out
+
+    def test_save_trades_after_historical_section(
+        self, stub_logo_lookup, chdir_tmp, freeze_today,
+    ):
+        # When the page carries both the historical holdings section
+        # and the trades section, trades appears last so the page
+        # reads as: performance -> current -> historical -> activity.
+        freeze_today(datetime(2025, 6, 1))
+        w = Webpage()
+        w.add_return(_total_return(), [])
+        w.add_holding(_holding(
+            ticker="NMS:OLD",
+            is_current=False, weight=None,
+            periods=[{"start": datetime(2022, 1, 1),
+                      "end": datetime(2023, 1, 1)}],
+        ))
+        w.add_trades([_trade_event(start=datetime(2024, 1, 1))])
+        w.save()
+        out = (chdir_tmp / "index.html").read_text()
+        idx_hist = out.index('id="historical"')
+        idx_trades = out.index('id="trades"')
+        assert idx_hist < idx_trades
+
+
 class TestRenderBars:
     def test_returns_empty_string_when_no_rows(self):
         assert Webpage._render_bars([], "allocation") == ""

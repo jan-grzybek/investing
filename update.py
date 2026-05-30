@@ -27,7 +27,7 @@ import sys
 import traceback
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import gspread
 import numpy as np
@@ -169,6 +169,146 @@ def combine_and_sort(transactions):
 
 
 # ---------------------------------------------------------------------------
+# Recent-trades aggregation
+# ---------------------------------------------------------------------------
+#
+# Each ``Holding`` records a raw "trade event" for every BUY/SELL it
+# processes, tagged with one of four semantic categories that describe
+# what the trade did to the position:
+#
+#   OPEN     - first BUY after the position was empty (0 -> >0)
+#   INCREASE - BUY on top of an existing position (>0 -> >0)
+#   DECREASE - SELL that leaves a non-zero residual position (>0 -> >0)
+#   CLOSE    - SELL that brings the position back to zero (>0 -> 0)
+#
+# Bursts of small same-action trades within a rolling 30-day window get
+# folded into a single reported trade with a volume-weighted average
+# per-share price -- the granularity that matters to the reader is "did
+# the position open / grow / shrink / close around this time?", not
+# every individual fill.
+
+TRADE_WINDOW_DAYS = 30
+TRADES_YEARS_BACK = 5
+
+# Reading these as a buy-vs-sell action partitions the four categories
+# along the only axis that matters for grouping (same-action trades go
+# together) and for picking the group's effective category (first event
+# decides BUY bursts, last event decides SELL bursts).
+_BUY_CATEGORIES = frozenset({"OPEN", "INCREASE"})
+
+# Order used by the renderer; values double as the BEM modifier slug
+# appended to the badge class. Keys are the canonical category tokens
+# stored on each trade event. Labels are in the past tense because
+# this section is an executed-trades log -- everything shown has
+# already happened, so "Initiated" / "Increased" read as accurate
+# event reports rather than the ongoing-action gerunds we'd want on
+# a live order book. The verbs themselves ("Initiated" / "Divested")
+# come from the long-term-investor / fund-letter idiom that
+# describes positions as ownership stakes rather than tradable
+# instruments. The renderer attaches " by X%" to the magnitude-
+# bearing INCREASE / DECREASE labels at render time, so the dict
+# stays a flat verb table and an INCREASE row missing a ``delta_pct``
+# degrades to a sensible "Increased" badge rather than a broken
+# "Increased by" prefix. The BEM modifiers stay aligned with the
+# underlying token (``open`` / ``close``) so the CSS keeps reading
+# as "this badge marks an open / close" regardless of which surface
+# verb we pick.
+_TRADE_CATEGORY_DISPLAY: dict[str, tuple[str, str]] = {
+    "OPEN":     ("Initiated", "open"),
+    "INCREASE": ("Increased", "increase"),
+    "DECREASE": ("Decreased", "decrease"),
+    "CLOSE":    ("Divested",  "close"),
+}
+
+
+def _combine_trade_events(events, *, window_days: int = TRADE_WINDOW_DAYS):
+    """Fold a ticker's raw trade events into burst-level rows.
+
+    Walks ``events`` chronologically and joins each event to the
+    running group iff (a) the group has the same action (BUY/SELL),
+    and (b) the span between the group's first event and the new event
+    is at most ``window_days``. Anchoring on the FIRST event (rather
+    than the most recent) caps each combined burst at ~one calendar
+    month -- the user-facing meaning of "rolling month" here is "a
+    contiguous run of small trades whose first-to-last span fits inside
+    a 30-day window", not a sliding window that can keep extending
+    indefinitely as long as consecutive trades stay close.
+
+    Each combined record carries:
+
+    * ``start_date`` / ``end_date`` -- first and last event in the burst;
+    * ``price``                     -- volume-weighted average of the burst;
+    * ``category``                  -- ``OPEN`` / ``INCREASE`` for BUYs and
+                                       ``DECREASE`` / ``CLOSE`` for SELLs.
+
+    Category resolution follows the boundary that matters semantically:
+    a BUY burst is "Initiated" if the first event opened the position
+    (regardless of any subsequent INCREASEs that piled on within the
+    window); a SELL burst is "Divested" if the last event zeroed the
+    position out (regardless of preceding partial DECREASEs).
+    """
+    if not events:
+        return []
+    events = sorted(events, key=lambda e: e["date"])
+    groups: list[list[dict]] = []
+    for event in events:
+        action = "BUY" if event["category"] in _BUY_CATEGORIES else "SELL"
+        if groups:
+            head = groups[-1][0]
+            head_action = "BUY" if head["category"] in _BUY_CATEGORIES else "SELL"
+            within_window = (event["date"] - head["date"]).days <= window_days
+            if head_action == action and within_window:
+                groups[-1].append(event)
+                continue
+        groups.append([event])
+
+    combined: list[dict] = []
+    for group in groups:
+        total_qty = sum(e["quantity"] for e in group)
+        # ``quantity`` is always positive here (the sheet ingestion
+        # rejects zero / negative rows), so the divide is safe.
+        weighted_price = (
+            sum(e["quantity"] * e["price"] for e in group) / total_qty
+        )
+        # BUY bursts inherit their effective category from the FIRST
+        # event (did this burst open the position?); SELL bursts from
+        # the LAST one (did this burst close the position?).
+        if group[0]["category"] in _BUY_CATEGORIES:
+            category = group[0]["category"]
+        else:
+            category = group[-1]["category"]
+        # Magnitude of the position change expressed as a percentage
+        # of the pre-burst holding -- e.g. holding 1,000 shares and
+        # buying another 1,000 reads as "+100%"; holding 1,000 and
+        # selling 500 reads as "50%". Only meaningful for INCREASE /
+        # DECREASE rows: OPEN has no prior position to compare to
+        # (division by zero) and CLOSE always zeros the holding out,
+        # so the badge text "Divested" already conveys the magnitude.
+        # The denominator is the FIRST event's pre-trade quantity --
+        # i.e. the holding right before the burst started -- so the
+        # ratio reads as "what fraction did this whole burst add to /
+        # remove from what we held going in?". Numerator is the sum
+        # of raw trade quantities in the burst. We accept a small
+        # inaccuracy when a stock-split lands mid-burst (the
+        # split-adjusted denominator is the right share frame for
+        # the first event but later events live in a post-split
+        # frame); splits inside a 30-day window are vanishingly rare
+        # on the portfolios this page targets.
+        pre_quantity = group[0].get("pre_quantity", 0)
+        delta_pct: float | None = None
+        if category in ("INCREASE", "DECREASE") and pre_quantity > 0:
+            delta_pct = total_qty / pre_quantity * 100
+        combined.append({
+            "start_date": group[0]["date"],
+            "end_date": group[-1]["date"],
+            "price": weighted_price,
+            "category": category,
+            "delta_pct": delta_pct,
+        })
+    return combined
+
+
+# ---------------------------------------------------------------------------
 # Per-ticker bookkeeping
 # ---------------------------------------------------------------------------
 
@@ -182,6 +322,12 @@ class Holding:
         self._periods: list[dict] = []
         self._inflows: list[dict] = []
         self._outflows: list[dict] = []
+        # Per-trade events with their semantic category. Populated by
+        # ``buy``/``sell`` as a side-effect; the categorisation needs
+        # the pre-trade (BUY) or post-trade (SELL) position quantity
+        # which those methods already have in hand, so we record the
+        # event there rather than re-deriving it later.
+        self._trade_events: list[dict] = []
 
     def _get_splits_dividends(self):
         splits = []
@@ -222,11 +368,30 @@ class Holding:
             current_quantity = self._positions[-1]["quantity"]
         except IndexError:
             current_quantity = 0
+        # Decide OPEN vs INCREASE on the pre-trade quantity. A
+        # subsequent split adjustment is a multiplicative factor
+        # that can't flip a non-zero quantity to zero, so this branch
+        # is stable across the ``elif`` below -- but we DO need the
+        # split-adjusted figure (computed in that ``elif``) for the
+        # ``pre_quantity`` we expose to the renderer: the "% increase
+        # over previous state" must be measured in the share frame
+        # that ``trade.quantity`` is denominated in, otherwise a 2:1
+        # split between the last position write and this BUY would
+        # silently halve the reported denominator and overstate the
+        # percentage.
+        category = "OPEN" if current_quantity == 0 else "INCREASE"
         if current_quantity == 0:
             self._periods.append({"start": trade.date, "end": None})
         elif trade.date > self._positions[-1]["date"]:
             current_quantity = self._apply_splits_between(
                 current_quantity, self._positions[-1]["date"], trade.date)
+        self._trade_events.append({
+            "date": trade.date,
+            "price": trade.price,
+            "quantity": trade.quantity,
+            "category": category,
+            "pre_quantity": current_quantity,
+        })
         self._inflows.append({
             "date": trade.date,
             "value": trade.quantity * trade.price * exchange_rate(self._info["currency"], trade.date),
@@ -244,7 +409,22 @@ class Holding:
         if trade.date > self._positions[-1]["date"]:
             current_quantity = self._apply_splits_between(
                 current_quantity, self._positions[-1]["date"], trade.date)
-        if current_quantity - trade.quantity == 0:
+        is_closing = (current_quantity - trade.quantity == 0)
+        # Categorise as CLOSE iff this SELL would zero the position
+        # out (in the same split-adjusted units the rest of this
+        # method uses). Otherwise it's a partial DECREASE.
+        # ``pre_quantity`` carries the split-adjusted holding right
+        # before this SELL so the combiner can compute "X% decrease
+        # over previous state" using a denominator denominated in the
+        # same share frame as ``trade.quantity``.
+        self._trade_events.append({
+            "date": trade.date,
+            "price": trade.price,
+            "quantity": trade.quantity,
+            "category": "CLOSE" if is_closing else "DECREASE",
+            "pre_quantity": current_quantity,
+        })
+        if is_closing:
             self._periods[-1]["end"] = trade.date
         self._outflows.append({
             "date": trade.date,
@@ -292,6 +472,43 @@ class Holding:
                 else:
                     break
         return outflows
+
+    def trade_events(
+        self,
+        *,
+        window_days: int = TRADE_WINDOW_DAYS,
+        years_back: int = TRADES_YEARS_BACK,
+        today: datetime | None = None,
+    ) -> list[dict]:
+        """Return this ticker's burst-aggregated trades for the
+        "Recent trades" section.
+
+        Bursts older than ``years_back`` (measured against the burst's
+        most recent event) are dropped so the page focuses on recent
+        activity. Each kept row is decorated with the identifying
+        ``ticker`` / ``name`` / ``currency`` so the renderer can
+        produce a self-contained card without holding a reference to
+        the originating ``Holding``."""
+        today = today or datetime.today()
+        # Use the calendar-aware ``years`` accessor (via ``timedelta``
+        # times the average year length) rather than ``replace(year=...)``,
+        # which would fail on Feb 29 -- the cutoff doesn't need to be
+        # exact to the day for a 5-year retention window.
+        cutoff = today - timedelta(days=DAYS_YEAR * years_back)
+        combined = _combine_trade_events(
+            self._trade_events, window_days=window_days,
+        )
+        result: list[dict] = []
+        for event in combined:
+            if event["end_date"] < cutoff:
+                continue
+            result.append({
+                **event,
+                "ticker": f"{self._info['exchange']}:{self._info['symbol']}",
+                "name": self._info["longName"],
+                "currency": self._info["currency"],
+            })
+        return result
 
     def summary(self):
         outflows = self._add_dividends()
@@ -425,16 +642,30 @@ def get_holdings(transactions):
 
     current_holdings = []
     historical_holdings = []
+    trade_events: list[dict] = []
     for holding in holdings.values():
         summary = holding.summary()
         if summary["is_current"]:
             current_holdings.append(summary)
         else:
             historical_holdings.append(summary)
+        # Per-ticker bursts are grouped within each ``Holding`` and
+        # then merged into one global, newest-first list so the page
+        # reads like a chronological activity log across the whole
+        # portfolio.
+        trade_events.extend(holding.trade_events())
 
     return {
         "current": sorted(current_holdings, key=lambda item: item["latest_buy"], reverse=True),
         "historical": sorted(historical_holdings, key=lambda item: item["latest_sell"], reverse=True),
+        # Sort by the burst's most recent event (so a multi-day burst
+        # ranks by when it finished). Ties are broken by start date,
+        # which only matters on synthetic / same-day-only data sets.
+        "trades": sorted(
+            trade_events,
+            key=lambda e: (e["end_date"], e["start_date"]),
+            reverse=True,
+        ),
     }
 
 
@@ -1034,6 +1265,101 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
 .holding__stats dd { margin: 0; text-align: right; font-weight: 600; }
 .value--positive { color: var(--positive); }
 .value--negative { color: var(--negative); }
+/* Intro paragraph under a section title (e.g. the methodology note
+   beneath "Recent trades"). Sits on its own row, slightly muted, so
+   the reader can skip it once they've internalised the rule. */
+.section__intro {
+  margin: -4px 0 16px;
+  color: var(--muted);
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  max-width: 64ch;
+}
+/* Burst-aggregated trade capsule. Visually parallel to ``.holding`` so
+   the page reads as a single family of cards: a logo on the left, a
+   ticker/date block in the middle, and right-rail metadata (category
+   badge + per-share price). The logo column is narrower than on a
+   holding card (these capsules carry less per-row content and benefit
+   from a tighter look) and the meta column packs the badge above the
+   price in a small vertical stack. */
+.trade {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px 18px;
+  padding: 14px 18px;
+  margin-top: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card-bg);
+}
+.trade__logo {
+  width: 100%;
+  max-width: 64px;
+  max-height: 48px;
+  object-fit: contain;
+  justify-self: center;
+}
+.trade__body { min-width: 0; }
+.trade__title {
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.trade__period {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+}
+.trade__meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  white-space: nowrap;
+}
+/* Solid-pill badge so the four categories pop visually at a glance
+   when scanning a long list of trades. Uppercase + letter-spacing
+   gives it the "label" affordance a typographic reader expects from
+   a category tag and distinguishes it cleanly from the prose around
+   it. ``color: #fff`` (and the matching pure-black override in dark
+   mode below) is set independently of ``--bg`` so the contrast
+   against the saturated fills stays high regardless of the page's
+   ambient surface luminance. */
+.trade__badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #ffffff;
+  /* The badge fills sit on coloured chips and overlap any
+     ``background`` ancestor; making the box-shadow none keeps the
+     pill flush. */
+  box-shadow: none;
+}
+/* Four category fills, chosen so the actions sit on a meaningful
+   diverging palette: greens / blues mark "moving into" a position
+   (Initiated full-on, or Increased exposure), warm orange marks
+   pulling back (Decreased), and red marks the full exit (Divested).
+   Increased uses the secondary brand blue rather than the primary
+   accent orange so the warmer hue is reserved for de-risking
+   actions, which a reader is likely scanning for at a glance.
+   Decreased then earns the primary accent. */
+.trade__badge--open     { background: var(--positive); }
+.trade__badge--increase { background: var(--accent-bench); }
+.trade__badge--decrease { background: var(--accent); }
+.trade__badge--close    { background: var(--negative); }
+.trade__price {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
 .bars {
   display: flex;
   flex-direction: column;
@@ -1385,6 +1711,39 @@ footer a { color: var(--accent-bench); }
      column 3. Historical rows simply leave column 3 empty. */
   .holding__stat:nth-child(2) { justify-self: center; }
   .holding__stat:nth-child(3) { justify-self: end; }
+  /* Trade capsule stacks the right-rail meta (badge + price)
+     into its own row underneath the logo+body block. Same
+     layout idea as ``.holding`` on mobile, scaled for the
+     trade card's denser content. The meta row uses
+     ``justify-content: space-between`` so the badge hugs the
+     left (under the logo column visually) and the price hugs
+     the right -- mirroring how a reader scans the desktop row
+     left-to-right. */
+  .trade {
+    grid-template-columns: 44px minmax(0, 1fr);
+    grid-template-areas:
+      "logo body"
+      "meta meta";
+    align-items: start;
+    gap: 10px 12px;
+    padding: 12px;
+  }
+  .trade__logo {
+    grid-area: logo;
+    max-width: 44px;
+    max-height: 44px;
+    align-self: center;
+  }
+  .trade__body { grid-area: body; }
+  .trade__title { font-size: 0.9375rem; }
+  .trade__meta {
+    grid-area: meta;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    padding-top: 6px;
+    border-top: 1px solid var(--line);
+  }
   .returns-compare { padding: 14px 16px; }
   .returns-compare__col { column-gap: 14px; }
   .returns-compare__name { font-size: 1rem; gap: 10px; }
@@ -1585,6 +1944,11 @@ class Webpage:
         self.historical: list[str] = []
         self.allocation_pct: dict[str, float] | None = None
         self.top_10: dict[str, float] | None = None
+        # Pre-rendered HTML for each row in the "Recent trades"
+        # section, in newest-first order. Populated by
+        # ``add_trades``; an empty list omits the whole section
+        # (and its nav link) cleanly.
+        self.trades: list[str] = []
         # Logo URLs are looked up via HTTP HEAD; cache them so the
         # ticker and the holding card don't probe the same ticker
         # twice.
@@ -1617,6 +1981,17 @@ class Webpage:
     def add_allocations(self, allocation_pct, top_10):
         self.allocation_pct = allocation_pct
         self.top_10 = top_10
+
+    def add_trades(self, trade_events):
+        """Render each burst-aggregated trade event into a card.
+
+        ``trade_events`` is the newest-first list produced by
+        ``get_holdings`` (or by ``Holding.trade_events`` directly in
+        the preview/test paths). Cards are stored pre-rendered so the
+        page assembly in ``save()`` stays linear."""
+        self.trades = [
+            self._build_trade_card(event) for event in trade_events
+        ]
 
     def save(self):
         now = datetime.now()
@@ -1669,6 +2044,25 @@ class Webpage:
             parts.append('<section id="historical" class="section section--historical">')
             parts.append('<h2 class="section__title">Historical holdings</h2>')
             parts.append('\n'.join(self.historical))
+            parts.append('</section>')
+
+        if self.trades:
+            parts.append('<section id="trades" class="section section--trades">')
+            parts.append('<h2 class="section__title">Recent trades</h2>')
+            # Subtitle states the two methodology details the reader
+            # would otherwise have to infer from the data: how far
+            # back the section reaches, and what "combined" rows
+            # represent. Keeping it short here avoids cluttering the
+            # cards themselves.
+            parts.append(
+                '<p class="section__intro">'
+                f'Last {TRADES_YEARS_BACK} years. Trades within a '
+                f'rolling {TRADE_WINDOW_DAYS}-day window are combined '
+                'into a single entry at their volume-weighted average '
+                'per-share price.'
+                '</p>'
+            )
+            parts.append('\n'.join(self.trades))
             parts.append('</section>')
 
         parts.append('</main>')
@@ -1754,6 +2148,7 @@ class Webpage:
         ("performance", "Performance", "return_html"),
         ("current", "Current", "current"),
         ("historical", "Historical", "historical"),
+        ("trades", "Trades", "trades"),
     )
 
     def _build_site_header(self) -> str:
@@ -2500,6 +2895,87 @@ class Webpage:
             '</article>'
         )
 
+    def _build_trade_card(self, event) -> str:
+        """Render one burst-aggregated trade as a capsule.
+
+        The layout mirrors the holding cards (logo / body / right-rail
+        metadata) so the page reads as a consistent family of capsules
+        even when the reader scrolls between sections. The per-share
+        price is shown in the security's native currency, prefixed by
+        ``@`` and the ISO code (e.g. ``@ EUR 76.32``) -- the ``@``
+        glyph reads as the finance-shorthand "at the price of",
+        making the right-rail value unambiguously a transaction
+        price rather than some balance. Quantities are deliberately
+        absent: the page commits to publishing only relative
+        percentages and per-share prices, never nominal sizes.
+        """
+        label, modifier = _TRADE_CATEGORY_DISPLAY[event["category"]]
+        # INCREASE / DECREASE rows attach " by X%" so the scale of
+        # the action lands in the same glance as the verb. OPEN /
+        # CLOSE rows pass the bare label through -- the long-term-
+        # investor verbs ("Initiated" / "Divested") already read as
+        # complete actions, so no "position" suffix is needed to
+        # avoid sounding half-finished next to the magnitude-bearing
+        # rows. The percentage is rendered as a whole number -- this
+        # is the user-facing readout convention for this section
+        # specifically; the page-wide ``_fmt_pct`` helper that gives
+        # one decimal under 100 is reserved for the performance /
+        # return rows where that extra digit is meaningful.
+        delta_pct = event.get("delta_pct")
+        if (
+            event["category"] in ("INCREASE", "DECREASE")
+            and delta_pct is not None
+        ):
+            label = f"{label} by {delta_pct:.0f}%"
+        start = event["start_date"]
+        end = event["end_date"]
+        if start == end:
+            # Single-day bursts (the common case for one-off trades)
+            # render as a plain date rather than a "X - X" range,
+            # which would look like a typo.
+            period_html = (
+                f'<time datetime="{start.strftime("%Y-%m-%d")}">'
+                f'{_fmt_date(start)}</time>'
+            )
+        else:
+            period_html = (
+                f'<time datetime="{start.strftime("%Y-%m-%d")}">'
+                f'{_fmt_date(start)}</time>'
+                ' &ndash; '
+                f'<time datetime="{end.strftime("%Y-%m-%d")}">'
+                f'{_fmt_date(end)}</time>'
+            )
+        # Thousands separator + 2 decimals reads well across the full
+        # range of equity prices we ingest (sub-dollar US tickers up
+        # through GBp pence quotes in the thousands). The currency
+        # code prefix is unambiguous in a multi-market portfolio --
+        # a leading "$" would silently misrepresent a EUR or GBp
+        # trade as USD.
+        price_html = html.escape(
+            f"@ {event['currency']} {event['price']:,.2f}"
+        )
+        logo_url = self._get_logo_url(event["ticker"])
+        title = f"{event['ticker']} - {event['name']}"
+        return (
+            '<article class="trade">'
+            # Below-the-fold: lazy decoding + reserved dimensions to
+            # avoid CLS while logos stream in, mirroring the holding
+            # card's image attributes.
+            f'<img class="trade__logo" src="{html.escape(logo_url)}" '
+            'alt="" loading="lazy" decoding="async" '
+            'width="48" height="48">'
+            '<div class="trade__body">'
+            f'<h3 class="trade__title">{html.escape(title)}</h3>'
+            f'<p class="trade__period">{period_html}</p>'
+            '</div>'
+            '<div class="trade__meta">'
+            f'<span class="trade__badge trade__badge--{modifier}">'
+            f'{html.escape(label)}</span>'
+            f'<span class="trade__price">{price_html}</span>'
+            '</div>'
+            '</article>'
+        )
+
     def _build_holding_card(self, holding) -> str:
         stats: list[tuple[str, str, float | None]] = [
             # ``tsr%``/``cagr%``/``current_weight%`` are unrounded
@@ -2821,6 +3297,7 @@ def generate_webpage(total_return, benchmarks, holdings):
         webpage.add_holding(holding)
     for holding in holdings["historical"]:
         webpage.add_holding(holding)
+    webpage.add_trades(holdings.get("trades") or [])
     webpage.save()
 
 
