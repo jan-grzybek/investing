@@ -2,7 +2,22 @@ name: Update and deploy webpage
 
 on:
   schedule:
-    - cron: "30 8,14,20 * * *"
+    # Hourly during the union of regular trading hours of the major
+    # US (NYSE / NASDAQ) and European (LSE / Euronext / Xetra)
+    # exchanges, on weekdays. GitHub Actions cron schedules are
+    # always UTC with no DST awareness, so the window covers both
+    # halves of the year:
+    #   - LSE / Euronext / Xetra: 07:00-15:30 UTC (summer DST) or
+    #     08:00-16:30 UTC (winter), Mon-Fri.
+    #   - NYSE / NASDAQ: 13:30-20:00 UTC (summer) or 14:30-21:00
+    #     UTC (winter), Mon-Fri.
+    # Union: 07:00-21:00 UTC -> hours 7..21 inclusive (15 runs per
+    # weekday). Exchange holidays still trigger a run; the page
+    # generation is idempotent, so a no-op redeploy on those days
+    # is harmless. Note GitHub may delay scheduled runs by up to
+    # ~15 minutes during peak load, which is well below the
+    # 1-hour granularity here.
+    - cron: "0 7-21 * * 1-5"
   workflow_dispatch: {}
 
 permissions:

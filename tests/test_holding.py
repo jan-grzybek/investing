@@ -276,5 +276,8 @@ class TestSummary:
         summary = holding.summary()
         # TSR = 0.44 -> CAGR = (1.44) ** (DAYS_YEAR / length) - 1
         length = max((datetime(2026, 1, 1) - datetime(2024, 1, 1)).days, 1)
-        expected_cagr = round(((1.44) ** (DAYS_YEAR / length) - 1) * 100, 1)
+        # ``Holding.summary`` stores unrounded percentages so downstream
+        # callers can subtract or compound without leaking rounding
+        # error -- the expected matches that full precision.
+        expected_cagr = ((1.44) ** (DAYS_YEAR / length) - 1) * 100
         assert summary["cagr%"] == pytest.approx(expected_cagr)

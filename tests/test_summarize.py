@@ -81,12 +81,15 @@ class TestSummarize:
         )
 
         assert total == pytest.approx(100 + 50 + 110)
+        # ``summarize`` stores unrounded percentages so downstream
+        # math (the "Other equities" bucket sums these) stays
+        # precise; the expected values match that full precision.
         # Equity weight = 100 / 260
         assert holdings["allocation%"]["Equities"] == pytest.approx(
-            round(100 * 100 / 260, 1)
+            100 * 100 / 260
         )
         assert holdings["allocation%"]["Cash & Cash Equivalents"] == pytest.approx(
-            round(100 * 160 / 260, 1)
+            100 * 160 / 260
         )
 
     def test_holding_weights_are_in_percent_of_total(self, fx_one_to_one):

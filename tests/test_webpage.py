@@ -455,35 +455,52 @@ class TestAddHolding:
         # And the parent <ul> drives the 3-column grid layout from
         # CSS in <head>; the <li>s themselves use display: contents
         # so their three children land directly in those tracks.
-        # The track widths are FIXED (in em units) rather than
-        # ``max-content`` so every holding card on the page uses the
-        # same column widths -- that's what makes the dash and end
-        # date column line up across capsules, not just within a
-        # single card's multi-period stack.
+        # Track widths are ``max-content`` so each card sizes its
+        # own grid columns to the dates it actually contains. A
+        # single open period collapses column 3 to "Present"'s own
+        # ~3.5em width, which makes that row read as a tight phrase
+        # "<start> - Present" with the dash flanked symmetrically
+        # by only the column gap on each side -- no per-row CSS
+        # variable required. The earlier fixed-width 6.5em variant
+        # (and the special-case ``holding__period--open`` desktop
+        # override that compensated for it) is gone.
         full_html = w._head() + card
-        assert "grid-template-columns: 7em min-content 7em" in full_html
+        assert (
+            "grid-template-columns: max-content min-content max-content"
+            in full_html
+        )
         assert ".holding__periods li { display: contents; }" in full_html
         # ``justify-content: start`` is essential here: without it,
-        # CSS Grid's "Expand Stretched auto Tracks" step would
-        # distribute the leftover horizontal space inside the <ul>
-        # to any ``auto``-sized track, pushing the end-date column
-        # far to the right on wide viewports. ``min-content`` for
-        # the middle track is the second guard against that step.
+        # CSS Grid would distribute leftover horizontal space inside
+        # the <ul> across the tracks, opening visible gaps on wide
+        # viewports. With ``justify-content: start`` and content-
+        # sized tracks, the entire grid hugs the body's left edge
+        # and any leftover width spills past the last column.
         assert "justify-content: start" in full_html
-        # The start-date <time> is right-aligned inside its 7em
-        # cell so the date hugs the dash, giving symmetric ~0.5ch
-        # gaps on each side of the separator. Without this rule
-        # the trailing whitespace inside a left-aligned start cell
-        # (~1-2em) plus the column-gap on the dash's far side make
-        # the gap before the dash visibly larger than the gap after
-        # it -- which reads as broken visual rhythm.
-        assert ".holding__periods li > :first-child { text-align: end; }" in full_html
-        # Sanity guards: the old self-sizing variant (per-card
-        # alignment, no cross-card alignment) and the buggy
-        # auto-middle-track variant (cross-card alignment but a
-        # huge gap before the end date) must not regress.
-        assert "max-content max-content max-content" not in full_html
-        assert "7em auto 7em" not in full_html
+        # Default ``text-align: start`` for the start-date <time>
+        # combined with ``text-align: end`` on :last-child gives the
+        # spread "<start>  -  <end>" layout for closed periods,
+        # while the ``span:last-child`` override left-aligns the
+        # "Present" placeholder so it tucks against the dash --
+        # locally symmetric with the start date around the dash.
+        # The earlier inverse rule (start date hugging the dash,
+        # end date hugging the dash) is gone, and so is the
+        # desktop-only ``.holding__period--open > :first-child``
+        # override that used to compensate for fixed-width slack.
+        assert ".holding__periods li > :last-child { text-align: end; }" in full_html
+        assert (
+            ".holding__periods li > span:last-child { text-align: start; }"
+            in full_html
+        )
+        assert ".holding__periods li > :first-child { text-align: end; }" not in full_html
+        assert "holding__period--open" not in full_html
+        # Sanity guards against the prior fixed-width variants
+        # ("Present" desktop layout looked off because the start
+        # date's variable trailing slack created asymmetric gaps
+        # around the dash) and the prior loose 7em sizing.
+        assert "grid-template-columns: 6.5em" not in full_html
+        assert "grid-template-columns: 7em" not in full_html
+        assert "6.5em auto 6.5em" not in full_html
 
     def test_multiple_periods_stack_newest_first_as_list(
         self, stub_logo_lookup,
@@ -645,8 +662,10 @@ class TestRenderBars:
         # Special characters in labels get HTML-escaped.
         assert "Cash &amp; Cash Equivalents" in out
         # In allocation mode bar widths match the raw percentages.
-        assert "width: 95.4%" in out
-        assert "width: 4.6%" in out
+        # Width is rendered with two decimals for sub-pixel precision
+        # (the input ``value`` is now an unrounded float).
+        assert "width: 95.40%" in out
+        assert "width: 4.60%" in out
         assert out.count('class="bars__row"') == 2
 
     def test_value_is_emitted_between_label_and_bar(self):
@@ -676,11 +695,13 @@ class TestRenderBars:
             "equities",
             scale_to_max=True,
         )
-        # Largest holding fills its track entirely.
-        assert "width: 100.0%" in out
+        # Largest holding fills its track entirely. Width uses two
+        # decimals for sub-pixel precision since ``value`` is now an
+        # unrounded float upstream.
+        assert "width: 100.00%" in out
         # 25 / 50 = 50; 10 / 50 = 20.
-        assert "width: 50.0%" in out
-        assert "width: 20.0%" in out
+        assert "width: 50.00%" in out
+        assert "width: 20.00%" in out
         # Displayed percentages are still the raw values (not the scaled ones).
         assert ">50.0%</div>" in out
         assert ">25.0%</div>" in out
@@ -692,7 +713,7 @@ class TestRenderBars:
         out = Webpage._render_bars(
             [("AAA", 0.0), ("BBB", 0.0)], "equities", scale_to_max=True,
         )
-        assert "width: 0.0%" in out
+        assert "width: 0.00%" in out
 
 
 class TestRenderReturnChart:
@@ -771,6 +792,39 @@ class TestRenderReturnChart:
         out = Webpage._render_return_chart({"history": history}, [benchmark])
         assert "-13.0 pp" in out
         assert "return-chart__delta-label value--negative" in out
+
+    def test_outperformance_label_uses_canonical_twr_minus_tsr_when_provided(self):
+        # When ``total_return["twr%"]`` and ``benchmark["tsr%"]`` are
+        # available (the production path), the chart's pp-delta label
+        # must come from those canonical metrics so it stays in sync
+        # with the JG vs S&P 500 capsule below the chart -- which
+        # also displays ``twr% - tsr%`` as its ``Total Return`` delta.
+        # The discrete history endpoints (1.20 vs 1.05 = +15.0 pp)
+        # are intentionally chosen NOT to match the TWR/TSR pair
+        # (+18.4 vs +5.7 = +12.7 pp) so a regression to history-based
+        # math would surface as a wrong assertion here.
+        history = [
+            (datetime(2024, 1, 1), 1.0),
+            (datetime(2024, 6, 1), 1.1),
+            (datetime(2024, 12, 1), 1.2),
+        ]
+        benchmark = {
+            "ticker": "LSE:VUAA.L",
+            "tsr%": 5.7,
+            "history": [(datetime(2024, 1, 1), 1.0),
+                        (datetime(2024, 6, 1), 1.02),
+                        (datetime(2024, 12, 1), 1.05)],
+        }
+        out = Webpage._render_return_chart(
+            {"history": history, "twr%": 18.4}, [benchmark]
+        )
+        assert "+12.7 pp" in out
+        # And explicitly: the history-derived value must NOT appear
+        # as the chart label. (``+15.0 pp`` could in theory show up
+        # elsewhere on the page in some other test-data scenario, but
+        # here it would only come from a regression in this code
+        # path, since no other call site emits it.)
+        assert "+15.0 pp" not in out
 
     def test_caption_uses_since_start_date_with_duration(self):
         history = [

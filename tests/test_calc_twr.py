@@ -80,7 +80,10 @@ class TestCalcTwr:
             current_value=121.0,
         )
         length = (datetime(2026, 1, 1) - datetime(2024, 1, 1)).days
-        expected = round(((1.21) ** (DAYS_YEAR / length) - 1) * 100, 1)
+        # ``calc_twr`` stores unrounded percentages so downstream
+        # consumers can do further math without compounding rounding
+        # error -- the expected here matches that full precision.
+        expected = ((1.21) ** (DAYS_YEAR / length) - 1) * 100
         assert result["cagr%"] == pytest.approx(expected)
 
     def test_history_is_sorted_internally(self, freeze_today):

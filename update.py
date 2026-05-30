@@ -326,8 +326,12 @@ class Holding:
         return {
             "ticker": f"{self._info['exchange']}:{self._info['symbol']}",
             "name": self._info["longName"],
-            "tsr%": round(tsr * 100, 1),
-            "cagr%": round(cagr * 100, 1),
+            # Store unrounded percentages so downstream callers
+            # (delta vs benchmark, top-10 weight summing, OG-image
+            # hero) can do further math without compounding rounding
+            # error. Display sites round at format time with ``:.1f``.
+            "tsr%": tsr * 100,
+            "cagr%": cagr * 100,
             "is_current": self._positions[-1]["quantity"] > 0,
             "current_weight%": None,
             "current_value_usd": current_value_usd,
@@ -457,9 +461,15 @@ def calc_twr(valuations, current_value):
         total_return["history"].append((datetime.today(), twr))
     cagr = twr ** (DAYS_YEAR / max((datetime.today() - total_return["start_date"]).days, 1)) - 1.0
     twr -= 1.0
-    total_return["twr%"] = round(twr * 100, 1)
-    total_return["cagr%"] = round(cagr * 100, 1)
-    print(f"\nJG - Jan Grzybek - TWR: {total_return['twr%']}% - CAGR: {total_return['cagr%']}%")
+    # Store unrounded percentages; consumers (capsule delta vs
+    # benchmark, chart pp-delta overlay, OG-image headline) require
+    # the full precision so subtraction doesn't compound the 0.05 pp
+    # error of single-decimal rounding. Display sites round at
+    # format time with ``:.1f``.
+    total_return["twr%"] = twr * 100
+    total_return["cagr%"] = cagr * 100
+    print(f"\nJG - Jan Grzybek - TWR: {_fmt_pct(total_return['twr%'])}% - "
+          f"CAGR: {_fmt_pct(total_return['cagr%'])}%")
     return total_return
 
 
@@ -475,22 +485,30 @@ def summarize(holdings, cash):
     total_value_usd = total_equity_value_usd + total_cash_value_usd
 
     if total_value_usd > 0.0:
+        # Unrounded percentages: ``current_weight%`` is summed when
+        # building the "Other equities" bucket, and ``allocation%``
+        # entries are read directly elsewhere. Rounding here would
+        # leak into those derived numbers; we round only at display
+        # time (``_render_bars`` formats with ``:.1f`` / ``:.2f``).
         holdings["allocation%"] = {
-            "Equities": round(100 * total_equity_value_usd / total_value_usd, 1),
-            "Cash & Cash Equivalents": round(100 * total_cash_value_usd / total_value_usd, 1),
+            "Equities": 100 * total_equity_value_usd / total_value_usd,
+            "Cash & Cash Equivalents": 100 * total_cash_value_usd / total_value_usd,
         }
-        print(f"Equity allocation: {holdings['allocation%']['Equities']}%")
-        print(f"Cash allocation: {holdings['allocation%']['Cash & Cash Equivalents']}%\n")
+        print(f"Equity allocation: {_fmt_pct(holdings['allocation%']['Equities'])}%")
+        print(f"Cash allocation: "
+              f"{_fmt_pct(holdings['allocation%']['Cash & Cash Equivalents'])}%\n")
     else:
         holdings["allocation%"] = None
 
     holdings["top_10"] = None
     weights: dict[str, float] = {}
     for holding in holdings["current"]:
-        holding["current_weight%"] = round(100 * holding["current_value_usd"] / total_value_usd, 1)
+        holding["current_weight%"] = 100 * holding["current_value_usd"] / total_value_usd
         weights[holding["ticker"]] = holding["current_weight%"]
-        print(f"{holding['ticker']} - {holding['name']} - Weight: {holding['current_weight%']}% - "
-              f"TSR: {holding['tsr%']}% - CAGR: {holding['cagr%']}%")
+        print(f"{holding['ticker']} - {holding['name']} - "
+              f"Weight: {_fmt_pct(holding['current_weight%'])}% - "
+              f"TSR: {_fmt_pct(holding['tsr%'])}% - "
+              f"CAGR: {_fmt_pct(holding['cagr%'])}%")
     if weights:
         ranked = sorted(weights.items(), key=lambda item: item[1], reverse=True)
         if len(ranked) > 11:
@@ -551,7 +569,8 @@ def get_benchmarks(total_return_history):
 
         benchmarks.append(summary)
         print(f"{benchmarks[-1]['ticker']} - {benchmarks[-1]['name']} - "
-              f"TSR: {benchmarks[-1]['tsr%']}% - CAGR: {benchmarks[-1]['cagr%']}%")
+              f"TSR: {_fmt_pct(benchmarks[-1]['tsr%'])}% - "
+              f"CAGR: {_fmt_pct(benchmarks[-1]['cagr%'])}%")
     return benchmarks
 
 
@@ -592,6 +611,32 @@ def _format_duration(delta: relativedelta) -> str:
 def _value_class(value: float) -> str:
     """CSS modifier reflecting the sign of a TSR/CAGR/TWR percentage."""
     return "value--negative" if value < 0 else "value--positive"
+
+
+def _fmt_pct(value: float, *, signed: bool = False) -> str:
+    """Format a percentage with one decimal up to 99.9 and as a whole
+    number once the displayed magnitude reaches 100.
+
+    A trailing ``.x`` next to a 3-digit integer part is visually
+    noisy and adds no real precision to the reader -- ``100.3%``
+    reads tidier as ``100%`` and ``672.9%`` as ``673%``. We apply
+    the same rule to ``pp`` deltas (capsule + chart overlay + OG
+    image) so the page is uniform: any quantity expressed in
+    percent or percentage points drops its decimal once it hits
+    triple digits.
+
+    Boundary handling uses ``round(abs(value), 1) >= 100`` rather
+    than the raw magnitude so values that round UP to the 100
+    threshold (e.g. ``99.95`` -> ``100.0``) also shed the now-
+    redundant decimal instead of rendering as ``100.0%``.
+    ``signed=True`` prefixes a leading ``+`` for non-negative
+    values, matching the existing ``:+.1f`` behaviour at delta
+    sites.
+    """
+    sign_spec = "+" if signed else ""
+    if round(abs(value), 1) >= 100:
+        return format(value, f"{sign_spec}.0f")
+    return format(value, f"{sign_spec}.1f")
 
 
 def _sha256_b64(payload: str) -> str:
@@ -744,6 +789,19 @@ main:focus-visible { outline: none; }
   -webkit-backdrop-filter: saturate(180%) blur(14px);
   border-bottom: 1px solid var(--line);
 }
+/* When the decorative current-holdings ticker is on the page it
+   sits directly under the sticky nav. The header's bottom margin
+   becomes wasteful empty space in that case -- the nav already
+   carries its own ``border-bottom`` and the ticker has its own
+   internal padding, so a gap on top of all that just pushes the
+   first content section needlessly far down. Collapse the bottom
+   margin to zero so the ticker hugs the nav cleanly. The
+   ``:has()`` selector keeps this conditional: pages without a
+   ticker keep the original 32px gap before their first section.
+   ``:has()`` is supported in all current evergreen browsers
+   (Chrome 105+, Firefox 121+, Safari 15.4+); older engines simply
+   fall back to the original spacing, which is benign. */
+body:has(.ticker) .site-header { margin-bottom: 0; }
 .site-title {
   font-size: 1.875rem;
   font-weight: 800;
@@ -856,31 +914,36 @@ main:focus-visible { outline: none; }
   list-style: none;
   margin: 4px 0 0;
   padding: 0;
-  /* Three columns -- start date, separator, end date -- with FIXED
-     widths in em units rather than ``max-content``. Every holding
-     capsule on the page reaches the same body x-offset (the .holding
-     grid pins logo width identically on each card), so locking the
-     period tracks to the same fixed widths means the dash column
-     and the end-date column line up vertically not just within a
-     single card's multi-period stack but across every card on the
-     page -- the eye reads the entire holdings list as a tidy column.
-     The 7em date track comfortably fits the longest possible
-     "Mmm DD, YYYY" rendering ("Sep 30, 2024" etc.) at the
-     0.875rem period font size; "Present" (7 chars) is shorter than
-     any date so it tucks neatly into the same end-date track.
-     The middle track is ``min-content`` (not ``auto``) and the
-     grid sets ``justify-content: start`` -- both choices defeat
-     CSS Grid's "Expand Stretched auto Tracks" step, which would
-     otherwise inflate an ``auto`` middle track to consume the
-     ``<ul>``'s leftover horizontal space and push the end-date
-     column far to the right on wide viewports. With those two
-     guards, leftover container width spills past the last track
-     instead of opening a chasm between the dash and the end date.
-     Default ``justify-items: start`` leaves a little trailing
-     whitespace inside short cells, which is the standard look for
-     tabular layouts. */
+  /* Three columns -- start date, separator, end date -- sized to
+     ``max-content``. Each card's grid widths are derived from the
+     widest start and end actually present in that card's
+     period(s), which makes a single open period (the common case
+     for a current holding) collapse to a tight phrase
+     "Aug 14, 2023 - Present" where the dash sits between two
+     content-tight columns. Combined with ``text-align: end`` on
+     real end dates and ``text-align: start`` on the "Present"
+     placeholder (rules below), the layout achieves a single
+     unified rule:
+       - first date always at the left of column 1;
+       - separator at a fixed x-offset within the card (col 1
+         right edge + 0.5ch column-gap, identical for every period
+         row in a multi-period stack);
+       - second date at the right of column 3 when it's a real
+         date, OR at the left of column 3 (locally symmetric with
+         the start date around the dash) when it's "Present".
+     Multi-period stacks within one card still align dashes
+     vertically because all rows share the same grid columns; the
+     ``min-content`` middle track keeps the dash at a fixed offset
+     even if other end dates in the same card are wider than
+     "Present". The ``max-content`` choice over a fixed em width
+     gives up cross-card dash alignment in exchange for getting
+     "Present" symmetric to the start date for free in the typical
+     single-period current holding -- the alternative was a
+     per-row CSS variable that estimated start-date pixel width
+     server-side, which would have been brittle across font /
+     platform variations. */
   display: grid;
-  grid-template-columns: 7em min-content 7em;
+  grid-template-columns: max-content min-content max-content;
   justify-content: start;
   column-gap: 0.5ch;
   row-gap: 2px;
@@ -896,16 +959,41 @@ main:focus-visible { outline: none; }
    contributes nothing to layout. Modern browsers (Chromium,
    Firefox, Safari) preserve list semantics across this property. */
 .holding__periods li { display: contents; }
-/* Right-align the start-date <time> within its 7em cell so the
-   date hugs the dash, leaving a symmetric ~0.5ch gap on each side
-   of the dash (instead of the trailing whitespace + column-gap
-   asymmetry that left-aligning produced). The <time> element is
-   blockified into a grid item, so it stretches to fill the cell;
-   text-align: end aligns the visible text to the cell's right
-   edge. Cross-card alignment still holds because the cell width
-   is fixed at 7em -- only the date's position INSIDE the cell
-   changes from start to end. */
-.holding__periods li > :first-child { text-align: end; }
+/* Right-align the end-date <time>/<span> within its column 3 cell
+   so the row's right edge lines up with the widest end date in
+   this card. The start-date <time> in column 1 keeps the default
+   ``text-align: start`` so it hugs the left edge of its cell.
+   With ``max-content`` columns above, this produces:
+     - closed periods: spread layout, "<start>  -  <end>" where
+       both halves touch their column's outer edge (the dash sits
+       at a card-fixed offset between them);
+     - open periods (end is "Present"): see the ``span:last-child``
+       override below -- "Present" gets ``text-align: start`` so
+       its left edge tucks against the dash, mirroring the start
+       date which is at the left edge of column 1.
+   <time>/<span> is blockified into a grid item so it stretches to
+   fill its column; ``text-align: end`` then aligns the visible
+   text to the cell's right edge. */
+.holding__periods li > :last-child { text-align: end; }
+/* Special-case the "Present" placeholder so it ends up locally
+   symmetric to the start date around the dash. The placeholder
+   renders as a plain <span> (real end dates use <time>), and
+   here we left-align it so it sits at the left edge of column 3
+   right next to the dash. In the typical single-period current
+   holding the column-3 width collapses to "Present"'s own
+   ~3.5em (because there's no longer end date in the same card
+   to widen the column), so the row reads as a tight phrase
+   "<start> - Present" with the dash flanked by only the 0.5ch
+   column-gap on each side -- perfectly symmetric. In multi-row
+   cards that mix open and closed periods the column-3 width is
+   driven by the widest closed end date instead, but the
+   left-aligned "Present" still tucks against the dash, leaving
+   the (invisible) trailing whitespace inside the cell rather
+   than a visible chasm before the placeholder. The selector
+   ``span:last-child`` matches the placeholder unambiguously:
+   real end dates use <time>, and the dash <span> is the middle
+   child, not the last. */
+.holding__periods li > span:last-child { text-align: start; }
 .holding__note {
   margin: 10px 0 0;
   font-size: 0.875rem;
@@ -922,6 +1010,12 @@ main:focus-visible { outline: none; }
   font-variant-numeric: tabular-nums;
   font-size: 0.9375rem;
 }
+/* Each stat pair is wrapped in ``<div class="holding__stat">`` so the
+   mobile media query can spread TSR/CAGR/Weight as flex items across
+   the full row. On desktop ``display: contents`` makes the wrapper
+   transparent so dt/dd participate directly in the parent's 2-column
+   grid, preserving the original right-column layout exactly. */
+.holding__stat { display: contents; }
 .holding__stats dt { color: var(--muted); margin: 0; font-weight: 400; }
 .holding__stats dd { margin: 0; text-align: right; font-weight: 600; }
 .value--positive { color: var(--positive); }
@@ -1075,9 +1169,19 @@ main:focus-visible { outline: none; }
   min-width: 0;
 }
 .returns-compare__col + .returns-compare__col {
-  padding-left: 28px;
+  /* Centre the vertical divider in the 28px ``column-gap`` so it
+     gets equal breathing room on both sides. With ``padding-left``
+     and ``margin-left`` matching at half-gap (14px each), the box
+     shifts left into the gap by 14px, the border lands smack in
+     the middle, and the inner padding restores the content to its
+     natural track position so column alignment is preserved.
+     Setting them equal to the FULL gap (the previous geometry)
+     pulled the box flush against column 1, leaving the divider
+     touching JG's TWR/CAGR values with all the whitespace falling
+     on the benchmark side -- a visibly lopsided look. */
+  padding-left: 14px;
   border-left: 1px solid var(--line);
-  margin-left: -28px;
+  margin-left: -14px;
 }
 .returns-compare__name {
   display: flex;
@@ -1231,12 +1335,42 @@ footer a { color: var(--accent-bench); }
   .holding__title { font-size: 1rem; }
   .holding__note { margin-top: 8px; }
   .holding__stats {
+    /* On mobile the stats row spans the full width below the
+       logo+body. Lay it out as a fixed 3-column grid -- TSR in
+       the left third, CAGR in the middle, Weight (when present)
+       in the right third -- so vertical scanning down the
+       holdings list always finds the same metric in the same
+       column. The earlier ``flex / space-between`` distribution
+       achieved that for *current* holdings (which have all three
+       stats), but historical holdings only carry TSR + CAGR and
+       ``space-between`` would have pushed their CAGR all the way
+       to the right edge -- aligning it with the Weight column of
+       current rows above and below, which is misleading. The
+       three-track grid keeps CAGR centered for both shapes. */
     grid-area: stats;
-    justify-content: start;
-    column-gap: 12px;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    column-gap: 14px;
+    row-gap: 6px;
     padding-top: 4px;
     border-top: 1px solid var(--line);
   }
+  .holding__stat {
+    /* Each wrapper becomes a real flex container on mobile so its
+       label and value sit tight together with a small gap, while
+       the parent grid decides which column the whole pair lands
+       in. */
+    display: flex;
+    gap: 6px;
+    align-items: baseline;
+  }
+  /* TSR (1st child) keeps the default ``justify-self: start`` and
+     hugs the left edge of column 1; CAGR (2nd) sits centered
+     within column 2 so it aligns across current and historical
+     rows; Weight (3rd, current rows only) hugs the right edge of
+     column 3. Historical rows simply leave column 3 empty. */
+  .holding__stat:nth-child(2) { justify-self: center; }
+  .holding__stat:nth-child(3) { justify-self: end; }
   .returns-compare { padding: 14px 16px; }
   .returns-compare__col { column-gap: 14px; }
   .returns-compare__name { font-size: 1rem; gap: 10px; }
@@ -1304,7 +1438,7 @@ footer a { color: var(--accent-bench); }
   }
   .holding__logo { max-width: 44px; max-height: 44px; }
   .holding__title { font-size: 0.9375rem; }
-  .holding__stats { font-size: 0.875rem; column-gap: 10px; }
+  .holding__stats { font-size: 0.875rem; gap: 6px 10px; }
 }
 """.strip()
 
@@ -1833,13 +1967,13 @@ class Webpage:
         # yet we fall back to the portfolio's own CAGR so the image
         # still has a meaningful headline.
         if cagr_delta is not None:
-            hero_text = f"{cagr_delta:+.1f} pp"
+            hero_text = f"{_fmt_pct(cagr_delta, signed=True)} pp"
             hero_color = POS if cagr_delta >= 0 else NEG
             label = "Outperformance of "
             label_emph = bench_label or "S&P 500"
             label_tail = " on CAGR"
         else:
-            hero_text = f"{cagr:+.1f}%"
+            hero_text = f"{_fmt_pct(cagr, signed=True)}%"
             hero_color = POS if cagr >= 0 else NEG
             label = "Annualized return ("
             label_emph = "CAGR"
@@ -2169,12 +2303,12 @@ class Webpage:
                 f'{html.escape(self._benchmark_label(b))}:</span>'
                 f'<span class="returns-compare__delta-metric '
                 f'{_value_class(twr_delta)}">'
-                f'{twr_delta:+.1f} pp Total Return</span>'
+                f'{_fmt_pct(twr_delta, signed=True)} pp Total Return</span>'
                 '<span class="returns-compare__delta-sep" '
                 'aria-hidden="true">&middot;</span>'
                 f'<span class="returns-compare__delta-metric '
                 f'{_value_class(cagr_delta)}">'
-                f'{cagr_delta:+.1f} pp CAGR</span>'
+                f'{_fmt_pct(cagr_delta, signed=True)} pp CAGR</span>'
                 '</p>'
             )
 
@@ -2201,9 +2335,14 @@ class Webpage:
     def _render_compare_col(*, name, subtitle, logo_url, rows) -> str:
         stat_html = []
         for label, value in rows:
+            # ``value`` is the unrounded percentage straight off
+            # ``total_return`` / benchmark dicts; ``_fmt_pct`` decides
+            # at format time whether to render one decimal (<100%)
+            # or whole-number (>=100%, where the decimal is just
+            # noise next to a 3-digit integer part).
             stat_html.append(
                 f'<dt>{html.escape(label)}</dt>'
-                f'<dd class="{_value_class(value)}">{value}%</dd>'
+                f'<dd class="{_value_class(value)}">{_fmt_pct(value)}%</dd>'
             )
         sub_html = ""
         if subtitle:
@@ -2228,15 +2367,21 @@ class Webpage:
 
     def _build_holding_card(self, holding) -> str:
         stats: list[tuple[str, str, float | None]] = [
-            ("TSR:", f"{holding['tsr%']}%", holding["tsr%"]),
+            # ``tsr%``/``cagr%``/``current_weight%`` are unrounded
+            # floats on the data dict; ``_fmt_pct`` chooses one
+            # decimal under 100 and whole-number from 100 up so a
+            # 3-digit TSR (e.g. NVDA at +217%) doesn't carry a
+            # noisy ``.4`` next to it. The raw float still flows
+            # to ``_value_class`` for sign-based colouring.
+            ("TSR:", f"{_fmt_pct(holding['tsr%'])}%", holding["tsr%"]),
         ]
         if holding["cagr%"] > CAGR_TBA_THRESHOLD:
             stats.append(("CAGR:", "TBA", None))
         else:
-            stats.append(("CAGR:", f"{holding['cagr%']}%", holding["cagr%"]))
+            stats.append(("CAGR:", f"{_fmt_pct(holding['cagr%'])}%", holding["cagr%"]))
         if holding["is_current"]:
             assert holding["current_weight%"] is not None
-            stats.append(("Weight:", f"{holding['current_weight%']}%", None))
+            stats.append(("Weight:", f"{_fmt_pct(holding['current_weight%'])}%", None))
 
         periods = [(p["start"], p["end"]) for p in holding["periods"]]
 
@@ -2298,9 +2443,20 @@ class Webpage:
             attr = ""
             if sign is not None:
                 attr = f' class="{_value_class(sign)}"'
+            # Each label-value pair gets its own ``<div>`` wrapper so
+            # mobile CSS can treat the pair as a single flex item and
+            # spread TSR/CAGR/Weight across the full row width with
+            # ``justify-content: space-between`` (instead of clumping
+            # them on the left and leaving an awkward gap on the
+            # right). Desktop neutralises the wrapper with
+            # ``display: contents`` so dt/dd still feed the parent's
+            # 2-column grid as before. ``<div>`` is a valid grouping
+            # element inside ``<dl>`` per HTML5.
             stat_parts.append(
+                '<div class="holding__stat">'
                 f'<dt>{html.escape(label)}</dt>'
                 f'<dd{attr}>{html.escape(value)}</dd>'
+                '</div>'
             )
 
         return (
@@ -2341,12 +2497,17 @@ class Webpage:
 
         row_html = []
         for label, value in rows:
-            width = round(value / denom * 100, 2) if scale_to_max else value
+            # ``value`` arrives unrounded (allocation% / weight%);
+            # the bar's CSS width gets two decimals for sub-pixel
+            # precision while the visible label uses ``_fmt_pct`` --
+            # one decimal under 100, whole-number from 100 up.
+            width = value / denom * 100 if scale_to_max else value
             row_html.append(
                 '<div class="bars__row">'
                 f'<div class="bars__label">{html.escape(str(label))}</div>'
-                f'<div class="bars__value">{value}%</div>'
-                f'<div class="bars__track"><div class="bars__fill" style="width: {width}%"></div></div>'
+                f'<div class="bars__value">{_fmt_pct(value)}%</div>'
+                f'<div class="bars__track"><div class="bars__fill" '
+                f'style="width: {width:.2f}%"></div></div>'
                 '</div>'
             )
         return f'<div class="bars bars--{variant}">{"".join(row_html)}</div>'
@@ -2443,7 +2604,25 @@ class Webpage:
         if has_delta:
             jg_final = float(series[0][2][-1])
             bench_final = float(series[1][2][-1])
-            delta_pp = (jg_final - bench_final) * 100.0
+            # Prefer the canonical TWR (JG) - TSR (benchmark) delta
+            # straight off ``total_return`` / ``benchmarks``: the JG
+            # vs S&P 500 capsule directly below the chart shows the
+            # exact same delta as ``+X.X pp Total Return``, and we
+            # don't want the two numbers to drift apart. Modified
+            # Dietz TWR/TSR are computed cashflow-aware over the
+            # exact period, while the chart's curves are sampled at
+            # discrete dates, so naively differencing the last-point
+            # values can disagree with the canonical metric by
+            # several tenths of a percentage point. Falling back to
+            # the curve endpoints when those metrics aren't supplied
+            # keeps the renderer usable from unit tests and any
+            # future caller that only has a history.
+            twr_pct = total_return.get("twr%")
+            tsr_pct = benchmarks[0].get("tsr%") if benchmarks else None
+            if twr_pct is not None and tsr_pct is not None:
+                delta_pp = float(twr_pct) - float(tsr_pct)
+            else:
+                delta_pp = (jg_final - bench_final) * 100.0
             jg_y_pct = map_y(jg_final) / height * 100.0
             bench_y_pct = map_y(bench_final) / height * 100.0
             top_pct = min(jg_y_pct, bench_y_pct)
@@ -2463,7 +2642,7 @@ class Webpage:
                 f'--delta-color: {delta_color};">'
                 '<span class="return-chart__delta-bar"></span>'
                 f'<span class="return-chart__delta-label {_value_class(delta_pp)}">'
-                f'{delta_pp:+.1f} pp</span>'
+                f'{_fmt_pct(delta_pp, signed=True)} pp</span>'
                 '</div>'
             )
 
