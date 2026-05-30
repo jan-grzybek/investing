@@ -680,9 +680,23 @@ body {
 }
 img { max-width: 100%; height: auto; }
 main { display: block; }
-html { scroll-behavior: smooth; }
+/* Smooth-scroll for in-page nav (clicking ``Performance`` /
+   ``Current`` / ``Historical`` in the sticky header). The
+   ``:focus-within`` gate is intentional and not an accident:
+   applying ``scroll-behavior: smooth`` directly to ``html`` makes
+   Chromium-based browsers ANIMATE the scroll when restoring
+   position on a normal refresh -- which on a page deep into the
+   holdings list (or whose URL carries a section hash from a prior
+   nav click) feels like the page is scrolling down uncontrollably,
+   especially while lazy-loaded logos progressively grow the
+   document and keep retargeting the smooth-scroll destination.
+   Anchor link clicks naturally focus the target element, so this
+   selector matches at exactly the right moment for smooth nav
+   scrolling without ever triggering the refresh-restoration
+   animation. */
+html:focus-within { scroll-behavior: smooth; }
 @media (prefers-reduced-motion: reduce) {
-  html { scroll-behavior: auto; }
+  html:focus-within { scroll-behavior: auto; }
   /* Don't animate the ticker for users who request reduced motion;
      wrap into a static row so all logos remain visible at once. */
   .ticker__track {
@@ -1263,6 +1277,45 @@ footer a { color: var(--accent-bench); }
 """.strip()
 
 
+# Tiny inline script that strips the URL hash the moment the user
+# takes manual control of scrolling. The ``Performance`` / ``Current``
+# / ``Historical`` nav links in the sticky header are plain in-page
+# anchors -- clicking ``Current`` appends ``#current`` to the URL and
+# the browser scrolls to that section. Without this script the hash
+# sticks around even after the user wheels elsewhere on the page, so
+# a subsequent refresh makes the browser re-jump to the section they
+# last clicked on instead of restoring their actual scroll position
+# -- which on a long holdings page reads as the page "scrolling down
+# uncontrollably" on every refresh.
+#
+# We only react to user-initiated input events (``wheel``,
+# ``touchmove``, and the keys that scroll the page). That way the
+# initial smooth-scroll triggered by a nav click does NOT clear the
+# hash -- the hash stays in the URL while the user is "at" the
+# section they navigated to (so the link is still shareable), and
+# only gets dropped the instant the user starts exploring on their
+# own. Listeners are passive so they never block scrolling.
+#
+# Kept as a tight ES5-flavoured IIFE so the inline payload stays
+# small and gets a single stable SHA-256 hash (pinned in CSP).
+_HASH_CLEAR_SCRIPT = (
+    "(function(){"
+    "function clearHash(){"
+    "if(!location.hash)return;"
+    "history.replaceState(null,'',location.pathname+location.search);"
+    "}"
+    "var opts={passive:true};"
+    "addEventListener('wheel',clearHash,opts);"
+    "addEventListener('touchmove',clearHash,opts);"
+    "addEventListener('keydown',function(e){"
+    "var k=e.key;"
+    "if(k==='ArrowDown'||k==='ArrowUp'||k==='PageDown'||k==='PageUp'"
+    "||k==='Home'||k==='End'||k===' '||k==='Spacebar')clearHash();"
+    "},opts);"
+    "})();"
+)
+
+
 class Webpage:
     """Builds the JG Investing index page as a single responsive document."""
 
@@ -1511,9 +1564,11 @@ class Webpage:
         jsonld_str = cls._jsonld()
         style_hash = _sha256_b64(_PAGE_STYLES)
         jsonld_hash = _sha256_b64(jsonld_str)
+        hash_clear_hash = _sha256_b64(_HASH_CLEAR_SCRIPT)
         csp = (
             "default-src 'self'; "
             f"script-src 'self' 'sha256-{jsonld_hash}' "
+            f"'sha256-{hash_clear_hash}' "
             "https://static.cloudflareinsights.com; "
             "style-src 'self' 'unsafe-inline'; "
             f"style-src-elem 'self' 'sha256-{style_hash}'; "
@@ -1575,6 +1630,11 @@ class Webpage:
             # JSON-LD structured data -- Google parses this to enrich
             # the SERP entry (knowledge-graph signals, sitelinks, etc.).
             f'<script type="application/ld+json">{jsonld_str}</script>\n'
+            # Drops the URL hash on the first user-initiated scroll
+            # so refresh restores the actual scroll position instead
+            # of re-jumping to the last-clicked nav section. See the
+            # ``_HASH_CLEAR_SCRIPT`` docstring for the full rationale.
+            f'<script>{_HASH_CLEAR_SCRIPT}</script>\n'
             f'<style>{_PAGE_STYLES}</style>\n'
             '</head>'
         )
