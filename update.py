@@ -649,13 +649,13 @@ _PAGE_STYLES = """
     --card-bg: #3a424e;
   }
   /* The dashed 0% reference line on the return chart inherits
-     ``var(--muted)`` and a 0.55 opacity (see the base rule
-     above). That combo nearly disappears against the dark page
-     background, so swap the stroke to the lighter foreground
-     colour, bump the opacity, and thicken the dashes a touch in
-     dark mode -- the dashed pattern stays elegant but the
-     baseline is now clearly traceable across the chart. */
-  .return-chart__ref { stroke: var(--fg); opacity: 0.7; stroke-width: 1.75; }
+     ``var(--muted)`` (see the base rule above). In dark mode
+     that mid-grey wash blends into the deep page background, so
+     swap the stroke to the lighter foreground colour while
+     keeping the base opacity / stroke-width. The dashed pattern
+     stays elegant but the baseline is now clearly traceable
+     across the chart. */
+  .return-chart__ref { stroke: var(--fg); }
 }
 @media print {
   body { background: white; color: black; }
@@ -948,7 +948,7 @@ main:focus-visible { outline: none; }
 .return-chart { margin: 0 0 24px; }
 .return-chart__plot { position: relative; }
 .return-chart svg { width: 100%; height: auto; display: block; }
-.return-chart__ref { stroke: var(--muted); stroke-width: 1.5; stroke-dasharray: 4 6; opacity: 0.55; }
+.return-chart__ref { stroke: var(--muted); stroke-width: 1.75; stroke-dasharray: 4 6; opacity: 0.7; }
 .return-chart__line { fill: none; stroke-width: 2.4; stroke-linejoin: round; stroke-linecap: round; }
 .return-chart__line--jg { stroke: var(--accent); }
 .return-chart__line--bench { stroke: var(--accent-bench); }
@@ -1155,6 +1155,17 @@ footer a { color: var(--accent-bench); }
   .section__title { font-size: 1.1875rem; margin-bottom: 12px; }
   .section__subtitle { font-size: 1rem; margin: 22px 0 10px; }
   .return-chart { margin-bottom: 16px; }
+  /* The chart SVG is authored with a 1000x400 viewBox (a wide
+     2.5:1 aspect ratio that suits desktop). On phone widths
+     ``height: auto`` + ``preserveAspectRatio="none"`` would
+     collapse the chart to ~140-160px tall, where the curves
+     bunch up into a near-flat strip and the +/- pp delta is
+     hard to read. Override the aspect ratio so the chart gains
+     meaningful vertical room (~225-240px tall at typical
+     iPhone widths) and the JG vs benchmark divergence reads at
+     a glance again. ``preserveAspectRatio="none"`` already
+     allows the SVG to stretch to whatever box CSS hands it. */
+  .return-chart svg { aspect-ratio: 5 / 3; height: auto; }
   .holding {
     grid-template-columns: 56px minmax(0, 1fr);
     grid-template-areas:
