@@ -142,8 +142,11 @@ class TestGenerateWebpage:
         generate_webpage(total_return, benchmarks, holdings)
 
         html = (chdir_tmp / "index.html").read_text()
-        assert "<title>JG Investing</title>" in html
+        assert "<title>Jan Grzybek - Investment Portfolio</title>" in html
         assert "NMS:AAA" in html
-        assert "LSE:VUAA.L" in html
+        # The benchmark column is now labelled by its friendly display
+        # name (the raw ticker no longer appears in the document body
+        # since all logo lookups fall back to courage.png in this test).
+        assert "S&amp;P 500" in html
         assert "50.0%" in html  # TWR
         assert "Current holdings" in html

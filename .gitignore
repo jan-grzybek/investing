@@ -4,3 +4,10 @@
 __pycache__/
 .pytest_cache/
 *.pyc
+# Generated at build time by update.py (and uploaded as Pages artifact).
+index.html
+sitemap.xml
+robots.txt
+og-image.png
+# Local debug renders produced by preview.py.
+preview/

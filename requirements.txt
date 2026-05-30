@@ -1,6 +1,5 @@
 gspread
 yfinance
-plotly
-kaleido
-scipy
-numpy
+requests
+python-dateutil
+Pillow

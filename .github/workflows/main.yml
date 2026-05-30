@@ -27,11 +27,6 @@ jobs:
         with:
           python-version: '3.13'
 
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: 24
-
       - name: Install deps
         run: pip install -r requirements.txt
 
@@ -44,10 +39,7 @@ jobs:
       - name: Generate new webpage
         env:
           GSHEET_ID: ${{ secrets.GSHEET_ID }}
-        run: |
-          mkdir -p assets
-          python update.py 2>/dev/null
-          npx svgo -f assets
+        run: python update.py 2>/dev/null
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
@@ -55,7 +47,7 @@ jobs:
           path: .
 
   Deploy:
-    needs: update
+    needs: Update
     runs-on: ubuntu-latest
     environment:
       name: github-pages
