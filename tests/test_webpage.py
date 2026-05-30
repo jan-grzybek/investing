@@ -880,7 +880,7 @@ class TestSaveTradesSection:
         assert 'id="trades"' in out
         assert "Recent trades" in out
         assert "Last 5 years" in out
-        assert "rolling 30-day window" in out
+        assert "rolling quarter" in out
         # Nav picks up the new section once trades are present.
         assert 'href="#trades"' in out
         # Section sits below historical / current sections in the

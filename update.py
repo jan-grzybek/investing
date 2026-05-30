@@ -181,13 +181,16 @@ def combine_and_sort(transactions):
 #   DECREASE - SELL that leaves a non-zero residual position (>0 -> >0)
 #   CLOSE    - SELL that brings the position back to zero (>0 -> 0)
 #
-# Bursts of small same-action trades within a rolling 30-day window get
+# Bursts of small same-action trades within a rolling 90-day window get
 # folded into a single reported trade with a volume-weighted average
 # per-share price -- the granularity that matters to the reader is "did
 # the position open / grow / shrink / close around this time?", not
-# every individual fill.
+# every individual fill. 90 days approximates a fiscal quarter, which
+# is the natural cadence for a long-term-investor portfolio: a stake
+# accumulated through three or four tranches over a quarter reads as a
+# single deliberate action, not four separate trades.
 
-TRADE_WINDOW_DAYS = 30
+TRADE_WINDOW_DAYS = 90
 TRADES_YEARS_BACK = 5
 
 # Reading these as a buy-vs-sell action partitions the four categories
@@ -228,11 +231,11 @@ def _combine_trade_events(events, *, window_days: int = TRADE_WINDOW_DAYS):
     running group iff (a) the group has the same action (BUY/SELL),
     and (b) the span between the group's first event and the new event
     is at most ``window_days``. Anchoring on the FIRST event (rather
-    than the most recent) caps each combined burst at ~one calendar
-    month -- the user-facing meaning of "rolling month" here is "a
-    contiguous run of small trades whose first-to-last span fits inside
-    a 30-day window", not a sliding window that can keep extending
-    indefinitely as long as consecutive trades stay close.
+    than the most recent) caps each combined burst at ~one fiscal
+    quarter -- the user-facing meaning of "rolling quarter" here is
+    "a contiguous run of small trades whose first-to-last span fits
+    inside a 90-day window", not a sliding window that can keep
+    extending indefinitely as long as consecutive trades stay close.
 
     Each combined record carries:
 
@@ -292,7 +295,7 @@ def _combine_trade_events(events, *, window_days: int = TRADE_WINDOW_DAYS):
         # inaccuracy when a stock-split lands mid-burst (the
         # split-adjusted denominator is the right share frame for
         # the first event but later events live in a post-split
-        # frame); splits inside a 30-day window are vanishingly rare
+        # frame); splits inside a 90-day window are vanishingly rare
         # on the portfolios this page targets.
         pre_quantity = group[0].get("pre_quantity", 0)
         delta_pct: float | None = None
@@ -1111,7 +1114,17 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
   from { transform: translateX(0); }
   to { transform: translateX(-50%); }
 }
-.section { margin-top: 36px; scroll-margin-top: 88px; }
+/* ``scroll-margin-top`` reserves space at the top of the viewport
+   when an anchor (``#trades`` etc.) targets the section so the
+   sticky ``.site-header`` doesn't cover the title. The reserve has
+   to clear the *worst-case* header height: at standard desktop
+   widths the four nav items wrap to a second row under the title
+   (because title 449px + 24px gap + nav 366px exceeds the 832px
+   content area inside an 880px max-width body with 24px padding),
+   which produces a ~102px header. Adding a small visible buffer on
+   top of that lets the title breathe instead of sitting flush
+   against the header edge. */
+.section { margin-top: 36px; scroll-margin-top: 120px; }
 .section:first-of-type { margin-top: 8px; }
 .section__title {
   font-size: 1.375rem;
@@ -1634,14 +1647,35 @@ footer a { color: var(--accent-bench); }
     gap: 6px 16px;
   }
   .site-title { font-size: 1.375rem; }
-  .site-nav { width: 100%; }
+  /* The desktop nav uses 12px horizontal padding and 4px gap, which
+     pushes the four current section labels (Performance / Current /
+     Historical / Trades) past the content width on common iPhone
+     viewports (375px and 390px both wrap "Trades" to a second row,
+     and a wrapped nav inflates header height past the
+     ``scroll-margin-top`` reserve below, hiding the section title
+     when the user taps an anchor). Compact the padding and gap on
+     mobile so all four pills fit in a single row down to ~360px
+     content width (iPhone SE 2/3, iPhone 12 mini, iPhone 12/13/14
+     std). Slightly smaller type also pulls each label in by ~5%
+     which gives us the headroom we need without crossing the
+     accessible-text floor. Below ~360px (legacy iPhone SE 1st
+     gen / Android compact) the nav will still wrap, but the
+     fallback degrades gracefully and the scroll-margin reserve
+     below still keeps the title visible. */
+  .site-nav { width: 100%; gap: 2px; font-size: 0.875rem; }
+  .site-nav a { padding: 4px 8px; }
   .ticker {
     margin: 0 -16px 20px;
     padding: 12px 0;
   }
   .ticker__track { gap: 30px; animation-duration: 45s; }
   .ticker__logo { width: 40px; height: 40px; }
-  .section { margin-top: 28px; scroll-margin-top: 108px; }
+  /* With the compacted mobile nav above, the header collapses to a
+     single row at iPhone widths (~81px tall). 100px of reserve
+     gives us a comfortable ~18px buffer between header bottom and
+     section title top. Matches the desktop buffer above so the
+     anchor-jump feel is consistent across viewports. */
+  .section { margin-top: 28px; scroll-margin-top: 100px; }
   .section__title { font-size: 1.1875rem; margin-bottom: 12px; }
   .section__subtitle { font-size: 1rem; margin: 22px 0 10px; }
   .return-chart { margin-bottom: 16px; }
@@ -2052,14 +2086,17 @@ class Webpage:
             # Subtitle states the two methodology details the reader
             # would otherwise have to infer from the data: how far
             # back the section reaches, and what "combined" rows
-            # represent. Keeping it short here avoids cluttering the
-            # cards themselves.
+            # represent. The "rolling quarter" wording matches the
+            # long-term-investor framing of the page (a fund-letter
+            # cadence rather than a high-frequency trade log) and is
+            # the natural human reading of the 90-day numerical
+            # ``TRADE_WINDOW_DAYS`` constant. Keeping the subtitle
+            # short avoids cluttering the cards themselves.
             parts.append(
                 '<p class="section__intro">'
                 f'Last {TRADES_YEARS_BACK} years. Trades within a '
-                f'rolling {TRADE_WINDOW_DAYS}-day window are combined '
-                'into a single entry at their volume-weighted average '
-                'per-share price.'
+                'rolling quarter are combined into a single entry at '
+                'their volume-weighted average per-share price.'
                 '</p>'
             )
             parts.append('\n'.join(self.trades))

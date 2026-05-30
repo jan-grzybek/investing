@@ -112,7 +112,9 @@ class TestCombineWindow:
             _ev(datetime(2024, 1, 1), 100.0, 10, "OPEN"),
             _ev(datetime(2024, 2, 5), 110.0, 5, "INCREASE"),
         ]
-        # 35-day gap -- past the 30-day window. Two separate rows.
+        # 35-day gap -- past the 30-day window used by this test
+        # (production uses 90; the algorithm is parametric over the
+        # window size). Two separate rows.
         out = _combine_trade_events(events, window_days=30)
         assert len(out) == 2
         assert out[0]["category"] == "OPEN"
@@ -120,7 +122,7 @@ class TestCombineWindow:
 
     def test_window_boundary_is_inclusive(self):
         # Anchoring at the FIRST event, a gap equal to ``window_days``
-        # still counts as "within a rolling month". Anything strictly
+        # still counts as "within the rolling window". Anything strictly
         # larger starts a new burst.
         events_in = [
             _ev(datetime(2024, 1, 1), 100.0, 1, "OPEN"),
@@ -135,9 +137,9 @@ class TestCombineWindow:
 
     def test_three_buys_within_window_collapse_to_one_opening(self):
         # Three small fills landing close together over ~3 weeks become
-        # a single "Opening" row. Verifies that the group keeps absorbing
-        # subsequent same-action events as long as each is within the
-        # window of the GROUP's first event.
+        # a single "Initiated" row. Verifies that the group keeps
+        # absorbing subsequent same-action events as long as each is
+        # within the window of the GROUP's first event.
         events = [
             _ev(datetime(2024, 3, 1),  100.0, 2, "OPEN"),
             _ev(datetime(2024, 3, 10), 105.0, 3, "INCREASE"),
@@ -155,10 +157,11 @@ class TestCombineWindow:
 
     def test_window_is_anchored_on_first_event_not_last(self):
         # Three events spaced 25 days apart: t1, t1+25, t1+50. The
-        # last is 50 days from the first, well beyond a 30-day window,
-        # so it must NOT be absorbed into the leading burst -- otherwise
-        # the "rolling month" claim in the section caption is violated
-        # (we'd produce a burst spanning 50 days).
+        # last is 50 days from the first, well beyond the 30-day window
+        # this test parametrises with, so it must NOT be absorbed into
+        # the leading burst -- otherwise the rolling-window contract
+        # is violated (we'd produce a burst spanning 50 days against a
+        # 30-day budget).
         events = [
             _ev(datetime(2024, 1, 1),  100.0, 1, "OPEN"),
             _ev(datetime(2024, 1, 26), 100.0, 1, "INCREASE"),
@@ -245,7 +248,9 @@ class TestCombineDeltaPct:
         assert out[0]["delta_pct"] == pytest.approx(50.0)
 
     def test_increase_burst_sums_quantities_over_first_pre_quantity(self):
-        # Three BUYs within a 30-day window starting from a 1000-share
+        # Three BUYs within a 30-day window (test parameter -- the
+        # algorithm itself is parametric and prod uses 90) starting
+        # from a 1000-share
         # holding. The denominator is the position right before the
         # FIRST event in the burst -- so the percentage answers "what
         # fraction did this whole burst add to what we had going in?".
@@ -263,7 +268,7 @@ class TestCombineDeltaPct:
         assert out[0]["delta_pct"] == pytest.approx(60.0)
 
     def test_decrease_burst_uses_first_pre_quantity(self):
-        # 1000 held, then SELL 200, SELL 200 within a 30-day window
+        # 1000 held, then SELL 200, SELL 200 within the rolling window
         # -- both DECREASE (position never hits 0). Burst delta is
         # 400 / 1000 = 40%.
         events = [
@@ -466,7 +471,7 @@ class TestHoldingTradeEventsDecoration:
     ):
         # OPEN the position with 1,000 shares, then INCREASE by
         # another 1,000 inside a fresh burst (well outside the
-        # 30-day rolling window from the OPEN). The INCREASE row
+        # rolling window from the OPEN). The INCREASE row
         # should expose ``delta_pct = 100`` so the badge renders as
         # "Increased by 100%".
         freeze_today(datetime(2024, 12, 1))
