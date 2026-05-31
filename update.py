@@ -2009,6 +2009,20 @@ _HASH_CLEAR_SCRIPT = (
 #
 # Kept as a tight ES5-flavoured IIFE so the inline payload stays
 # small and gets a single stable SHA-256 hash (pinned in CSP).
+# ``slide`` re-reads ``targetY(el)`` on every frame instead of locking
+# the destination in at click time. iOS Safari's URL bar collapses
+# mid-animation (extending the visual viewport) and lazy-loaded logos
+# in the sections above the target can finish painting while we're
+# in flight, both of which nudge the target section's document
+# position by a handful of pixels. With a static target the original
+# version landed slightly above the section title on the *first*
+# tap from the top of the page (most visible on the bottom-most
+# ``Trades`` link, which has the longest distance to travel);
+# subsequent taps worked because the URL bar was already collapsed
+# and logos already laid out. Tracking a moving target makes the
+# slide self-correcting, and a final ``scrollTo(targetY(el))``
+# guarantees we settle exactly on the section's current position
+# even if the last layout shift happened after the easing reached 1.
 _NAV_SCROLL_SCRIPT = (
     "(function(){"
     "var rm=false;"
@@ -2021,23 +2035,24 @@ _NAV_SCROLL_SCRIPT = (
     "return window.pageYOffset||document.documentElement.scrollTop||0;"
     "}"
     "var raf=null;"
-    "function slide(ty,d){"
-    "if(raf!==null)cancelAnimationFrame(raf);"
-    "var sy0=sy(),dist=ty-sy0,t0=null;"
-    "if(dist===0)return;"
-    "function step(ts){"
-    "if(t0===null)t0=ts;"
-    "var t=Math.min(1,(ts-t0)/d);"
-    "window.scrollTo(0,sy0+dist*ease(t));"
-    "if(t<1)raf=requestAnimationFrame(step);else raf=null;"
-    "}"
-    "raf=requestAnimationFrame(step);"
-    "}"
     "function targetY(el){"
     "var r=el.getBoundingClientRect(),top=r.top+sy(),smt=0;"
     "try{smt=parseInt(getComputedStyle(el).scrollMarginTop,10)||0;}"
     "catch(e){}"
     "return Math.max(0,top-smt);"
+    "}"
+    "function slide(el,d){"
+    "if(raf!==null)cancelAnimationFrame(raf);"
+    "var sy0=sy(),t0=null;"
+    "function step(ts){"
+    "if(t0===null)t0=ts;"
+    "var t=Math.min(1,(ts-t0)/d);"
+    "var ty=targetY(el);"
+    "window.scrollTo(0,sy0+(ty-sy0)*ease(t));"
+    "if(t<1){raf=requestAnimationFrame(step);}"
+    "else{window.scrollTo(0,targetY(el));raf=null;}"
+    "}"
+    "raf=requestAnimationFrame(step);"
     "}"
     "document.addEventListener('click',function(e){"
     "if(e.defaultPrevented)return;"
@@ -2057,7 +2072,7 @@ _NAV_SCROLL_SCRIPT = (
     "else{"
     "var dist=Math.abs(ty-sy());"
     "var dur=Math.min(900,Math.max(450,dist*0.45));"
-    "slide(ty,dur);"
+    "slide(el,dur);"
     "}"
     "try{history.pushState(null,'',href);}catch(err){}"
     "});"
