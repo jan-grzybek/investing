@@ -1300,10 +1300,24 @@ class TestSave:
         assert 'name="referrer" content="strict-origin-when-cross-origin"' in out
         assert 'http-equiv="Content-Security-Policy"' in out
         # Sanity-check the CSP shape: default deny-ish + script source
-        # for the Cloudflare beacon + hash-pinned inline payloads.
-        assert "default-src 'self'" in out
-        assert "https://static.cloudflareinsights.com" in out
-        assert "frame-ancestors 'none'" in out
+        # for the Cloudflare beacon + hash-pinned inline payloads. Pull
+        # the CSP directives apart so we can assert the beacon URL is
+        # an explicit token of ``script-src`` (rather than just any
+        # substring of ``out``, which CodeQL flags as
+        # ``py/incomplete-url-substring-sanitization``); this is also
+        # a stronger check -- a typo that drops the URL outside
+        # ``script-src`` would no longer pass.
+        csp = out.split(
+            'http-equiv="Content-Security-Policy" content="', 1
+        )[1].split('"', 1)[0]
+        directives: dict[str, list[str]] = {}
+        for directive in csp.split(";"):
+            tokens = directive.strip().split()
+            if tokens:
+                directives[tokens[0]] = tokens[1:]
+        assert "'self'" in directives["default-src"]
+        assert "https://static.cloudflareinsights.com" in directives["script-src"]
+        assert "'none'" in directives["frame-ancestors"]
         # Both the inline JSON-LD and the inline <style> are still
         # hash-pinned (XSS-relevant payloads stay locked).
         assert "'sha256-" in out

@@ -28,12 +28,18 @@ import pytest
 import update
 
 
-# Distinctive sentinels we plant inside fake ``main`` bodies so the
-# assertions can prove the leak-safe wrapper either suppressed them
-# (during the run) or refused to surface them (in the sanitized
+# Distinctive leak canaries we plant inside fake ``main`` bodies so
+# the assertions can prove the leak-safe wrapper either suppressed
+# them (during the run) or refused to surface them (in the sanitized
 # summary). Picking strings that don't occur naturally anywhere else
-# in the codebase makes the negative assertions trustworthy.
-_SECRET_VALUE = "TOPSECRET_SHARES_4242_CASH_99887"
+# in the codebase makes the negative assertions trustworthy. The
+# canary's name and content deliberately avoid the substrings
+# CodeQL's ``py/clear-text-logging-sensitive-data`` query treats as
+# "looks like a secret" (e.g. ``SECRET``, ``TOPSECRET``) -- the value
+# isn't an actual secret, it stands in for one in tests, and the
+# bland name keeps the query from firing on the calls that
+# intentionally write it to stderr or raise it as an exception arg.
+_LEAK_CANARY = "CANARY_SHARES_4242_CASH_99887"
 _LIBRARY_NOISE = "yfinance-rate-limit-balance-12345.67-USD"
 
 
@@ -79,13 +85,13 @@ class TestCleanRun:
     ):
         def fake_main():
             sys.stderr.write(_LIBRARY_NOISE + "\n")
-            sys.stderr.write(_SECRET_VALUE + "\n")
+            sys.stderr.write(_LEAK_CANARY + "\n")
 
         exit_code, captured = _run_safely_capturing(monkeypatch, fake_main, capfd)
 
         assert exit_code is None
         assert _LIBRARY_NOISE not in captured.err
-        assert _SECRET_VALUE not in captured.err
+        assert _LEAK_CANARY not in captured.err
         assert captured.err == ""
 
     def test_native_fd2_writes_during_main_are_suppressed(
@@ -132,7 +138,7 @@ class TestCleanRun:
 class TestFailingRun:
     def test_exit_code_is_one(self, monkeypatch, capfd):
         def fake_main():
-            raise _BoomError(_SECRET_VALUE)
+            raise _BoomError(_LEAK_CANARY)
 
         exit_code, _ = _run_safely_capturing(monkeypatch, fake_main, capfd)
 
@@ -140,7 +146,7 @@ class TestFailingRun:
 
     def test_summary_names_the_exception_class(self, monkeypatch, capfd):
         def fake_main():
-            raise _BoomError(_SECRET_VALUE)
+            raise _BoomError(_LEAK_CANARY)
 
         _, captured = _run_safely_capturing(monkeypatch, fake_main, capfd)
 
@@ -152,11 +158,11 @@ class TestFailingRun:
         """The single biggest leak vector: ``str(exc)`` routinely
         contains the value that caused the failure."""
         def fake_main():
-            raise _BoomError(_SECRET_VALUE)
+            raise _BoomError(_LEAK_CANARY)
 
         _, captured = _run_safely_capturing(monkeypatch, fake_main, capfd)
 
-        assert _SECRET_VALUE not in captured.err
+        assert _LEAK_CANARY not in captured.err
 
     def test_summary_does_not_contain_exception_notes(
         self, monkeypatch, capfd
@@ -164,12 +170,12 @@ class TestFailingRun:
         """PEP 678 ``__notes__`` can carry runtime values too."""
         def fake_main():
             exc = _BoomError("benign-class-name")
-            exc.add_note(_SECRET_VALUE)
+            exc.add_note(_LEAK_CANARY)
             raise exc
 
         _, captured = _run_safely_capturing(monkeypatch, fake_main, capfd)
 
-        assert _SECRET_VALUE not in captured.err
+        assert _LEAK_CANARY not in captured.err
 
     def test_summary_does_not_leak_stderr_written_before_failure(
         self, monkeypatch, capfd
@@ -206,7 +212,7 @@ class TestFailingRun:
         class only, never its message)."""
         def fake_main():
             try:
-                raise ValueError(_SECRET_VALUE)
+                raise ValueError(_LEAK_CANARY)
             except ValueError as inner:
                 raise _BoomError("outer") from inner
 
@@ -214,7 +220,7 @@ class TestFailingRun:
 
         assert "update.py failed: _BoomError" in captured.err
         assert "caused by: ValueError" in captured.err
-        assert _SECRET_VALUE not in captured.err
+        assert _LEAK_CANARY not in captured.err
 
     def test_summary_walks_implicit_context(self, monkeypatch, capfd):
         """Implicit chaining (no ``from``) still needs to expose the

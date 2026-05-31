@@ -7,6 +7,16 @@ on:
     branches: [main]
   workflow_dispatch: {}
 
+# Restrict the default ``GITHUB_TOKEN`` to the least the job needs:
+# pytest only checks out the tree and installs deps from PyPI, so
+# read-only access to the repo contents is enough. Without this block
+# the token inherits whatever the repo/org default is (often
+# read-write), which CodeQL's ``actions/missing-workflow-permissions``
+# query flags. Sibling ``main.yml`` declares its own permissions block
+# explicitly for the same reason.
+permissions:
+  contents: read
+
 jobs:
   pytest:
     runs-on: ubuntu-latest
