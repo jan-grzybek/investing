@@ -1591,6 +1591,85 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
   border-radius: 2px;
 }
 .return-chart__caption { color: var(--muted); font-size: 0.875rem; margin-top: 4px; }
+/* Pointer-driven scrubber. The hover overlay paints on top of the
+   SVG curves + delta annotation; ``pointer-events: none`` on every
+   piece inside ``.return-chart__hover`` lets the plot capture
+   pointermove for the entire chart while the guide/markers/tooltip
+   ride along. The plot itself owns ``touch-action: pan-y`` so a
+   finger can still scroll the page vertically through the chart;
+   horizontal swipes are reserved for scrubbing. */
+.return-chart__plot { touch-action: pan-y; }
+.return-chart__hover {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  z-index: 2;
+}
+.return-chart__hover.is-active { opacity: 1; }
+.return-chart__guide {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  border-left: 1px solid var(--muted);
+  pointer-events: none;
+}
+.return-chart__marker {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--bg);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  border: 2px solid currentColor;
+}
+.return-chart__marker--jg { color: var(--accent); }
+.return-chart__marker--bench { color: var(--accent-bench); }
+.return-chart__tooltip {
+  position: absolute;
+  top: 8px;
+  background: var(--card-bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
+  pointer-events: none;
+  white-space: nowrap;
+  color: var(--fg);
+  /* Hidden until the script positions it; ``visibility`` keeps the
+     tooltip out of the paint pipeline while the chart is idle but
+     leaves its dimensions queryable if we ever want to measure them
+     later. The parent ``.is-active`` toggle is what reveals it. */
+}
+.return-chart__hover.is-active .return-chart__tooltip { visibility: visible; }
+.return-chart__hover:not(.is-active) .return-chart__tooltip { visibility: hidden; }
+.return-chart__tooltip-date {
+  color: var(--muted);
+  font-size: 0.75rem;
+  margin-bottom: 4px;
+}
+.return-chart__tooltip-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.return-chart__tooltip-row + .return-chart__tooltip-row { margin-top: 2px; }
+.return-chart__tooltip-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.return-chart__tooltip-swatch--jg { background: var(--accent); }
+.return-chart__tooltip-swatch--bench { background: var(--accent-bench); }
+.return-chart__tooltip-label { color: var(--muted); }
+.return-chart__tooltip-value { font-weight: 600; margin-left: auto; }
 .returns-compare {
   margin: 0;
   padding: 18px 20px;
@@ -2085,6 +2164,154 @@ _NAV_SCROLL_SCRIPT = (
 )
 
 
+# Pointer-driven scrubber for the return chart. A finger or cursor
+# dragged across the plot reveals the date and per-series total
+# return at that x-coordinate via a vertical guide line, a marker
+# dot riding each curve, and a small tooltip card with the values.
+#
+# The script is intentionally data-agnostic: every figure that wants
+# the interaction declares ``data-chart='{...}'`` on its
+# ``.return-chart`` element, with ``start`` (ISO date), ``totalDays``
+# (integer span), ``rightPct`` (the chart's right margin reserved
+# for the delta annotation), ``yMin``/``yMax`` (the SVG y-domain),
+# and one entry per series in ``series`` with ``kind`` (``jg`` or
+# ``bench``), ``label``, ``x`` (day offsets from ``start``), and
+# ``y`` (return multiples). Keeping the data in the DOM rather than
+# baking it into the script means the script's payload is identical
+# for every page render -- and so its SHA-256 is stable and can be
+# pinned in CSP without re-hashing on every update.
+#
+# Linear interpolation between adjacent (x, y) samples gives the
+# tooltip its values: the visual curve uses a Pchip spline, but
+# linear is a faithful enough approximation between dense samples
+# (we hover with sub-pixel precision; the difference is invisible
+# to the eye), and it keeps the script small and dependency-free.
+#
+# ``touch-action: pan-y`` on the plot (set in CSS) allows vertical
+# page scrolling to start from a touch on the chart while horizontal
+# motion is captured for scrubbing. ``pointer*`` events unify mouse
+# and touch handling.
+#
+# Kept as a tight ES5-flavoured IIFE so the inline payload stays
+# small and gets a single stable SHA-256 hash (pinned in CSP).
+_RETURN_CHART_SCRIPT = (
+    "(function(){"
+    "var M=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];"
+    "function fmtDate(ts){"
+    "var d=new Date(ts);"
+    "return M[d.getUTCMonth()]+' '+d.getUTCDate()+', '+d.getUTCFullYear();"
+    "}"
+    "function fmtPct(v){"
+    "var p=(v-1)*100,a=Math.abs(p),s=p>=0?'+':'';"
+    "var n=Math.round(a*10)/10>=100?p.toFixed(0):p.toFixed(1);"
+    "return s+n+'%';"
+    "}"
+    "function lerp(x0,y0,x1,y1,x){"
+    "if(x1===x0)return y0;"
+    "return y0+(y1-y0)*(x-x0)/(x1-x0);"
+    "}"
+    "function valueAt(s,d){"
+    "var x=s.x,y=s.y,n=x.length;"
+    "if(n===0)return null;"
+    "if(d<=x[0])return y[0];"
+    "if(d>=x[n-1])return y[n-1];"
+    "var lo=0,hi=n-1;"
+    "while(lo+1<hi){var m=(lo+hi)>>1;if(x[m]<=d)lo=m;else hi=m;}"
+    "return lerp(x[lo],y[lo],x[hi],y[hi],d);"
+    "}"
+    "function init(fig){"
+    "var raw=fig.getAttribute('data-chart');"
+    "if(!raw)return;"
+    "var data;try{data=JSON.parse(raw);}catch(e){return;}"
+    "var plot=fig.querySelector('.return-chart__plot');"
+    "if(!plot)return;"
+    "var hover=plot.querySelector('.return-chart__hover');"
+    "if(!hover)return;"
+    "var guide=hover.querySelector('.return-chart__guide');"
+    "var tip=hover.querySelector('.return-chart__tooltip');"
+    "var dateEl=hover.querySelector('.return-chart__tooltip-date');"
+    "var rowsEl=hover.querySelector('.return-chart__tooltip-rows');"
+    "var startMs=Date.parse(data.start+'T00:00:00Z');"
+    "var totalDays=data.totalDays||0;"
+    "var rightPct=data.rightPct||0;"
+    "var yMin=data.yMin,yMax=data.yMax;"
+    "var W=1000,H=400;"
+    "var ySpan=(yMax-yMin)||1;"
+    "var chartXEnd=W*(1-rightPct/100);"
+    "rowsEl.innerHTML='';"
+    "data.series.forEach(function(s){"
+    "var row=document.createElement('div');"
+    "row.className='return-chart__tooltip-row';"
+    "var sw=document.createElement('span');"
+    "sw.className='return-chart__tooltip-swatch return-chart__tooltip-swatch--'+s.kind;"
+    "var lbl=document.createElement('span');"
+    "lbl.className='return-chart__tooltip-label';"
+    "lbl.textContent=s.label;"
+    "var val=document.createElement('span');"
+    "val.className='return-chart__tooltip-value';"
+    "row.appendChild(sw);row.appendChild(lbl);row.appendChild(val);"
+    "rowsEl.appendChild(row);"
+    "s._val=val;"
+    "var mk=document.createElement('div');"
+    "mk.className='return-chart__marker return-chart__marker--'+s.kind;"
+    "hover.appendChild(mk);"
+    "s._mk=mk;"
+    "});"
+    "function show(){hover.classList.add('is-active');}"
+    "function hide(){hover.classList.remove('is-active');}"
+    "function update(clientX){"
+    "var r=plot.getBoundingClientRect();"
+    "if(r.width<=0)return;"
+    "var usableW=r.width*(1-rightPct/100);"
+    "var px=Math.max(0,Math.min(usableW,clientX-r.left));"
+    "var frac=usableW>0?px/usableW:0;"
+    "var days=frac*totalDays;"
+    "var ts=startMs+days*86400000;"
+    "dateEl.textContent=fmtDate(ts);"
+    "data.series.forEach(function(s){"
+    "var v=valueAt(s,days);"
+    "s._val.textContent=fmtPct(v);"
+    "var svgX=totalDays>0?(days/totalDays)*chartXEnd:0;"
+    "var svgY=H-(v-yMin)/ySpan*H;"
+    "s._mk.style.left=(svgX/W*100)+'%';"
+    "s._mk.style.top=(svgY/H*100)+'%';"
+    "});"
+    "guide.style.left=(px/r.width*100)+'%';"
+    "var tipFrac=px/r.width;"
+    "if(tipFrac>0.55){"
+    "tip.style.left='auto';"
+    "tip.style.right=((1-tipFrac)*100)+'%';"
+    "tip.style.transform='translateX(-12px)';"
+    "}else{"
+    "tip.style.right='auto';"
+    "tip.style.left=(tipFrac*100)+'%';"
+    "tip.style.transform='translateX(12px)';"
+    "}"
+    "}"
+    "plot.addEventListener('pointerenter',function(e){if(e.pointerType==='mouse'){update(e.clientX);show();}});"
+    "plot.addEventListener('pointermove',function(e){update(e.clientX);show();});"
+    "plot.addEventListener('pointerdown',function(e){"
+    "update(e.clientX);show();"
+    "try{plot.setPointerCapture(e.pointerId);}catch(err){}"
+    "});"
+    "plot.addEventListener('pointerup',function(e){"
+    "try{plot.releasePointerCapture(e.pointerId);}catch(err){}"
+    "if(e.pointerType!=='mouse')hide();"
+    "});"
+    "plot.addEventListener('pointerleave',function(){hide();});"
+    "plot.addEventListener('pointercancel',function(){hide();});"
+    "}"
+    "function boot(){"
+    "var figs=document.querySelectorAll('.return-chart[data-chart]');"
+    "for(var i=0;i<figs.length;i++)init(figs[i]);"
+    "}"
+    "if(document.readyState==='loading'){"
+    "document.addEventListener('DOMContentLoaded',boot);"
+    "}else{boot();}"
+    "})();"
+)
+
+
 class Webpage:
     """Builds the JG Investing index page as a single responsive document."""
 
@@ -2392,11 +2619,13 @@ class Webpage:
         jsonld_hash = _sha256_b64(jsonld_str)
         hash_clear_hash = _sha256_b64(_HASH_CLEAR_SCRIPT)
         nav_scroll_hash = _sha256_b64(_NAV_SCROLL_SCRIPT)
+        return_chart_hash = _sha256_b64(_RETURN_CHART_SCRIPT)
         csp = (
             "default-src 'self'; "
             f"script-src 'self' 'sha256-{jsonld_hash}' "
             f"'sha256-{hash_clear_hash}' "
             f"'sha256-{nav_scroll_hash}' "
+            f"'sha256-{return_chart_hash}' "
             "https://static.cloudflareinsights.com; "
             "style-src 'self' 'unsafe-inline'; "
             f"style-src-elem 'self' 'sha256-{style_hash}'; "
@@ -2469,6 +2698,12 @@ class Webpage:
             # ``.site-header``. Falls back to instant scroll when
             # ``prefers-reduced-motion`` is set.
             f'<script>{_NAV_SCROLL_SCRIPT}</script>\n'
+            # Pointer-driven scrubber for the return chart: a vertical
+            # guide line + per-curve markers + tooltip card show the
+            # date and JG/benchmark return at any x-coordinate as the
+            # user slides a finger or cursor across the plot. See
+            # ``_RETURN_CHART_SCRIPT`` for the data-attribute contract.
+            f'<script>{_RETURN_CHART_SCRIPT}</script>\n'
             f'<style>{_PAGE_STYLES}</style>\n'
             '</head>'
         )
@@ -3322,6 +3557,15 @@ class Webpage:
             label = cls._benchmark_label(benchmark)
             series.append(("bench", label, np.array([v for _, v in bh], dtype=float)))
 
+        # JSON payload consumed by ``_RETURN_CHART_SCRIPT`` to drive
+        # the pointer-driven scrubber. The chart visualises every
+        # series on a shared x-axis (JG's dates) -- bench y-values
+        # are plotted positionally against JG dates rather than
+        # against their own -- so we hand the script the same shared
+        # x-array per series to keep tooltip dates and curve geometry
+        # in lockstep.
+        shared_x_days = [int(d) for d in time_x.tolist()]
+
         min_y = min(float(s[2].min()) for s in series)
         max_y = max(float(s[2].max()) for s in series)
         # Add a little headroom so the curves don't sit on the frame.
@@ -3454,10 +3698,54 @@ class Webpage:
             f'{html.escape(duration)}</div>'
         )
 
-        plot_html = (
-            f'<div class="return-chart__plot">{"".join(svg_lines)}{delta_html}</div>'
+        # Hover overlay: empty containers the scrubber script fills
+        # in on the fly. The guide line and tooltip stay invisible
+        # until a pointer enters the plot (CSS toggles
+        # ``.is-active``). Markers/rows are injected by the script
+        # so the markup is identical for one- and two-series charts.
+        hover_html = (
+            '<div class="return-chart__hover" aria-hidden="true">'
+            '<div class="return-chart__guide"></div>'
+            '<div class="return-chart__tooltip">'
+            '<div class="return-chart__tooltip-date"></div>'
+            '<div class="return-chart__tooltip-rows"></div>'
+            '</div>'
+            '</div>'
         )
-        return f'<figure class="return-chart">{plot_html}{legend_html}{caption}</figure>'
+
+        # Pack the scrubber data into a JSON blob on the <figure>.
+        # Values are rounded to six decimals -- well past the chart's
+        # visual precision -- so the inline payload stays compact
+        # even for histories with hundreds of samples.
+        chart_data = {
+            "start": start_date.strftime("%Y-%m-%d"),
+            "totalDays": int(time_x[-1] - time_x[0]),
+            "rightPct": right_margin_pct,
+            "yMin": round(float(view_min), 6),
+            "yMax": round(float(view_max), 6),
+            "series": [
+                {
+                    "kind": kind,
+                    "label": label,
+                    "x": shared_x_days,
+                    "y": [round(float(v), 6) for v in ys.tolist()],
+                }
+                for kind, label, ys in series
+            ],
+        }
+        chart_data_attr = html.escape(
+            json.dumps(chart_data, separators=(",", ":")), quote=True
+        )
+
+        plot_html = (
+            f'<div class="return-chart__plot">'
+            f'{"".join(svg_lines)}{delta_html}{hover_html}'
+            f'</div>'
+        )
+        return (
+            f'<figure class="return-chart" data-chart="{chart_data_attr}">'
+            f'{plot_html}{legend_html}{caption}</figure>'
+        )
 
 
 def generate_webpage(total_return, benchmarks, holdings):

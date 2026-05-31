@@ -1137,6 +1137,174 @@ class TestRenderReturnChart:
         assert "range" not in caption
 
 
+class TestReturnChartScrubber:
+    """The pointer-driven scrubber overlay and its data contract.
+
+    The interactive layer is driven by ``_RETURN_CHART_SCRIPT`` at
+    runtime; here we verify the static markup the renderer emits so
+    that JS contract stays intact: the JSON payload on the
+    ``<figure>``, the empty hover container (guide line + tooltip
+    skeleton) inside ``.return-chart__plot``, and the CSS hooks the
+    script targets.
+    """
+
+    @staticmethod
+    def _parse_chart_attr(out):
+        import html as _html
+        import json as _json
+        # The ``data-chart`` attribute on the figure is a double-quoted
+        # HTML-escaped JSON blob. Extract and decode it.
+        marker = 'data-chart="'
+        start = out.index(marker) + len(marker)
+        end = out.index('"', start)
+        return _json.loads(_html.unescape(out[start:end]))
+
+    def test_jg_only_chart_embeds_single_series_payload(self):
+        history = [
+            (datetime(2024, 1, 1), 1.0),
+            (datetime(2024, 6, 1), 1.1),
+            (datetime(2024, 12, 1), 1.2),
+        ]
+        out = Webpage._render_return_chart({"history": history}, [])
+        data = self._parse_chart_attr(out)
+        # Anchor date is the JG history's first sample, in ISO form.
+        assert data["start"] == "2024-01-01"
+        # Total day span is the distance from start to last sample.
+        assert data["totalDays"] == (datetime(2024, 12, 1) - datetime(2024, 1, 1)).days
+        # Single-series chart has no right-margin reserve (no delta).
+        assert data["rightPct"] == 0
+        # y-domain frames the values with a small headroom on both
+        # sides; here the data spans 1.0..1.2 -> bounds straddle that.
+        assert data["yMin"] < 1.0 < data["yMax"]
+        assert data["yMax"] > 1.2
+        # Only the JG series is present; bench is absent.
+        kinds = [s["kind"] for s in data["series"]]
+        assert kinds == ["jg"]
+        jg = data["series"][0]
+        assert jg["label"] == "JG"
+        # Day offsets from start match the JG history dates exactly.
+        assert jg["x"] == [0, 152, 335]
+        # Values are the raw history multiples (rounded to 6 dp).
+        assert jg["y"] == [1.0, 1.1, 1.2]
+
+    def test_chart_with_benchmark_embeds_both_series(self):
+        history = [
+            (datetime(2024, 1, 1), 1.0),
+            (datetime(2024, 6, 1), 1.1),
+            (datetime(2024, 12, 1), 1.2),
+        ]
+        benchmark = {"ticker": "LSE:VUAA.L",
+                     "history": [(datetime(2024, 1, 1), 1.0),
+                                 (datetime(2024, 6, 1), 1.02),
+                                 (datetime(2024, 12, 1), 1.05)]}
+        out = Webpage._render_return_chart({"history": history}, [benchmark])
+        data = self._parse_chart_attr(out)
+        # Right-margin reserve matches the delta overlay width so the
+        # scrubber doesn't run the guide past the curves' last point.
+        assert data["rightPct"] == 12.0
+        kinds = [s["kind"] for s in data["series"]]
+        assert kinds == ["jg", "bench"]
+        bench = data["series"][1]
+        assert bench["label"] == "S&P 500"
+        # Both series share the same x-axis (JG dates) so the tooltip
+        # date and curve geometry stay in lockstep.
+        assert bench["x"] == data["series"][0]["x"]
+        assert bench["y"] == [1.0, 1.02, 1.05]
+
+    def test_data_chart_attribute_is_html_escaped(self):
+        # The bench label may contain an ``&`` (e.g. "S&P 500") which
+        # would otherwise terminate the surrounding attribute. The
+        # renderer must HTML-escape the JSON blob so the page parses
+        # cleanly and the browser hands JS the original characters.
+        history = [
+            (datetime(2024, 1, 1), 1.0),
+            (datetime(2024, 12, 1), 1.2),
+        ]
+        benchmark = {"ticker": "LSE:VUAA.L",
+                     "history": [(datetime(2024, 1, 1), 1.0),
+                                 (datetime(2024, 12, 1), 1.05)]}
+        out = Webpage._render_return_chart({"history": history}, [benchmark])
+        # The raw ``&`` in "S&P 500" must NOT appear unescaped inside
+        # the attribute, and double quotes used by JSON must be
+        # encoded so they don't terminate the attribute.
+        chart_attr_block = out.split('data-chart="', 1)[1].split('"', 1)[0]
+        assert "&amp;" in chart_attr_block
+        assert "S&P" not in chart_attr_block
+        assert "&quot;" in chart_attr_block
+        # And once unescaped + parsed, the label round-trips intact.
+        data = self._parse_chart_attr(out)
+        assert data["series"][1]["label"] == "S&P 500"
+
+    def test_hover_overlay_skeleton_is_present(self):
+        history = [
+            (datetime(2024, 1, 1), 1.0),
+            (datetime(2024, 6, 1), 1.1),
+            (datetime(2024, 12, 1), 1.2),
+        ]
+        out = Webpage._render_return_chart({"history": history}, [])
+        # All the DOM hooks the scrubber script queries must be
+        # rendered ahead of time so the script doesn't have to build
+        # the skeleton on init.
+        assert 'class="return-chart__hover"' in out
+        assert 'class="return-chart__guide"' in out
+        assert 'class="return-chart__tooltip"' in out
+        assert 'class="return-chart__tooltip-date"' in out
+        assert 'class="return-chart__tooltip-rows"' in out
+        # The hover overlay sits INSIDE ``.return-chart__plot`` so it
+        # can be positioned relative to the curves (and so the SVG +
+        # delta + hover share a single positioning canvas).
+        plot_block = out.split('class="return-chart__plot"', 1)[1].split("</div>", 2)
+        # The opening tag's enclosing </div> is the last token; we
+        # only need to know the hover element appears before the plot
+        # block closes -- ie. inside its content.
+        assert 'class="return-chart__hover"' in plot_block[0] + plot_block[1]
+        # aria-hidden keeps screen readers focused on the surrounding
+        # comparison block (which already carries the numeric story).
+        assert 'aria-hidden="true"' in out
+
+    def test_short_history_omits_chart_and_data(self):
+        # Single-sample history -> no chart, no scrubber data.
+        out = Webpage._render_return_chart(
+            {"history": [(datetime(2024, 1, 1), 1.0)]}, []
+        )
+        assert out == ""
+
+
+class TestReturnChartScript:
+    """The inline ``_RETURN_CHART_SCRIPT`` payload + its CSP wiring."""
+
+    def test_script_is_loaded_from_head_with_csp_hash(self, stub_logo_lookup):
+        # The scrubber script ships in <head> so it's parsed before
+        # the chart paints, and its SHA-256 must be pinned in CSP
+        # ``script-src`` -- otherwise the browser refuses to execute
+        # it and the chart loses the interaction.
+        w = Webpage()
+        w.add_return(_total_return(), [_benchmark()])
+        head = Webpage._head()
+        # The script body itself is in the head.
+        assert update._RETURN_CHART_SCRIPT in head
+        # And its SHA-256 hash is referenced from the CSP meta tag.
+        digest = update._sha256_b64(update._RETURN_CHART_SCRIPT)
+        assert f"sha256-{digest}" in head
+
+    def test_script_initialises_pointer_event_handlers(self):
+        # The script must own the contract its rendered chart expects:
+        # it has to react to pointer movement and project values onto
+        # the curves. The exact wiring is JS, so we sanity-check the
+        # payload references the key DOM hooks and APIs.
+        script = update._RETURN_CHART_SCRIPT
+        # Reads its data from the figure attribute.
+        assert "data-chart" in script
+        # Wires up the unified pointer events (covers mouse + touch).
+        assert "pointermove" in script
+        assert "pointerleave" in script
+        # Toggles the active state CSS hook.
+        assert "is-active" in script
+        # Populates the tooltip and markers via the documented hooks.
+        assert "return-chart__tooltip-rows" in script
+        assert "return-chart__marker" in script
+
+
 class TestAddAllocations:
     def test_stores_values_for_save(self):
         w = Webpage()
