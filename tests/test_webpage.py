@@ -657,6 +657,75 @@ class TestAddHolding:
         card = w.historical[0]
         assert ' id="holding-NMS-OLD"' in card
 
+    def test_current_holding_card_carries_sort_attributes(
+        self, stub_logo_lookup,
+    ):
+        # The sort toolbar above each holdings list re-orders cards
+        # by reading ``data-sort-*`` attributes on each
+        # ``<article class="holding">``. Sanity-check the contract
+        # so the toolbar (which has no Python visibility into
+        # the values) lines up with what the renderer emits.
+        w = Webpage()
+        w.add_holding(_holding(
+            ticker="NMS:NVDA", name="NVIDIA Corporation",
+            tsr=217.4, cagr=64.2, weight=21.4,
+        ))
+        card = w.current[0]
+        # Ticker key drops the exchange prefix and lower-cases so
+        # "Sort by Ticker" reads as a clean A->Z run of company
+        # symbols.
+        assert 'data-sort-ticker="nvda"' in card
+        # Names case-fold for the same reason.
+        assert 'data-sort-name="nvidia corporation"' in card
+        # Numeric keys are emitted with a fixed-decimal float
+        # serialisation so int / float upstream values render
+        # identically and the JS can ``parseFloat`` them directly.
+        assert 'data-sort-tsr="217.4000"' in card
+        assert 'data-sort-cagr="64.2000"' in card
+        assert 'data-sort-weight="21.4000"' in card
+
+    def test_historical_holding_card_omits_weight_sort_key(
+        self, stub_logo_lookup,
+    ):
+        # Historical positions have no ``current_weight%`` so the
+        # card MUST NOT advertise a weight sort key -- the
+        # historical toolbar omits the matching button, but a
+        # stray ``data-sort-weight`` would still leak the
+        # attribute into the DOM (and a sort-by-weight applied
+        # to the *current* list could resort historical rows
+        # if the JS ever queried by selector globally).
+        w = Webpage()
+        w.add_holding(_holding(
+            ticker="NMS:OLD",
+            name="Old Co.",
+            is_current=False,
+            weight=None,
+            tsr=-12.5, cagr=-7.3,
+            periods=[{"start": datetime(2022, 1, 1),
+                      "end": datetime(2023, 1, 1)}],
+        ))
+        card = w.historical[0]
+        assert 'data-sort-ticker="old"' in card
+        assert 'data-sort-name="old co."' in card
+        assert 'data-sort-tsr="-12.5000"' in card
+        assert 'data-sort-cagr="-7.3000"' in card
+        assert "data-sort-weight" not in card
+
+    def test_holding_title_keeps_exchange_prefix_for_display(
+        self, stub_logo_lookup,
+    ):
+        # The visible title still reads as ``EXCHANGE:SYMBOL -
+        # Company`` so the row stays unambiguous; only the
+        # *sort key* drops the prefix. Guards against an
+        # accidental refactor that lower-cases the displayed
+        # ticker too.
+        w = Webpage()
+        w.add_holding(_holding(
+            ticker="NMS:NVDA", name="NVIDIA Corporation",
+        ))
+        card = w.current[0]
+        assert "NMS:NVDA - NVIDIA Corporation" in card
+
 
 class TestTicker:
     def test_returns_empty_string_when_no_current_holdings(self, stub_logo_lookup):
@@ -939,23 +1008,34 @@ class TestAddTrades:
         assert "trades__detail--pct" in dec_row
         assert "value--negative" in dec_row
 
-    def test_single_day_trade_renders_one_date_not_a_range(
+    def test_single_day_trade_renders_one_quarter_label(
         self, stub_logo_lookup,
     ):
-        # Bursts of one event collapse to a single date -- rendering
-        # "14/01/2025 - 14/01/2025" would read as a typo.
+        # The Date column shows calendar quarters instead of
+        # to-the-day stamps. A burst that lives inside a single
+        # quarter renders the bare quarter label ("Q1 2025") with
+        # no separator -- the trade happened in Q1 2025, full stop.
         w = Webpage()
         w.add_trades([
             _trade_event(start=datetime(2025, 1, 14)),
         ])
         row = w.trades[0]
-        assert "14/01/2025" in row
-        # No separator -- the hyphen is only used for ranges.
+        # Quarter label is wrapped in a single ``<time>`` carrying
+        # the first month of the quarter as a W3C ``YYYY-MM``
+        # datetime attribute.
+        assert '<time datetime="2025-01">Q1 2025</time>' in row
+        # The previous DD/MM/YYYY stamp is gone; no separator
+        # either (single quarter = single label).
+        assert "14/01/2025" not in row
         assert "trades__date-sep" not in row
 
-    def test_multi_day_burst_renders_date_range_with_plain_hyphen(
+    def test_multi_day_burst_inside_one_quarter_still_shows_single_label(
         self, stub_logo_lookup,
     ):
+        # A burst that's spread over several days but doesn't cross
+        # a quarter boundary still renders a single quarter label --
+        # the page commits to quarter granularity regardless of how
+        # many days the underlying fills span.
         w = Webpage()
         w.add_trades([
             _trade_event(
@@ -964,16 +1044,57 @@ class TestAddTrades:
             ),
         ])
         row = w.trades[0]
-        # Both ends wrapped in <time> for machine readability; the
-        # visible label uses the page-wide DD/MM/YYYY convention,
-        # and the ISO ``datetime`` attribute stays in YYYY-MM-DD.
-        assert '<time datetime="2024-05-22">22/05/2024</time>' in row
-        assert '<time datetime="2024-06-11">11/06/2024</time>' in row
-        # Plain ASCII hyphen ``-`` (in its own ``<span>``) matches
-        # how the equity capsules above on the page render closed
-        # ownership periods. The earlier en-dash ``&ndash;`` is gone.
+        # Both 22 May 2024 and 11 Jun 2024 sit in Q2 2024.
+        assert '<time datetime="2024-04">Q2 2024</time>' in row
+        # No to-the-day stamps and no separator since it's a
+        # single quarter.
+        assert "22/05/2024" not in row
+        assert "11/06/2024" not in row
+        assert "trades__date-sep" not in row
+
+    def test_burst_spanning_two_quarters_same_year_uses_slash(
+        self, stub_logo_lookup,
+    ):
+        # A burst that crosses a quarter boundary inside one
+        # calendar year renders a single slash-joined label
+        # ("Q3/Q4 2024") -- the rolling-quarter aggregation window
+        # makes this the only realistic multi-quarter case inside
+        # a single year, so a slash reads naturally as "spans
+        # these two".
+        w = Webpage()
+        w.add_trades([
+            _trade_event(
+                start=datetime(2024, 9, 20),  # Q3 2024
+                end=datetime(2024, 10, 5),    # Q4 2024
+            ),
+        ])
+        row = w.trades[0]
+        assert '<time datetime="2024-07">Q3/Q4 2024</time>' in row
+        # Slash format collapses to one ``<time>`` element, no
+        # trailing separator span.
+        assert "trades__date-sep" not in row
+
+    def test_burst_crossing_year_boundary_uses_hyphen_separator(
+        self, stub_logo_lookup,
+    ):
+        # A burst that crosses a calendar-year boundary (Q4 of one
+        # year into Q1 of the next) renders as a hyphen-separated
+        # range with two full ``<time>`` elements, since the
+        # slash-joined "Q4/Q1 2026" form would be ambiguous about
+        # which year owns the Q1. The separator span mirrors what
+        # the equity capsules use for multi-period dates so the
+        # eye can scan ranges across both surfaces.
+        w = Webpage()
+        w.add_trades([
+            _trade_event(
+                start=datetime(2024, 12, 15),  # Q4 2024
+                end=datetime(2025, 1, 20),     # Q1 2025
+            ),
+        ])
+        row = w.trades[0]
+        assert '<time datetime="2024-10">Q4 2024</time>' in row
+        assert '<time datetime="2025-01">Q1 2025</time>' in row
         assert '<span class="trades__date-sep"> - </span>' in row
-        assert "&ndash;" not in row
 
     def test_price_value_precedes_currency(self, stub_logo_lookup):
         # Prices render as ``<value> <ISO currency>`` (e.g.
@@ -2525,6 +2646,151 @@ class TestSave:
         assert 'id="current"' not in out
         assert 'href="#historical"' in out
         assert 'href="#performance"' in out
+
+
+class TestHoldingsSortControl:
+    def test_current_section_renders_full_sort_button_set(
+        self, stub_logo_lookup, chdir_tmp, freeze_today,
+    ):
+        # The current-holdings toolbar exposes the full set
+        # (Default / Ticker / Name / TSR / CAGR / Weight) since
+        # current rows carry all five sort dimensions; the
+        # historical toolbar drops Weight (no current weight on
+        # closed positions). Default starts ``aria-pressed="true"``
+        # so first paint reads as the upstream order
+        # (most-recent-trade-first) rather than an ambiguous
+        # "no sort applied" state.
+        freeze_today(datetime(2025, 6, 1))
+        w = Webpage()
+        w.add_return(_total_return(), [])
+        w.add_holding(_holding(ticker="NMS:CURR"))
+        w.save()
+
+        out = (chdir_tmp / "index.html").read_text()
+        # Toolbar present and scoped to the current list.
+        assert 'class="holdings__sort"' in out
+        assert 'data-holdings-sort="current"' in out
+        # All five sort keys + Default render as buttons.
+        for key in ("default", "ticker", "name", "tsr", "cagr", "weight"):
+            assert f'data-holdings-sort-key="{key}"' in out
+        # Default is pre-pressed; the others start inert.
+        assert (
+            'data-holdings-sort-key="default" '
+            'data-holdings-sort-kind="default" '
+            'aria-pressed="true"'
+        ) in out
+
+    def test_historical_section_omits_weight_button(
+        self, stub_logo_lookup, chdir_tmp, freeze_today,
+    ):
+        freeze_today(datetime(2025, 6, 1))
+        w = Webpage()
+        w.add_return(_total_return(), [])
+        w.add_holding(_holding(
+            ticker="NMS:OLD",
+            is_current=False, weight=None,
+            periods=[{"start": datetime(2022, 1, 1),
+                      "end": datetime(2023, 1, 1)}],
+        ))
+        w.save()
+
+        out = (chdir_tmp / "index.html").read_text()
+        # Find the historical toolbar slice and assert against
+        # *that*; the current section may also render a Weight
+        # button which is not what this test guards.
+        hist_idx = out.index('data-holdings-sort="historical"')
+        hist_end = out.index('</div>', hist_idx)
+        hist_toolbar = out[hist_idx:hist_end]
+        for key in ("default", "ticker", "name", "tsr", "cagr"):
+            assert f'data-holdings-sort-key="{key}"' in hist_toolbar
+        assert 'data-holdings-sort-key="weight"' not in hist_toolbar
+
+    def test_each_section_wraps_cards_in_holdings_list(
+        self, stub_logo_lookup, chdir_tmp, freeze_today,
+    ):
+        # The script pairs each toolbar with its sibling list via
+        # the matching ``data-holdings-list`` value, so the two
+        # lists on the page must each carry their own scoped
+        # wrapper -- a single shared container would let a "Sort
+        # current by Weight" click also reorder the historical
+        # rows below.
+        freeze_today(datetime(2025, 6, 1))
+        w = Webpage()
+        w.add_return(_total_return(), [])
+        w.add_holding(_holding(ticker="NMS:CURR"))
+        w.add_holding(_holding(
+            ticker="NMS:OLD",
+            is_current=False, weight=None,
+            periods=[{"start": datetime(2022, 1, 1),
+                      "end": datetime(2023, 1, 1)}],
+        ))
+        w.save()
+
+        out = (chdir_tmp / "index.html").read_text()
+        assert 'data-holdings-list="current"' in out
+        assert 'data-holdings-list="historical"' in out
+        # The toolbar always sits *above* its list on the page so
+        # the script's "next sibling" pairing model works without
+        # extra wiring.
+        assert (
+            out.index('data-holdings-sort="current"')
+            < out.index('data-holdings-list="current"')
+        )
+        assert (
+            out.index('data-holdings-sort="historical"')
+            < out.index('data-holdings-list="historical"')
+        )
+
+    def test_sort_script_is_embedded_in_head(
+        self, stub_logo_lookup, chdir_tmp, freeze_today,
+    ):
+        # The inline sort script ships in <head> so the toolbar is
+        # interactive on the first paint; the script itself defers
+        # its DOM queries to ``DOMContentLoaded`` so the lists
+        # below are already parsed by the time it runs.
+        freeze_today(datetime(2025, 6, 1))
+        w = Webpage()
+        w.add_return(_total_return(), [])
+        w.add_holding(_holding(ticker="NMS:CURR"))
+        w.save()
+
+        out = (chdir_tmp / "index.html").read_text()
+        # A signature substring from the inline script body is
+        # enough to confirm it's embedded -- the full payload is
+        # verified end-to-end by the CSP-hash test below.
+        assert "data-holdings-sort-key" in out
+        assert "data-holdings-list" in out
+        # CSP hashes the inline script source; if the renderer
+        # ever drops the <script> tag without also dropping the
+        # hash entry the page would refuse to load it. Both must
+        # appear together.
+        head_end = out.index("</head>")
+        head = out[:head_end]
+        assert head.count("'sha256-") >= 6  # JSON-LD + 5 IIFEs
+
+    def test_default_button_lacks_indicator_triangle(
+        self, stub_logo_lookup, chdir_tmp, freeze_today,
+    ):
+        # Only the directional buttons carry the
+        # ``.holdings__sort-indicator`` triangle; the Default
+        # button represents "no direction" so a triangle on it
+        # would be misleading. Guards against a refactor that
+        # accidentally folds the indicator into every button.
+        freeze_today(datetime(2025, 6, 1))
+        w = Webpage()
+        w.add_return(_total_return(), [])
+        w.add_holding(_holding(ticker="NMS:CURR"))
+        w.save()
+
+        out = (chdir_tmp / "index.html").read_text()
+        # Slice out the Default button HTML between its opening
+        # ``<button`` and its closing ``</button>`` and assert
+        # the indicator span is absent from that span only.
+        default_open = out.index('data-holdings-sort-key="default"')
+        button_start = out.rfind('<button', 0, default_open)
+        button_end = out.index('</button>', default_open)
+        default_button = out[button_start:button_end]
+        assert "holdings__sort-indicator" not in default_button
 
 
 class TestBuildSiteHeader:

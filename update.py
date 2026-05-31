@@ -843,6 +843,76 @@ def _fmt_date_long(dt) -> str:
     return dt.strftime("%b %-d, %Y")
 
 
+def _quarter_of(dt) -> tuple[int, int]:
+    """``(year, quarter_index)`` for a date.
+
+    Q1 = Jan-Mar, Q2 = Apr-Jun, Q3 = Jul-Sep, Q4 = Oct-Dec, mapped
+    via integer-divide-by-3 of the (1-indexed) month. Used by the
+    trades-table renderer to translate a burst's start / end dates
+    into a calendar-quarter label.
+    """
+    return (dt.year, (dt.month - 1) // 3 + 1)
+
+
+def _fmt_quarter_range(start, end) -> str:
+    """Render a burst's date span as a calendar-quarter label.
+
+    The trades table commits to publishing trade timing at quarter
+    granularity rather than to-the-day. That matches the long-term-
+    investor framing the rest of the page already uses (fund-letter
+    cadence, quarterly disclosure, etc.) and removes a layer of
+    incidental precision the reader wouldn't act on. Three layouts:
+
+    * **Single quarter** (typical, since bursts are aggregated in a
+      90-day rolling window): ``Q3 2026``.
+    * **Two quarters in the same year** (a burst straddling a
+      quarter boundary -- the only multi-quarter case the rolling
+      window can produce inside one calendar year): ``Q3/Q4 2026``.
+    * **Cross-year span** (a burst that ends in the next calendar
+      year, typically Q4 -> Q1): ``Q4 2026 - Q1 2027``. Wrapped
+      in two ``<time>`` elements separated by the same
+      ``.trades__date-sep`` span the equity capsules use for
+      multi-period dates, so the column reads with one mental
+      model across both surfaces.
+
+    Each ``<time datetime="...">`` carries the first month of the
+    referenced quarter (W3C "valid month string" form,
+    ``YYYY-MM``) so the machine layer still gets a real anchor
+    point even though the visible label is qualitative. The sort
+    key on the surrounding ``<tr>`` stays anchored on the burst's
+    ``end_date`` (set in ``_build_trade_row``), so sorting by date
+    still works at sub-quarter granularity -- two bursts in the
+    same Q3 sort by how recent each one is.
+    """
+    start_y, start_q = _quarter_of(start)
+    end_y, end_q = _quarter_of(end)
+    start_month_iso = f"{start_y}-{(start_q - 1) * 3 + 1:02d}"
+    if (start_y, start_q) == (end_y, end_q):
+        return (
+            f'<time datetime="{start_month_iso}">'
+            f'Q{start_q} {start_y}</time>'
+        )
+    if start_y == end_y:
+        # Single-element ``<time>`` for same-year multi-quarter
+        # spans: the slash-joined label ("Q3/Q4 2026") reads as a
+        # single name for the span, not as two separate dates, so
+        # splitting it across two ``<time>`` elements would over-
+        # commit to a machine-readable structure the page doesn't
+        # need.
+        return (
+            f'<time datetime="{start_month_iso}">'
+            f'Q{start_q}/Q{end_q} {start_y}</time>'
+        )
+    end_month_iso = f"{end_y}-{(end_q - 1) * 3 + 1:02d}"
+    return (
+        f'<time datetime="{start_month_iso}">'
+        f'Q{start_q} {start_y}</time>'
+        '<span class="trades__date-sep"> - </span>'
+        f'<time datetime="{end_month_iso}">'
+        f'Q{end_q} {end_y}</time>'
+    )
+
+
 def _pluralize(count: int, singular: str) -> str:
     return f"1 {singular}" if count == 1 else f"{count} {singular}s"
 
@@ -864,6 +934,19 @@ def _format_duration(delta: relativedelta) -> str:
 def _value_class(value: float) -> str:
     """CSS modifier reflecting the sign of a TSR/CAGR/TWR percentage."""
     return "value--negative" if value < 0 else "value--positive"
+
+
+def _format_sort_number(value: float) -> str:
+    """Stringify a numeric sort key for a ``data-sort-*`` attribute.
+
+    Holding cards expose TSR / CAGR / weight as raw numbers via
+    ``data-sort-*`` attributes that the inline holdings-sort
+    script reads back with ``parseFloat``. Padding to a fixed
+    decimal count keeps the markup tidy and ensures values like
+    ``-12`` and ``-12.0`` serialise identically across calls so
+    the rendered HTML stays diff-stable regardless of whether
+    the upstream computation emitted an int or a float."""
+    return format(float(value), ".4f")
 
 
 def _fmt_pct(value: float, *, signed: bool = False) -> str:
@@ -1435,6 +1518,94 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
 .holding__stats dd { margin: 0; text-align: right; font-weight: 600; }
 .value--positive { color: var(--positive); }
 .value--negative { color: var(--negative); }
+/* Per-section "Sort by" toolbar that sits between the section
+   subtitle / chart strip and the stack of holding capsules.
+   Button group reads as a horizontal row on desktop and wraps
+   onto multiple rows on mobile so all five (current) / four
+   (historical) options stay touch-reachable on a narrow viewport
+   without forcing horizontal scrolling. The buttons share a
+   visual language with the trades column-header sort controls
+   below: muted label, focus ring keyed off ``--accent``, and a
+   small triangular indicator that appears when a column is
+   active. The "Default" button is the only one without an
+   indicator since it represents the unsorted upstream order
+   (most recent buy first for current, most recent sell first
+   for historical) rather than a directional re-ordering. */
+.holdings__sort {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 14px;
+  padding: 0;
+  font-size: 0.875rem;
+  color: var(--muted);
+}
+.holdings__sort-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  font-weight: 600;
+  margin-right: 4px;
+}
+.holdings__sort-btn {
+  appearance: none;
+  background: var(--card-bg);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  color: var(--muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1.4;
+  transition: color 120ms ease, border-color 120ms ease,
+              background 120ms ease;
+}
+.holdings__sort-btn:hover {
+  color: var(--fg);
+  border-color: color-mix(in srgb, var(--fg) 30%, var(--line));
+}
+.holdings__sort-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.holdings__sort-btn[aria-pressed="true"] {
+  color: var(--fg);
+  border-color: var(--fg);
+  background: color-mix(in srgb, var(--fg) 6%, var(--card-bg));
+  font-weight: 600;
+}
+.holdings__sort-indicator {
+  display: inline-block;
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid color-mix(in srgb, var(--muted) 50%, transparent);
+  transition: transform 120ms ease, border-top-color 120ms ease;
+}
+.holdings__sort-btn[aria-sort="ascending"] .holdings__sort-indicator {
+  transform: rotate(180deg);
+  border-top-color: var(--fg);
+}
+.holdings__sort-btn[aria-sort="descending"] .holdings__sort-indicator {
+  border-top-color: var(--fg);
+}
+/* The list wrapper exists purely so the sort script can re-order
+   capsules within their own section without touching the
+   surrounding allocation chart / subtitle. It carries no visual
+   styling of its own; capsules continue to space themselves via
+   the existing ``.holding`` ``margin-top`` rule. */
+.holdings__list {
+  display: block;
+}
 /* Intro paragraph under a section title (e.g. the methodology note
    beneath the "Trades" section heading). Sits on its own row,
    slightly muted, so
@@ -2872,6 +3043,168 @@ _TRADES_SORT_SCRIPT = (
 )
 
 
+# Click-to-sort behaviour for the "Current holdings" / "Historical
+# holdings" lists.
+#
+# Both sections share a markup contract:
+#
+#   * ``<div class="holdings__sort" data-holdings-sort="<scope>">``
+#     is the toolbar, hosting one ``<button>`` per sort option.
+#     Each button carries ``data-holdings-sort-key`` (the field to
+#     order by: ``ticker`` / ``name`` / ``tsr`` / ``cagr`` /
+#     ``weight``, plus the ``default`` reset button) and
+#     ``data-holdings-sort-kind`` (``text`` / ``number`` /
+#     ``default``). The ``kind`` value drives the initial sort
+#     direction the JS picks the first time the user activates a
+#     button -- ``text`` ascends (A->Z) and ``number`` descends
+#     (high->low), matching the natural reading direction for
+#     each datatype. Re-clicks on the active button toggle
+#     ascending <-> descending.
+#   * ``<div class="holdings__list" data-holdings-list="<scope>">``
+#     is the immediate sibling that holds the ``<article
+#     class="holding">`` cards. The script pairs each toolbar
+#     with its list by walking forward from the toolbar's
+#     ``data-holdings-sort`` to the matching list's
+#     ``data-holdings-list``; that lets the two lists on the
+#     page (``current`` and ``historical``) be sorted
+#     independently of each other.
+#   * Each ``<article class="holding">`` carries the per-row keys
+#     on ``data-sort-ticker`` / ``data-sort-name`` /
+#     ``data-sort-tsr`` / ``data-sort-cagr`` /
+#     ``data-sort-weight`` (the last one is current-only;
+#     historical rows omit it and the historical toolbar omits
+#     the corresponding "Weight" button).
+#
+# The "Default" button is special-cased: it never carries a
+# direction, and pressing it restores the upstream DOM order
+# (most recent buy first for the current list, most recent sell
+# first for the historical list -- the order ``get_holdings``
+# already produces). The original sequence is captured at boot
+# into a per-list array so re-pressing "Default" after any
+# number of sorts always lands on the same starting state.
+#
+# ``aria-pressed`` on the active button + ``aria-sort`` on the
+# matching directional button is what assistive tech announces
+# (the indicator triangles below the labels are aria-hidden
+# decoration). Only one button per toolbar is ever
+# ``aria-pressed="true"`` at a time so a screen reader hears one
+# canonical "current sort" per section.
+#
+# Kept as a tight ES5-flavoured IIFE so the inline payload stays
+# small and gets a single stable SHA-256 hash (pinned in CSP).
+_HOLDINGS_SORT_SCRIPT = (
+    "(function(){"
+    "function rowKey(row,key){"
+    "return row.getAttribute('data-sort-'+key)||'';"
+    "}"
+    # Numeric comparator with NaN sinking to the bottom regardless
+    # of direction so a missing value (e.g. an upstream that drops
+    # weight on historical rows the script wasn't told to filter
+    # out) never wedges itself at the top of a high-low ordering.
+    "function cmpNum(a,b,key,dir){"
+    "var av=parseFloat(rowKey(a,key)),bv=parseFloat(rowKey(b,key));"
+    "var an=isNaN(av),bn=isNaN(bv);"
+    "if(an&&bn)return 0;"
+    "if(an)return 1;"
+    "if(bn)return -1;"
+    "if(av<bv)return dir==='desc'?1:-1;"
+    "if(av>bv)return dir==='desc'?-1:1;"
+    "return 0;"
+    "}"
+    "function cmpText(a,b,key,dir){"
+    "var av=rowKey(a,key),bv=rowKey(b,key);"
+    "if(av<bv)return dir==='desc'?1:-1;"
+    "if(av>bv)return dir==='desc'?-1:1;"
+    "return 0;"
+    "}"
+    "function setupGroup(group){"
+    "var scope=group.getAttribute('data-holdings-sort');"
+    "if(!scope)return;"
+    "var list=document.querySelector("
+    "'[data-holdings-list=\"'+scope+'\"]');"
+    "if(!list)return;"
+    "var original=Array.prototype.slice.call("
+    "list.querySelectorAll('.holding'));"
+    "var btns=group.querySelectorAll('.holdings__sort-btn');"
+    "var state={key:'default',dir:null};"
+    "function applyDefault(){"
+    "for(var i=0;i<original.length;i++)list.appendChild(original[i]);"
+    "}"
+    "function applySort(key,kind,dir){"
+    "var rows=Array.prototype.slice.call("
+    "list.querySelectorAll('.holding'));"
+    "rows.sort(function(a,b){"
+    "var c=kind==='number'"
+    "?cmpNum(a,b,key,dir)"
+    ":cmpText(a,b,key,dir);"
+    "if(c!==0)return c;"
+    # Stable tie-break: fall back to the original DOM order so
+    # equal-key groups stay in the upstream-defined sequence
+    # (most recent first) instead of shuffling on each re-sort.
+    "var ai=original.indexOf(a),bi=original.indexOf(b);"
+    "return ai-bi;"
+    "});"
+    "for(var i=0;i<rows.length;i++)list.appendChild(rows[i]);"
+    "}"
+    "function activate(btn,dir){"
+    "var key=btn.getAttribute('data-holdings-sort-key');"
+    "var kind=btn.getAttribute('data-holdings-sort-kind');"
+    "if(key==='default'){"
+    "applyDefault();"
+    "state.key='default';state.dir=null;"
+    "}else{"
+    "applySort(key,kind,dir);"
+    "state.key=key;state.dir=dir;"
+    "}"
+    "for(var i=0;i<btns.length;i++){"
+    "var b=btns[i];"
+    "if(b===btn){"
+    "b.setAttribute('aria-pressed','true');"
+    "if(key==='default'){"
+    "b.setAttribute('aria-sort','none');"
+    "}else{"
+    "b.setAttribute("
+    "'aria-sort',dir==='asc'?'ascending':'descending');"
+    "}"
+    "}else{"
+    "b.setAttribute('aria-pressed','false');"
+    "b.setAttribute('aria-sort','none');"
+    "}"
+    "}"
+    "}"
+    "for(var i=0;i<btns.length;i++){"
+    "(function(btn){"
+    "btn.addEventListener('click',function(){"
+    "var key=btn.getAttribute('data-holdings-sort-key');"
+    "var kind=btn.getAttribute('data-holdings-sort-kind');"
+    "var dir;"
+    "if(key==='default'){"
+    "dir=null;"
+    "}else if(state.key===key){"
+    "dir=state.dir==='asc'?'desc':'asc';"
+    "}else{"
+    # First time landing on a column: text columns ascend (A->Z)
+    # and number columns descend (high->low). Mirrors the trades
+    # table's directional defaults so the two sort interactions
+    # feel consistent.
+    "dir=kind==='number'?'desc':'asc';"
+    "}"
+    "activate(btn,dir);"
+    "});"
+    "})(btns[i]);"
+    "}"
+    "}"
+    "function boot(){"
+    "var groups=document.querySelectorAll('.holdings__sort');"
+    "for(var i=0;i<groups.length;i++)setupGroup(groups[i]);"
+    "}"
+    "if(document.readyState==='loading'){"
+    "document.addEventListener('DOMContentLoaded',boot);"
+    "}else{boot();}"
+    "})();"
+)
+
+
 class Webpage:
     """Builds the JG Investing index page as a single responsive document."""
 
@@ -3002,13 +3335,29 @@ class Webpage:
                     scale_to_max=True,
                     anchors=equity_anchors,
                 ))
+            parts.append(self._build_holdings_sort_control(
+                scope="current",
+                include_weight=True,
+            ))
+            parts.append(
+                '<div class="holdings__list" data-holdings-list="current">'
+            )
             parts.append('\n'.join(self.current))
+            parts.append('</div>')
             parts.append('</section>')
 
         if self.historical:
             parts.append('<section id="historical" class="section section--historical">')
             parts.append('<h2 class="section__title">Historical holdings</h2>')
+            parts.append(self._build_holdings_sort_control(
+                scope="historical",
+                include_weight=False,
+            ))
+            parts.append(
+                '<div class="holdings__list" data-holdings-list="historical">'
+            )
             parts.append('\n'.join(self.historical))
+            parts.append('</div>')
             parts.append('</section>')
 
         if self.trades:
@@ -3213,6 +3562,7 @@ class Webpage:
         nav_scroll_hash = _sha256_b64(_NAV_SCROLL_SCRIPT)
         return_chart_hash = _sha256_b64(_RETURN_CHART_SCRIPT)
         trades_sort_hash = _sha256_b64(_TRADES_SORT_SCRIPT)
+        holdings_sort_hash = _sha256_b64(_HOLDINGS_SORT_SCRIPT)
         csp = (
             "default-src 'self'; "
             f"script-src 'self' 'sha256-{jsonld_hash}' "
@@ -3220,6 +3570,7 @@ class Webpage:
             f"'sha256-{nav_scroll_hash}' "
             f"'sha256-{return_chart_hash}' "
             f"'sha256-{trades_sort_hash}' "
+            f"'sha256-{holdings_sort_hash}' "
             "https://static.cloudflareinsights.com; "
             "style-src 'self' 'unsafe-inline'; "
             f"style-src-elem 'self' 'sha256-{style_hash}'; "
@@ -3301,6 +3652,10 @@ class Webpage:
             # Click-to-sort for the "Trades" table. See
             # ``_TRADES_SORT_SCRIPT`` for the data-attribute contract.
             f'<script>{_TRADES_SORT_SCRIPT}</script>\n'
+            # Click-to-sort for the "Current holdings" / "Historical
+            # holdings" capsule lists. See ``_HOLDINGS_SORT_SCRIPT``
+            # for the data-attribute contract.
+            f'<script>{_HOLDINGS_SORT_SCRIPT}</script>\n'
             f'<style>{_PAGE_STYLES}</style>\n'
             '</head>'
         )
@@ -4075,28 +4430,17 @@ class Webpage:
             detail_class = "trades__detail trades__detail--label"
         start = event["start_date"]
         end = event["end_date"]
-        if start == end:
-            # Single-day bursts (the common case for one-off trades)
-            # render as a plain date rather than a "X - X" range,
-            # which would look like a typo.
-            period_html = (
-                f'<time datetime="{start.strftime("%Y-%m-%d")}">'
-                f'{_fmt_date(start)}</time>'
-            )
-        else:
-            # Plain ASCII hyphen ``-`` (wrapped in its own ``<span>``)
-            # matches the equity capsules' period rows above on the
-            # page, where the "Aug 14, 2024 - Present" separator is
-            # written the same way. Using the same glyph here means
-            # the eye can scan dates across the trades table and the
-            # holding cards with one mental model.
-            period_html = (
-                f'<time datetime="{start.strftime("%Y-%m-%d")}">'
-                f'{_fmt_date(start)}</time>'
-                '<span class="trades__date-sep"> - </span>'
-                f'<time datetime="{end.strftime("%Y-%m-%d")}">'
-                f'{_fmt_date(end)}</time>'
-            )
+        # Quarter-granularity timing -- see ``_fmt_quarter_range``
+        # for the layout rules. The trades table commits to
+        # publishing trade timing at quarter precision rather than
+        # to-the-day; the page already speaks the long-term-
+        # investor / fund-letter idiom, where the quarter is the
+        # natural cadence and a to-the-day stamp would be
+        # incidental precision the reader can't act on. The
+        # row-level ``data-sort-date`` still carries the burst's
+        # ISO end date below, so sorting by date stays fine-
+        # grained even though the visible label is coarse.
+        period_html = _fmt_quarter_range(start, end)
         # Thousands separator + 2 decimals reads well across the full
         # range of equity prices we ingest (sub-dollar US tickers up
         # through GBp pence quotes in the thousands). The ISO
@@ -4250,6 +4594,85 @@ class Webpage:
             )
         return table_html + toggle_html
 
+    # Sort options surfaced above each holdings list. ``key`` is the
+    # ``data-holdings-sort-key`` consumed by ``_HOLDINGS_SORT_SCRIPT``
+    # and matched against the ``data-sort-<key>`` attribute on each
+    # ``<article class="holding">``; ``label`` is the displayed text;
+    # ``kind`` controls the default direction the JS picks the first
+    # time the user activates a column ("text" -> ascending, "number"
+    # -> descending) so "Ticker" / "Name" jump straight to A->Z while
+    # "TSR" / "CAGR" / "Weight" jump straight to high->low (the same
+    # pattern ``_TRADES_SORT_SCRIPT`` already implements for the
+    # trades table). The "default" key is special-cased: re-pressing
+    # it restores the original DOM order without consuming a sort
+    # direction at all -- that's the most-recent-trade-first
+    # ordering that ``get_holdings`` produces upstream. The Weight
+    # column is current-only (historical rows have no
+    # ``current_weight%``); the historical button group filters
+    # ``"weight"`` out before rendering.
+    _HOLDINGS_SORT_OPTIONS: tuple[tuple[str, str, str], ...] = (
+        ("default", "Default", "default"),
+        ("ticker",  "Ticker",  "text"),
+        ("name",    "Name",    "text"),
+        ("tsr",     "TSR",     "number"),
+        ("cagr",    "CAGR",    "number"),
+        ("weight",  "Weight",  "number"),
+    )
+
+    @classmethod
+    def _build_holdings_sort_control(
+        cls, *, scope: str, include_weight: bool,
+    ) -> str:
+        """Render the per-section "Sort by" toolbar above a
+        holdings list.
+
+        ``scope`` is the value the wrapping
+        ``data-holdings-list="..."`` element carries on its inner
+        list, used by ``_HOLDINGS_SORT_SCRIPT`` to wire each
+        toolbar to its own list independently. ``include_weight``
+        controls whether the "Weight" button is rendered -- it is
+        meaningless for historical holdings (no current weight)
+        so the historical toolbar omits it.
+
+        The "Default" button is rendered as the active option on
+        first paint to mirror the order ``get_holdings`` already
+        emits (most recent buy / most recent sell first); the
+        inline script honours that initial state via the
+        ``aria-pressed="true"`` attribute and only overwrites it
+        once the user clicks a different button.
+        """
+        buttons: list[str] = []
+        for key, label, kind in cls._HOLDINGS_SORT_OPTIONS:
+            if key == "weight" and not include_weight:
+                continue
+            is_default = key == "default"
+            indicator_html = (
+                ""
+                if is_default
+                else '<span class="holdings__sort-indicator" '
+                     'aria-hidden="true"></span>'
+            )
+            buttons.append(
+                f'<button type="button" class="holdings__sort-btn" '
+                f'data-holdings-sort-key="{key}" '
+                f'data-holdings-sort-kind="{kind}" '
+                f'aria-pressed="{"true" if is_default else "false"}" '
+                f'aria-sort="none">'
+                f'{html.escape(label)}{indicator_html}'
+                '</button>'
+            )
+        scope_label = "current" if scope == "current" else "historical"
+        return (
+            f'<div class="holdings__sort" role="group" '
+            f'aria-label="Sort {scope_label} holdings" '
+            f'data-holdings-sort="{html.escape(scope)}">'
+            '<span class="holdings__sort-label" aria-hidden="true">'
+            'Sort by'
+            '</span>'
+            f'{"".join(buttons)}'
+            '</div>'
+        )
+
     def _build_holding_card(self, holding) -> str:
         stats: list[tuple[str, str, float | None]] = [
             # ``tsr%``/``cagr%``/``current_weight%`` are unrounded
@@ -4270,12 +4693,42 @@ class Webpage:
 
         periods = [(p["start"], p["end"]) for p in holding["periods"]]
 
+        # ``data-sort-*`` attributes feed the inline sort control
+        # above each holdings list. The ticker key drops the
+        # exchange prefix so ordering by "Ticker" reads as an
+        # alphabetical run of company symbols (NVDA before SPGI),
+        # which is the natural mental model for a reader who
+        # thinks of "AAPL" / "GOOGL" as the canonical ticker --
+        # the displayed title still carries the ``EXCHANGE:SYMBOL``
+        # form so the row is unambiguous. Tickers and names are
+        # case-folded so the sort stays stable across mixed-case
+        # spellings. CAGR rows that overflow the TBA threshold
+        # still emit the raw numeric value -- they sink to one
+        # extreme of the ordering, but the row stays present
+        # under either direction. ``data-sort-weight`` is omitted
+        # on historical rows whose weight is ``None`` so the
+        # button group can hide the Weight option for the
+        # historical list while still rendering it for current
+        # holdings.
+        ticker_key = holding["ticker"].rsplit(":", 1)[-1].casefold()
+        sort_attrs: dict[str, str] = {
+            "sort-ticker": ticker_key,
+            "sort-name": holding["name"].casefold(),
+            "sort-tsr": _format_sort_number(holding["tsr%"]),
+            "sort-cagr": _format_sort_number(holding["cagr%"]),
+        }
+        if holding["is_current"]:
+            sort_attrs["sort-weight"] = _format_sort_number(
+                holding["current_weight%"]
+            )
+
         return self._build_card(
             logo_url=self._get_logo_url(holding["ticker"]),
             title=f'{holding["ticker"]} - {holding["name"]}',
             stats=stats,
             periods=periods,
             card_id=self._holding_anchor(holding["ticker"]),
+            data_attrs=sort_attrs,
         )
 
     @staticmethod
@@ -4287,8 +4740,16 @@ class Webpage:
         periods=None,
         note: str | None = None,
         card_id: str | None = None,
+        data_attrs: dict[str, str] | None = None,
     ) -> str:
-        """Render a capsule with logo, title/period(s)/note, and right-aligned stats."""
+        """Render a capsule with logo, title/period(s)/note, and right-aligned stats.
+
+        ``data_attrs`` is an optional mapping of ``data-*`` attribute
+        names (without the ``data-`` prefix) to string values that
+        will be emitted on the outer ``<article>``. Used by the
+        holdings sort control to read per-card sort keys (ticker /
+        name / TSR / CAGR / weight) without having to re-parse the
+        rendered card body."""
         body_parts = [f'<h3 class="holding__title">{html.escape(title)}</h3>']
         if periods:
             # Always render the most-recent period first so it sits at
@@ -4357,8 +4818,18 @@ class Webpage:
         # bar rows scroll to the right capsule -- both compute their
         # ``href`` from the same slug via ``_holding_anchor``.
         id_attr = f' id="{html.escape(card_id)}"' if card_id else ""
+        data_attr_html = ""
+        if data_attrs:
+            # Emit attributes in a stable order so the rendered markup
+            # is deterministic across calls; ``dict`` preserves insertion
+            # order in modern Python but a ``sorted`` pass keeps the
+            # output reproducible regardless of how the caller built
+            # the mapping.
+            for key in sorted(data_attrs):
+                value = data_attrs[key]
+                data_attr_html += f' data-{key}="{html.escape(value)}"'
         return (
-            f'<article class="holding"{id_attr}>'
+            f'<article class="holding"{id_attr}{data_attr_html}>'
             # Below-the-fold logos load lazily; explicit dimensions
             # reserve space and keep CLS at zero.
             f'<img class="holding__logo" src="{html.escape(logo_url)}" '
