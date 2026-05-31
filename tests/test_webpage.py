@@ -1182,10 +1182,23 @@ class TestReturnChartScrubber:
         assert kinds == ["jg"]
         jg = data["series"][0]
         assert jg["label"] == "JG"
-        # Day offsets from start match the JG history dates exactly.
-        assert jg["x"] == [0, 152, 335]
-        # Values are the raw history multiples (rounded to 6 dp).
-        assert jg["y"] == [1.0, 1.1, 1.2]
+        # With three or more history points the renderer embeds the
+        # SAME densely-sampled Pchip curve the SVG polyline draws,
+        # so the marker dots track the rendered line exactly.
+        assert len(jg["x"]) == 200
+        assert len(jg["y"]) == 200
+        # Dense samples span the full history range.
+        assert jg["x"][0] == 0
+        assert jg["x"][-1] == 335
+        # Endpoints match the raw history; the Pchip spline goes
+        # through every original sample.
+        assert jg["y"][0] == 1.0
+        assert jg["y"][-1] == 1.2
+        # Mid-sample is the interpolated value at day 152 (the June
+        # 1st sample). Pchip preserves the original points to
+        # numerical precision.
+        mid = jg["x"].index(min(jg["x"], key=lambda x: abs(x - 152)))
+        assert jg["y"][mid] == pytest.approx(1.1, abs=5e-3)
 
     def test_chart_with_benchmark_embeds_both_series(self):
         history = [
@@ -1206,10 +1219,30 @@ class TestReturnChartScrubber:
         assert kinds == ["jg", "bench"]
         bench = data["series"][1]
         assert bench["label"] == "S&P 500"
-        # Both series share the same x-axis (JG dates) so the tooltip
-        # date and curve geometry stay in lockstep.
+        # Both series share the same densely-sampled x-axis so the
+        # tooltip date, marker dots, and local caliper stay in
+        # lockstep across the two curves.
         assert bench["x"] == data["series"][0]["x"]
-        assert bench["y"] == [1.0, 1.02, 1.05]
+        # Endpoints of the Pchip-interpolated bench curve match the
+        # raw history.
+        assert bench["y"][0] == 1.0
+        assert bench["y"][-1] == 1.05
+
+    def test_two_point_history_skips_dense_interpolation(self):
+        # With only two samples there's nothing to spline through;
+        # the renderer plots straight segments, so the embedded
+        # payload mirrors the raw history rather than a 200-point
+        # dense curve.
+        history = [
+            (datetime(2024, 1, 1), 1.0),
+            (datetime(2024, 12, 1), 1.2),
+        ]
+        out = Webpage._render_return_chart({"history": history}, [])
+        data = self._parse_chart_attr(out)
+        jg = data["series"][0]
+        assert len(jg["x"]) == 2
+        assert jg["x"] == [0, 335]
+        assert jg["y"] == [1.0, 1.2]
 
     def test_data_chart_attribute_is_html_escaped(self):
         # The bench label may contain an ``&`` (e.g. "S&P 500") which
@@ -1261,6 +1294,34 @@ class TestReturnChartScrubber:
         # aria-hidden keeps screen readers focused on the surrounding
         # comparison block (which already carries the numeric story).
         assert 'aria-hidden="true"' in out
+        # No benchmark -> no local outperformance caliper or pp row
+        # (the moving caliper has no second curve to anchor against).
+        assert 'return-chart__hover-delta-bar' not in out
+        assert 'return-chart__tooltip-delta' not in out
+
+    def test_hover_delta_elements_render_when_benchmark_present(self):
+        # With a benchmark there's a second curve to compare against,
+        # so the renderer emits the moving caliper bar + pp row that
+        # mirror the static end-of-period annotation -- the script
+        # positions them at the cursor's x at runtime.
+        history = [
+            (datetime(2024, 1, 1), 1.0),
+            (datetime(2024, 6, 1), 1.1),
+            (datetime(2024, 12, 1), 1.2),
+        ]
+        benchmark = {"ticker": "LSE:VUAA.L",
+                     "history": [(datetime(2024, 1, 1), 1.0),
+                                 (datetime(2024, 6, 1), 1.02),
+                                 (datetime(2024, 12, 1), 1.05)]}
+        out = Webpage._render_return_chart({"history": history}, [benchmark])
+        assert 'class="return-chart__hover-delta-bar"' in out
+        assert 'class="return-chart__tooltip-delta"' in out
+        # The hover overlay sits BEFORE the static delta so the CSS
+        # rule ``.return-chart__hover.is-active ~ .return-chart__delta``
+        # can dim the static label while the scrubber is active.
+        hover_idx = out.index('class="return-chart__hover"')
+        static_delta_idx = out.index('class="return-chart__delta"')
+        assert hover_idx < static_delta_idx
 
     def test_short_history_omits_chart_and_data(self):
         # Single-sample history -> no chart, no scrubber data.
@@ -1303,6 +1364,13 @@ class TestReturnChartScript:
         # Populates the tooltip and markers via the documented hooks.
         assert "return-chart__tooltip-rows" in script
         assert "return-chart__marker" in script
+        # Drives the moving caliper bar + tooltip pp row when a
+        # benchmark is present.
+        assert "return-chart__hover-delta-bar" in script
+        assert "return-chart__tooltip-delta" in script
+        # Uses the same ``--delta-color`` custom property the static
+        # caliper consumes so green/red mapping stays uniform.
+        assert "--delta-color" in script
 
 
 class TestAddAllocations:

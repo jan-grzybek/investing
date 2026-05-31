@@ -1670,6 +1670,52 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
 .return-chart__tooltip-swatch--bench { background: var(--accent-bench); }
 .return-chart__tooltip-label { color: var(--muted); }
 .return-chart__tooltip-value { font-weight: 600; margin-left: auto; }
+/* Local outperformance row at the bottom of the tooltip mirrors the
+   visual caliper that sits over the curves at the cursor x. Both
+   pick up the same green/red ``--delta-color`` set inline by the
+   script, so the bracket on the chart and the pp value in the
+   tooltip read as one annotation. The thin top border separates
+   the pp delta from the per-series values above so the eye groups
+   the two return rows together and reads the delta as the
+   "difference" line beneath them. */
+.return-chart__tooltip-delta {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--line);
+  text-align: right;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+/* Moving caliper at the cursor x: vertical spine between the JG
+   and benchmark curve values, with short horizontal "jaws" that
+   visibly hook the bracket onto each curve -- the same caliper
+   pattern as the static end-of-period annotation, only with the
+   x-coordinate driven by the cursor via inline ``left``/``top``/
+   ``height`` and the colour via ``--delta-color``. */
+.return-chart__hover-delta-bar {
+  position: absolute;
+  width: 0;
+  border-left: 1.75px solid var(--delta-color, var(--muted));
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+.return-chart__hover-delta-bar::before,
+.return-chart__hover-delta-bar::after {
+  content: "";
+  position: absolute;
+  left: -3px;
+  width: 6px;
+  height: 1.75px;
+  background: var(--delta-color, var(--muted));
+}
+.return-chart__hover-delta-bar::before { top: 0; transform: translateY(-50%); }
+.return-chart__hover-delta-bar::after { bottom: 0; transform: translateY(50%); }
+/* When the scrubber is engaged, dim the static right-edge delta
+   annotation so the reader's eye follows the moving caliper at
+   the cursor x and isn't distracted by two pp labels on screen.
+   Hover sits before the static delta in source order so this
+   adjacent-sibling rule works without ``:has()``. */
+.return-chart__hover.is-active ~ .return-chart__delta { opacity: 0.25; }
 .returns-compare {
   margin: 0;
   padding: 18px 20px;
@@ -2206,6 +2252,11 @@ _RETURN_CHART_SCRIPT = (
     "var n=Math.round(a*10)/10>=100?p.toFixed(0):p.toFixed(1);"
     "return s+n+'%';"
     "}"
+    "function fmtPp(p){"
+    "var a=Math.abs(p),s=p>=0?'+':'';"
+    "var n=Math.round(a*10)/10>=100?p.toFixed(0):p.toFixed(1);"
+    "return s+n+' pp';"
+    "}"
     "function lerp(x0,y0,x1,y1,x){"
     "if(x1===x0)return y0;"
     "return y0+(y1-y0)*(x-x0)/(x1-x0);"
@@ -2231,6 +2282,8 @@ _RETURN_CHART_SCRIPT = (
     "var tip=hover.querySelector('.return-chart__tooltip');"
     "var dateEl=hover.querySelector('.return-chart__tooltip-date');"
     "var rowsEl=hover.querySelector('.return-chart__tooltip-rows');"
+    "var deltaBar=hover.querySelector('.return-chart__hover-delta-bar');"
+    "var deltaRow=hover.querySelector('.return-chart__tooltip-delta');"
     "var startMs=Date.parse(data.start+'T00:00:00Z');"
     "var totalDays=data.totalDays||0;"
     "var rightPct=data.rightPct||0;"
@@ -2268,14 +2321,29 @@ _RETURN_CHART_SCRIPT = (
     "var days=frac*totalDays;"
     "var ts=startMs+days*86400000;"
     "dateEl.textContent=fmtDate(ts);"
+    "var svgX=totalDays>0?(days/totalDays)*chartXEnd:0;"
+    "var ys=[];"
     "data.series.forEach(function(s){"
     "var v=valueAt(s,days);"
+    "ys.push(v);"
     "s._val.textContent=fmtPct(v);"
-    "var svgX=totalDays>0?(days/totalDays)*chartXEnd:0;"
     "var svgY=H-(v-yMin)/ySpan*H;"
     "s._mk.style.left=(svgX/W*100)+'%';"
     "s._mk.style.top=(svgY/H*100)+'%';"
     "});"
+    "if(deltaBar&&deltaRow&&ys.length>=2){"
+    "var jgY=H-(ys[0]-yMin)/ySpan*H;"
+    "var bnY=H-(ys[1]-yMin)/ySpan*H;"
+    "var topY=Math.min(jgY,bnY),btmY=Math.max(jgY,bnY);"
+    "var deltaPp=(ys[0]-ys[1])*100;"
+    "var color=deltaPp>=0?'var(--positive)':'var(--negative)';"
+    "deltaBar.style.left=(svgX/W*100)+'%';"
+    "deltaBar.style.top=(topY/H*100)+'%';"
+    "deltaBar.style.height=((btmY-topY)/H*100)+'%';"
+    "deltaBar.style.setProperty('--delta-color',color);"
+    "deltaRow.textContent=fmtPp(deltaPp);"
+    "deltaRow.style.color=color;"
+    "}"
     "guide.style.left=(px/r.width*100)+'%';"
     "var tipFrac=px/r.width;"
     "if(tipFrac>0.55){"
@@ -3557,15 +3625,6 @@ class Webpage:
             label = cls._benchmark_label(benchmark)
             series.append(("bench", label, np.array([v for _, v in bh], dtype=float)))
 
-        # JSON payload consumed by ``_RETURN_CHART_SCRIPT`` to drive
-        # the pointer-driven scrubber. The chart visualises every
-        # series on a shared x-axis (JG's dates) -- bench y-values
-        # are plotted positionally against JG dates rather than
-        # against their own -- so we hand the script the same shared
-        # x-array per series to keep tooltip dates and curve geometry
-        # in lockstep.
-        shared_x_days = [int(d) for d in time_x.tolist()]
-
         min_y = min(float(s[2].min()) for s in series)
         max_y = max(float(s[2].max()) for s in series)
         # Add a little headroom so the curves don't sit on the frame.
@@ -3703,20 +3762,46 @@ class Webpage:
         # until a pointer enters the plot (CSS toggles
         # ``.is-active``). Markers/rows are injected by the script
         # so the markup is identical for one- and two-series charts.
+        # The hover-delta bar + tooltip-delta row only render when a
+        # benchmark is present -- they're the moving counterpart of
+        # the static right-edge caliper, showing the local
+        # outperformance at the cursor's x-coordinate.
+        hover_delta_bar_html = (
+            '<div class="return-chart__hover-delta-bar"></div>'
+            if has_delta else ''
+        )
+        tooltip_delta_html = (
+            '<div class="return-chart__tooltip-delta"></div>'
+            if has_delta else ''
+        )
+        # ``.return-chart__hover`` sits BEFORE ``.return-chart__delta``
+        # in source order so a CSS sibling selector can dim the
+        # static end-of-period delta while the scrubber is active
+        # (``.return-chart__hover.is-active ~ .return-chart__delta``).
+        # The hover overlay still paints on top thanks to its
+        # explicit ``z-index`` in ``_PAGE_STYLES``.
         hover_html = (
             '<div class="return-chart__hover" aria-hidden="true">'
             '<div class="return-chart__guide"></div>'
+            f'{hover_delta_bar_html}'
             '<div class="return-chart__tooltip">'
             '<div class="return-chart__tooltip-date"></div>'
             '<div class="return-chart__tooltip-rows"></div>'
+            f'{tooltip_delta_html}'
             '</div>'
             '</div>'
         )
 
         # Pack the scrubber data into a JSON blob on the <figure>.
-        # Values are rounded to six decimals -- well past the chart's
-        # visual precision -- so the inline payload stays compact
-        # even for histories with hundreds of samples.
+        # We embed the SAME densely-sampled curve the SVG polyline
+        # draws (Pchip in log-space when there are >= 3 history
+        # points, raw segments for two) so the marker dots track the
+        # rendered line exactly -- linear-interpolating between
+        # adjacent dense samples is visually indistinguishable from
+        # the curve at that resolution. Values are rounded to six
+        # decimals -- well past the chart's visual precision -- so
+        # the inline payload stays compact.
+        dense_x = [round(float(x), 2) for x in interp_x.tolist()]
         chart_data = {
             "start": start_date.strftime("%Y-%m-%d"),
             "totalDays": int(time_x[-1] - time_x[0]),
@@ -3727,8 +3812,8 @@ class Webpage:
                 {
                     "kind": kind,
                     "label": label,
-                    "x": shared_x_days,
-                    "y": [round(float(v), 6) for v in ys.tolist()],
+                    "x": dense_x,
+                    "y": [round(float(v), 6) for v in interp_targets[id(ys)].tolist()],
                 }
                 for kind, label, ys in series
             ],
@@ -3739,7 +3824,7 @@ class Webpage:
 
         plot_html = (
             f'<div class="return-chart__plot">'
-            f'{"".join(svg_lines)}{delta_html}{hover_html}'
+            f'{"".join(svg_lines)}{hover_html}{delta_html}'
             f'</div>'
         )
         return (

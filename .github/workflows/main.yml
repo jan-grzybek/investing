@@ -23,6 +23,18 @@ on:
     # over the weekend (e.g. refreshing the date header and any
     # time-sensitive copy) without burning hourly CI minutes.
     - cron: "0 12 * * 6,0"
+  # Run after a push to ``main`` lands, but only once the ``Tests``
+  # workflow (``test.yml``) has finished successfully. Using
+  # ``workflow_run`` instead of a plain ``push`` trigger means we
+  # never deploy a broken commit: if pytest fails on ``main``, the
+  # job-level ``if`` below short-circuits this workflow before any
+  # build or Pages publish step runs. The ``branches`` filter
+  # matches the head branch of the upstream run, so PR builds (which
+  # ``test.yml`` also handles) don't fan out into a deploy here.
+  workflow_run:
+    workflows: ["Tests"]
+    types: [completed]
+    branches: [main]
   workflow_dispatch: {}
 
 permissions:
@@ -37,6 +49,12 @@ concurrency:
 jobs:
   Update:
     runs-on: ubuntu-latest
+    # ``workflow_run`` fires for every terminal conclusion (success,
+    # failure, cancelled, timed_out, ...), so we must filter here.
+    # For the schedule and manual dispatch triggers ``github.event``
+    # has no ``workflow_run`` payload, hence the event-name guard:
+    # those entry points are allowed through unconditionally.
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
 
     steps:
       - name: Checkout
