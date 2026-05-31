@@ -1204,6 +1204,28 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
   flex: 0 0 auto;
   opacity: 0.92;
 }
+/* Wrap each marquee logo in a click target that scrolls down to
+   the matching holding capsule. The track itself is ``display:
+   flex`` so every direct child is a flex item -- pinning the
+   anchor to ``flex: 0 0 auto`` (rather than the img, which now
+   sits one level deeper) keeps each cell at the 56x28 cell size
+   the strip is laid out around. ``line-height: 0`` removes the
+   ~3px baseline space inline elements normally leave under their
+   content, so the anchor's bounding box hugs the logo and the
+   strip's vertical rhythm matches the pre-anchor layout to the
+   pixel. The hover state lifts the logo to full opacity to hint
+   that the cell is interactive. */
+.ticker__link {
+  display: block;
+  flex: 0 0 auto;
+  line-height: 0;
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+.ticker__link:hover .ticker__logo,
+.ticker__link:focus-visible .ticker__logo { opacity: 1; }
 @keyframes ticker-scroll {
   from { transform: translateX(0); }
   to { transform: translateX(-50%); }
@@ -1235,6 +1257,10 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
   margin: 24px 0 10px;
   padding-bottom: 6px;
   border-bottom: 1px solid var(--line);
+  /* Mirrors ``.section``'s reserve so an anchor jump to
+     ``#equities`` (clicked from the allocation chart) lands the
+     subtitle below the sticky header rather than under it. */
+  scroll-margin-top: 120px;
 }
 .holding {
   display: grid;
@@ -1246,6 +1272,12 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--card-bg);
+  /* Anchor-jump reserve so a click on a marquee logo or an
+     equities-bar row scrolls the targeted capsule below the
+     sticky header rather than tucking it under. Matches the
+     ``.section`` reserve so the per-card landing feels
+     consistent with the section-level nav. */
+  scroll-margin-top: 120px;
 }
 .holding__logo {
   width: 100%;
@@ -1485,6 +1517,27 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
   grid-template-columns: minmax(0, 14rem) 4rem minmax(0, 1fr);
   align-items: center;
   column-gap: 14px;
+}
+/* When a bar row is rendered as ``<a class="bars__row--link">``
+   (the Equities allocation row, every ticker row in the equities
+   chart), it becomes a click target that scrolls down to the
+   matching section / holding capsule. Keep the row visually
+   identical to the non-linked rows -- no underline, inherit
+   colour -- but hint that it's interactive with a pointer cursor
+   and a subtle hover/focus state that lifts the label and bar fill
+   slightly. The grid layout is preserved because ``<a>`` accepts
+   ``display: grid`` the same way ``<div>`` does. */
+.bars__row--link {
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background-color 0.15s ease;
+}
+.bars__row--link:hover,
+.bars__row--link:focus-visible {
+  background: var(--line);
+  outline: none;
 }
 .bars__label {
   font-size: 0.9375rem;
@@ -1829,12 +1882,34 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
 footer {
   color: var(--muted);
   font-size: 0.875rem;
-  margin-top: 40px;
-  padding: 24px 0 0;
-  border-top: 1px solid var(--line);
+  /* Sits closer to the last capsule above than the original 40+24px
+     buffer: with the top border removed the heavy gap read as dead
+     space rather than a section break. ~36px total matches the
+     section-to-section rhythm so the "Methodology" heading lands at
+     the same vertical cadence as the in-page sections above. */
+  margin-top: 24px;
+  padding: 12px 0 0;
   line-height: 1.6;
 }
 footer a { color: var(--accent-bench); }
+/* Section heading inside the footer ("Methodology", "Disclaimer").
+   Level mirrors ``.section__title`` (h2) so the document outline
+   stays linear, but the visual scale is tuned to the smaller
+   footer body type: a touch larger than the surrounding 0.875rem
+   prose, bolder, and lifted to ``var(--fg)`` so it reads as a
+   heading rather than blending into the muted body text. The
+   first heading drops its top margin so it sits flush with the
+   footer's top padding. */
+.footer__title {
+  color: var(--fg);
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 18px 0 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--line);
+}
+.footer__title:first-of-type { margin-top: 0; }
 .footer__notes {
   margin: 0 0 16px;
   padding-left: 22px;
@@ -1903,7 +1978,7 @@ footer a { color: var(--accent-bench); }
      anchor-jump feel is consistent across viewports. */
   .section { margin-top: 28px; scroll-margin-top: 100px; }
   .section__title { font-size: 1.1875rem; margin-bottom: 12px; }
-  .section__subtitle { font-size: 1rem; margin: 22px 0 10px; }
+  .section__subtitle { font-size: 1rem; margin: 22px 0 10px; scroll-margin-top: 100px; }
   .return-chart { margin-bottom: 16px; }
   /* The chart SVG is authored with a 1000x400 viewBox (a wide
      2.5:1 aspect ratio that suits desktop). On phone widths
@@ -1924,6 +1999,7 @@ footer a { color: var(--accent-bench); }
     align-items: start;
     gap: 12px 14px;
     padding: 14px;
+    scroll-margin-top: 100px;
   }
   .holding__logo {
     grid-area: logo;
@@ -2041,7 +2117,7 @@ footer a { color: var(--accent-bench); }
   }
   .bars__value { grid-area: value; }
   .bars__track { grid-area: bar; }
-  footer { font-size: 0.8125rem; margin-top: 32px; padding-top: 20px; }
+  footer { font-size: 0.8125rem; margin-top: 20px; padding-top: 8px; }
 }
 /* Below ~540px the JG vs benchmark delta line "JG vs S&P 500: +6.7
    pp Total Return \u00b7 +1.3 pp CAGR" no longer comfortably fits on
@@ -2115,7 +2191,7 @@ _HASH_CLEAR_SCRIPT = (
 )
 
 
-# Custom smooth-scroll for the sticky-nav links. Native CSS
+# Custom smooth-scroll for in-page anchor links. Native CSS
 # ``scroll-behavior: smooth`` is fast and abrupt, and on iOS Safari
 # the sticky header's ``backdrop-filter`` re-composites mid-scroll
 # which reads as a brief "blink" right after the tap. Driving the
@@ -2132,10 +2208,12 @@ _HASH_CLEAR_SCRIPT = (
 #     ``history.pushState`` so the link is shareable, matching
 #     pre-existing behaviour.
 #
-# Scoped to ``.site-nav a[href^='#']`` only -- the skip link and any
-# other in-page anchors keep their default (instant) behaviour, which
-# is what assistive-tech users expect from a skip link. Honours
-# ``prefers-reduced-motion`` by jumping directly to the target.
+# The selector covers every same-page anchor on the page -- nav
+# links, marquee logos (``.ticker__link``), and clickable bar rows
+# (``.bars__row--link``) -- except for the visually-hidden
+# ``.skip-link``, which assistive-tech users expect to jump
+# instantly. Honours ``prefers-reduced-motion`` by jumping directly
+# to the target.
 #
 # Kept as a tight ES5-flavoured IIFE so the inline payload stays
 # small and gets a single stable SHA-256 hash (pinned in CSP).
@@ -2190,7 +2268,7 @@ _NAV_SCROLL_SCRIPT = (
     "if(e.metaKey||e.ctrlKey||e.shiftKey||e.altKey)return;"
     "var t=e.target;"
     "if(!t||!t.closest)return;"
-    "var a=t.closest('.site-nav a[href^=\"#\"]');"
+    "var a=t.closest('a[href^=\"#\"]:not(.skip-link)');"
     "if(!a)return;"
     "var href=a.getAttribute('href');"
     "if(!href||href==='#')return;"
@@ -2476,11 +2554,34 @@ class Webpage:
             parts.append('<h2 class="section__title">Current holdings</h2>')
             if self.allocation_pct:
                 parts.append('<h3 class="section__subtitle">Asset allocation</h3>')
-                parts.append(self._render_bars(list(self.allocation_pct.items()), "allocation"))
-            parts.append('<h3 class="section__subtitle">Equities</h3>')
-            if self.top_10:
+                # The "Equities" allocation row is clickable: it
+                # jumps to the equities sub-section directly below
+                # (where the per-ticker breakdown + individual
+                # capsules live). The cash row has no dedicated
+                # section to point at and stays a plain bar.
                 parts.append(self._render_bars(
-                    list(self.top_10.items()), "equities", scale_to_max=True
+                    list(self.allocation_pct.items()),
+                    "allocation",
+                    anchors={"Equities": "equities"},
+                ))
+            parts.append(
+                '<h3 id="equities" class="section__subtitle">Equities</h3>'
+            )
+            if self.top_10:
+                # Each ticker bar in the top-10 chart jumps to the
+                # matching holding capsule. The synthetic "Other
+                # equities" bucket is absent from the anchor map
+                # so it stays a plain (non-linked) bar.
+                equity_anchors = {
+                    ticker: self._holding_anchor(ticker)
+                    for ticker in self.top_10
+                    if ticker not in self._NON_TICKER_TOP10_KEYS
+                }
+                parts.append(self._render_bars(
+                    list(self.top_10.items()),
+                    "equities",
+                    scale_to_max=True,
+                    anchors=equity_anchors,
                 ))
             parts.append('\n'.join(self.current))
             parts.append('</section>')
@@ -2627,11 +2728,16 @@ class Webpage:
         """Render a slow horizontal marquee of current-holdings logos.
 
         Each logo carries the ticker + name in its ``title`` attribute
-        for sighted users who hover. The track contains two copies of
-        the logo set so the keyframe can translate by exactly -50%
-        and the loop is seamless. The whole strip is decorative
-        (``aria-hidden="true"``); the actual holding details live in
-        the cards below."""
+        for sighted users who hover and is wrapped in an in-page
+        anchor that scrolls down to the matching holding capsule when
+        clicked. The track contains two copies of the logo set so the
+        keyframe can translate by exactly -50% and the loop is
+        seamless. The strip itself is decorative (``aria-hidden=
+        "true"``) and each link carries ``tabindex="-1"`` so the
+        invisible marquee never traps keyboard focus -- but a
+        sighted user pointer-clicking a logo still gets navigated to
+        the capsule. The actual holding details live in the cards
+        below."""
         if not self._current_logos:
             return ""
         items = "".join(
@@ -2649,9 +2755,13 @@ class Webpage:
             # smaller viewports override the dimensions further down
             # in ``_PAGE_STYLES`` so the cell scales gracefully on
             # mobile.
+            f'<a class="ticker__link" '
+            f'href="#{html.escape(self._holding_anchor(ticker))}" '
+            f'tabindex="-1" aria-hidden="true">'
             f'<img class="ticker__logo" src="{html.escape(url)}" alt="" '
             f'title="{html.escape(f"{ticker} - {name}")}" '
             f'decoding="async" width="56" height="28">'
+            f'</a>'
             for ticker, name, url in self._current_logos
         )
         return (
@@ -3017,6 +3127,20 @@ class Webpage:
     # current positions). Skipped when picking logos for the strip.
     _NON_TICKER_TOP10_KEYS = frozenset({"Other equities"})
 
+    @staticmethod
+    def _holding_anchor(ticker: str) -> str:
+        """Stable in-page anchor for a holding's capsule.
+
+        Tickers carry exchange-prefixed punctuation (``NMS:AAPL``,
+        ``LSE:VUAA.L``) that's awkward inside a URL fragment, so we
+        slugify down to alphanumerics-and-dashes. The same slug is
+        emitted as the ``id`` on the card and as the ``href`` on every
+        link that targets it (marquee logos, equities-bar rows), which
+        keeps the contract symmetric and the slug independent of the
+        ticker's surface form."""
+        slug = "".join(c if c.isalnum() else "-" for c in ticker).strip("-")
+        return f"holding-{slug}"
+
     def _top_holdings_for_og(self, limit: int = 10) -> list[str]:
         """Return up to ``limit`` ticker symbols for the OG logo strip.
 
@@ -3178,8 +3302,20 @@ class Webpage:
 
     @staticmethod
     def _footer(update_date: str, update_iso: str) -> str:
+        # Two ``<h2>`` headings break the footer into a "Methodology"
+        # block (the bullets covering base currency, tax/cost
+        # assumptions, and the data source) and a "Disclaimer" block
+        # (informational-purposes-only notice plus the
+        # logos/analytics legal note). The headings are intentionally
+        # *not* added to the in-page nav: the nav lists portfolio
+        # sections, and the footer remains a tail-of-page reference
+        # that doesn't need a nav target. Heading level matches
+        # ``.section__title`` (h2) inside ``<main>`` so the document
+        # outline stays linear -- ``<footer>`` is its own landmark
+        # at the same depth as a top-level section.
         return (
             '<footer>\n'
+            '<h2 class="footer__title">Methodology</h2>\n'
             '<ul class="footer__notes">\n'
             '<li>All performance metrics on this page (TSR, TWR, CAGR) were '
             'calculated using USD as the base currency.</li>\n'
@@ -3195,6 +3331,7 @@ class Webpage:
             'title="Yahoo Finance" rel="noopener noreferrer">'
             'Yahoo Finance</a>.</li>\n'
             '</ul>\n'
+            '<h2 class="footer__title">Disclaimer</h2>\n'
             '<p class="footer__disclaimer">For informational purposes only. '
             'Nothing contained herein should be construed as a recommendation '
             'to buy, sell or hold any security or pursue any investment '
@@ -3226,6 +3363,16 @@ class Webpage:
 
     def _build_return_section(self, total_return, benchmarks) -> str:
         lines: list[str] = []
+        # Short orientation paragraph so a first-time reader knows
+        # what the chart + comparison capsules below it represent
+        # before they get to the numbers. Phrased so the wording
+        # still reads naturally when the chart is omitted (single-
+        # point histories fall back to the comparison block alone)
+        # and when no benchmark is configured (capsules render the
+        # portfolio column on its own). Acronym expansions live in
+        # the prose itself rather than in a separate legend so the
+        # explanation degrades to plain text when CSS is stripped.
+        lines.append(self._build_return_intro(benchmarks))
         # Chart leads the section as the headline visual; its caption
         # carries the start date so the comparison block below can stay
         # focused on the head-to-head numbers without restating the
@@ -3238,6 +3385,29 @@ class Webpage:
             total_return, benchmarks, include_period=not chart,
         ))
         return "\n".join(lines)
+
+    def _build_return_intro(self, benchmarks) -> str:
+        """Render the section__intro paragraph above the chart.
+
+        Adapts to whether a benchmark is configured: the comparison
+        block only renders a benchmark column when one is present, so
+        the intro phrasing follows suit (no dangling "vs the S&P 500"
+        reference when there's nothing to compare against). The
+        per-acronym legend that used to follow is intentionally
+        omitted -- the capsule labels (TWR / TSR / CAGR) are next to
+        their values and the footer "Methodology" block carries the
+        deeper definitions, so a one-liner is enough to orient a
+        first-time reader without restating what the layout already
+        shows."""
+        if benchmarks:
+            bench = html.escape(self._benchmark_label(benchmarks[0]))
+            body = (
+                f"Cumulative return of the portfolio tracked against "
+                f"the {bench}."
+            )
+        else:
+            body = "Cumulative return of the portfolio."
+        return f'<p class="section__intro">{body}</p>'
 
     def _build_returns_comparison(
         self, total_return, benchmarks, *, include_period: bool,
@@ -3475,10 +3645,19 @@ class Webpage:
             title=f'{holding["ticker"]} - {holding["name"]}',
             stats=stats,
             periods=periods,
+            card_id=self._holding_anchor(holding["ticker"]),
         )
 
     @staticmethod
-    def _build_card(*, logo_url, title, stats, periods=None, note: str | None = None) -> str:
+    def _build_card(
+        *,
+        logo_url,
+        title,
+        stats,
+        periods=None,
+        note: str | None = None,
+        card_id: str | None = None,
+    ) -> str:
         """Render a capsule with logo, title/period(s)/note, and right-aligned stats."""
         body_parts = [f'<h3 class="holding__title">{html.escape(title)}</h3>']
         if periods:
@@ -3544,8 +3723,12 @@ class Webpage:
                 '</div>'
             )
 
+        # Anchor ``id`` is what makes the marquee logo and equities
+        # bar rows scroll to the right capsule -- both compute their
+        # ``href`` from the same slug via ``_holding_anchor``.
+        id_attr = f' id="{html.escape(card_id)}"' if card_id else ""
         return (
-            '<article class="holding">'
+            f'<article class="holding"{id_attr}>'
             # Below-the-fold logos load lazily; explicit dimensions
             # reserve space and keep CLS at zero.
             f'<img class="holding__logo" src="{html.escape(logo_url)}" '
@@ -3559,7 +3742,13 @@ class Webpage:
     # ---- chart / bar primitives (also covered directly by tests) -------
 
     @staticmethod
-    def _render_bars(rows, variant: str, *, scale_to_max: bool = False) -> str:
+    def _render_bars(
+        rows,
+        variant: str,
+        *,
+        scale_to_max: bool = False,
+        anchors: dict[str, str] | None = None,
+    ) -> str:
         """Render a horizontal CSS bar chart.
 
         ``rows`` is an iterable of ``(label, value)`` pairs where ``value``
@@ -3572,6 +3761,13 @@ class Webpage:
         rest are sized proportionally to the largest value. Useful when
         the rows do not sum to 100% (e.g. the top-N equities) and the
         viewer cares about relative weight rather than absolute share.
+
+        ``anchors`` is an optional ``{label: anchor-id}`` map (anchor
+        without the leading ``#``). When present for a row, that row
+        is emitted as an ``<a>`` instead of a plain ``<div>`` so
+        clicking it scrolls to the targeted section / capsule. Rows
+        without an anchor entry (e.g. the synthetic "Other equities"
+        bucket) keep their non-linked form.
         """
         if not rows:
             return ""
@@ -3587,14 +3783,24 @@ class Webpage:
             # precision while the visible label uses ``_fmt_pct`` --
             # one decimal under 100, whole-number from 100 up.
             width = value / denom * 100 if scale_to_max else value
-            row_html.append(
-                '<div class="bars__row">'
+            inner = (
                 f'<div class="bars__label">{html.escape(str(label))}</div>'
                 f'<div class="bars__value">{_fmt_pct(value)}%</div>'
                 f'<div class="bars__track"><div class="bars__fill" '
                 f'style="width: {width:.2f}%"></div></div>'
-                '</div>'
             )
+            anchor = anchors.get(label) if anchors else None
+            if anchor:
+                # ``bars__row--link`` opts the row into the underlined-
+                # free, pointer-cursor styling and keeps the grid
+                # layout (``<a>`` is treated as a grid container the
+                # same way ``<div>`` is).
+                row_html.append(
+                    '<a class="bars__row bars__row--link" '
+                    f'href="#{html.escape(anchor)}">{inner}</a>'
+                )
+            else:
+                row_html.append(f'<div class="bars__row">{inner}</div>')
         return f'<div class="bars bars--{variant}">{"".join(row_html)}</div>'
 
     @classmethod

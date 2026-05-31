@@ -323,6 +323,57 @@ class TestAddReturn:
         compare_idx = w.return_html.index('class="returns-compare"')
         assert chart_idx < compare_idx
 
+    def test_intro_paragraph_precedes_chart_and_comparison(
+        self, stub_logo_lookup,
+    ):
+        # A one-liner sits at the top of the section so a first-time
+        # reader knows what the chart + capsules below are showing
+        # before they look at the numbers. With a benchmark configured
+        # the intro names it explicitly; deeper acronym definitions
+        # live in the footer "Methodology" block so the orientation
+        # text stays scannable.
+        tr = _total_return()
+        tr["history"] = [
+            (datetime(2024, 1, 1), 1.0),
+            (datetime(2024, 6, 1), 1.1),
+            (datetime(2024, 12, 1), 1.2),
+        ]
+        w = Webpage()
+        w.add_return(tr, [_benchmark() | {"history": [
+            (datetime(2024, 1, 1), 1.0),
+            (datetime(2024, 6, 1), 1.05),
+            (datetime(2024, 12, 1), 1.1),
+        ]}])
+        assert 'class="section__intro"' in w.return_html
+        intro_idx = w.return_html.index('class="section__intro"')
+        chart_idx = w.return_html.index('class="return-chart"')
+        compare_idx = w.return_html.index('class="returns-compare"')
+        assert intro_idx < chart_idx < compare_idx
+        # Benchmark name (escaped) is woven into the prose.
+        assert (
+            "Cumulative return of the portfolio tracked against the "
+            "S&amp;P 500."
+            in w.return_html
+        )
+
+    def test_intro_paragraph_omits_benchmark_when_none_configured(
+        self, stub_logo_lookup,
+    ):
+        # No benchmark -> the comparison block renders the portfolio
+        # column on its own, and the intro phrasing follows suit so we
+        # don't dangle a "vs the S&P 500" reference with nothing to
+        # compare against.
+        w = Webpage()
+        w.add_return(_total_return(), [])
+        assert 'class="section__intro"' in w.return_html
+        assert (
+            '<p class="section__intro">Cumulative return of the '
+            'portfolio.</p>'
+            in w.return_html
+        )
+        assert "S&amp;P 500" not in w.return_html
+        assert "benchmark" not in w.return_html.lower()
+
 
 class TestAddHolding:
     def test_current_holding_appears_in_current_bucket(self, stub_logo_lookup):
@@ -572,6 +623,34 @@ class TestAddHolding:
         assert 'width="64"' in card
         assert 'height="64"' in card
 
+    def test_holding_card_carries_anchor_id(self, stub_logo_lookup):
+        # Every holding capsule exposes a stable ``id`` derived from
+        # its ticker. The marquee logo and the equities-bar row
+        # both produce ``href`` values from the same ``_holding_anchor``
+        # slug, so any drift between the produced ID and the href
+        # would break in-page scrolling.
+        w = Webpage()
+        w.add_holding(_holding(ticker="NMS:AAA"))
+        card = w.current[0]
+        assert f' id="{Webpage._holding_anchor("NMS:AAA")}"' in card
+        # The slug strips punctuation that would otherwise need to
+        # be percent-encoded inside a URL fragment.
+        assert "holding-NMS-AAA" in card
+
+    def test_historical_holding_card_also_carries_anchor_id(self, stub_logo_lookup):
+        # Historical capsules get the same anchor wiring as current
+        # ones so a future link surface (e.g. a "trades for X" cross-
+        # reference) can scroll to them too without a renderer change.
+        w = Webpage()
+        w.add_holding(_holding(
+            ticker="NMS:OLD",
+            is_current=False,
+            weight=None,
+            periods=[{"start": datetime(2022, 1, 1), "end": datetime(2023, 1, 1)}],
+        ))
+        card = w.historical[0]
+        assert ' id="holding-NMS-OLD"' in card
+
 
 class TestTicker:
     def test_returns_empty_string_when_no_current_holdings(self, stub_logo_lookup):
@@ -629,6 +708,43 @@ class TestTicker:
         out = w._build_ticker()
         assert "NMS:LIVE" in out
         assert "NMS:DEAD" not in out
+
+    def test_each_logo_is_wrapped_in_anchor_to_holding_capsule(
+        self, stub_logo_lookup,
+    ):
+        # Clicking a marquee logo should scroll to the matching
+        # holding capsule below. Every logo gets its own ``<a>``
+        # wrapper with ``href`` pointing at the capsule's ``id`` and
+        # ``tabindex="-1"`` so the visually-hidden marquee never
+        # captures keyboard focus -- pointer users still get the
+        # navigation, keyboard users keep their tab order intact.
+        w = Webpage()
+        w.add_holding(_holding(ticker="NMS:AAA", name="Alpha Inc."))
+        w.add_holding(_holding(ticker="NMS:BBB", name="Beta Co."))
+        out = w._build_ticker()
+        # One anchor per logo per copy (2 logos x 2 copies = 4).
+        assert out.count('class="ticker__link"') == 4
+        # Each anchor targets the matching capsule's slug-id.
+        assert 'href="#holding-NMS-AAA"' in out
+        assert 'href="#holding-NMS-BBB"' in out
+        # Keyboard-skip the marquee: links carry ``tabindex="-1"``.
+        assert out.count('tabindex="-1"') == 4
+
+    def test_logo_anchors_wrap_the_img(self, stub_logo_lookup):
+        # The ``<img>`` must sit *inside* the ``<a>`` so the entire
+        # logo cell is the click target (not just a 1px-wide gap
+        # next to it). The renderer emits ``<a ...><img ...></a>``
+        # in that order on a single line.
+        w = Webpage()
+        w.add_holding(_holding(ticker="NMS:AAA"))
+        out = w._build_ticker()
+        # Find the first anchor opening and confirm the img tag
+        # appears between it and the matching closing </a>.
+        anchor_open = '<a class="ticker__link"'
+        assert anchor_open in out
+        slice_ = out.split(anchor_open, 1)[1]
+        anchor_block = slice_.split("</a>", 1)[0]
+        assert '<img class="ticker__logo"' in anchor_block
 
     def test_logo_lookups_are_cached(self, monkeypatch):
         # Adding the same ticker twice (e.g. both a current and a past
@@ -1005,6 +1121,69 @@ class TestRenderBars:
         )
         assert "width: 0.00%" in out
 
+    def test_anchored_rows_render_as_links(self):
+        # Rows whose label appears in the ``anchors`` map become
+        # ``<a class="bars__row--link">`` elements pointing at the
+        # target anchor; the rest stay as plain ``<div>`` rows.
+        out = Webpage._render_bars(
+            [("Equities", 95.4), ("Cash & Cash Equivalents", 4.6)],
+            "allocation",
+            anchors={"Equities": "equities"},
+        )
+        # The Equities row links to ``#equities``.
+        assert 'href="#equities"' in out
+        assert 'class="bars__row bars__row--link"' in out
+        # The cash row has no anchor entry -> stays a non-linked
+        # ``<div class="bars__row">``.
+        cash_block = out.split("Cash &amp;", 1)[1].split("</div></div>", 1)[0]
+        assert "bars__row--link" not in cash_block
+
+    def test_unanchored_rows_stay_as_divs(self):
+        # No ``anchors`` argument at all -> every row renders as a
+        # plain ``<div class="bars__row">`` (the legacy shape).
+        out = Webpage._render_bars(
+            [("A", 50.0), ("B", 25.0)], "equities", scale_to_max=True,
+        )
+        assert "bars__row--link" not in out
+        assert "<a " not in out
+        assert out.count('class="bars__row"') == 2
+
+    def test_anchors_for_unknown_labels_are_ignored(self):
+        # A stray label in ``anchors`` that doesn't match any row is
+        # silently ignored -- the caller doesn't have to filter down
+        # to "real" tickers before passing the map.
+        out = Webpage._render_bars(
+            [("A", 50.0)], "equities",
+            anchors={"A": "holding-A", "MISSING": "holding-MISSING"},
+        )
+        assert 'href="#holding-A"' in out
+        assert "MISSING" not in out
+
+    def test_anchored_rows_preserve_label_value_track_order(self):
+        # The label-value-track ordering invariant from the non-linked
+        # path must hold on the linked rows too, so the visual layout
+        # is identical regardless of whether a row is clickable.
+        out = Webpage._render_bars(
+            [("Equities", 95.4)], "allocation",
+            anchors={"Equities": "equities"},
+        )
+        label_idx = out.index('bars__label')
+        value_idx = out.index('bars__value')
+        track_idx = out.index('bars__track')
+        assert label_idx < value_idx < track_idx
+
+    def test_anchor_id_is_html_escaped(self):
+        # Anchor values flow into an HTML attribute so the renderer
+        # must escape them; otherwise a malformed slug (an unlikely
+        # but cheap-to-guard regression) could break out of the
+        # ``href`` and into surrounding markup.
+        out = Webpage._render_bars(
+            [("A", 50.0)], "equities",
+            anchors={"A": 'evil"<script>'},
+        )
+        assert '<script>' not in out
+        assert "&lt;script&gt;" in out or "&quot;" in out
+
 
 class TestRenderReturnChart:
     def test_returns_empty_when_history_too_short(self):
@@ -1348,6 +1527,17 @@ class TestReturnChartScript:
         digest = update._sha256_b64(update._RETURN_CHART_SCRIPT)
         assert f"sha256-{digest}" in head
 
+    def test_nav_scroll_script_targets_all_in_page_anchors_except_skip_link(self):
+        # The smooth-scroll handler used to be scoped to ``.site-nav``
+        # only. With marquee logos and equities-bar rows also acting
+        # as in-page anchors, the selector is broadened to cover every
+        # same-page link -- minus ``.skip-link``, which assistive-tech
+        # users expect to jump instantly.
+        script = update._NAV_SCROLL_SCRIPT
+        assert 'a[href^="#"]:not(.skip-link)' in script
+        # And the old narrow selector is gone (regression guard).
+        assert ".site-nav a[" not in script
+
     def test_script_initialises_pointer_event_handlers(self):
         # The script must own the contract its rendered chart expects:
         # it has to react to pointer movement and project values onto
@@ -1379,6 +1569,28 @@ class TestAddAllocations:
         w.add_allocations({"Equities": 95.4}, {"NMS:AAA": 50.0})
         assert w.allocation_pct == {"Equities": 95.4}
         assert w.top_10 == {"NMS:AAA": 50.0}
+
+
+class TestHoldingAnchor:
+    def test_strips_punctuation_to_a_dash_form(self):
+        # Tickers carry exchange prefixes and dotted suffixes
+        # (``NMS:AAPL``, ``LSE:VUAA.L``) that aren't URL-fragment
+        # friendly. The slug keeps alphanumerics and replaces every
+        # other run with a single dash so the produced ``id`` /
+        # ``href`` round-trip cleanly through ``location.hash``.
+        assert Webpage._holding_anchor("NMS:AAPL") == "holding-NMS-AAPL"
+        assert Webpage._holding_anchor("LSE:VUAA.L") == "holding-LSE-VUAA-L"
+
+    def test_trims_leading_and_trailing_punctuation(self):
+        # Defensive: a degenerate ticker shouldn't yield a hanging
+        # trailing dash that turns into a brittle ``id``.
+        assert Webpage._holding_anchor(".AAA.") == "holding-AAA"
+
+    def test_is_deterministic(self):
+        # The marquee, the bar chart, and the capsule renderer all
+        # call this independently; their results have to agree.
+        same = [Webpage._holding_anchor("NMS:AAA") for _ in range(3)]
+        assert same == ["holding-NMS-AAA"] * 3
 
 
 class TestSave:
@@ -1469,6 +1681,45 @@ class TestSave:
         # The frozen date appears in the footer, wrapped in a
         # machine-readable <time> element.
         assert '<time datetime="2025-06-01">Jun 1, 2025</time>' in out
+
+    def test_save_footer_has_methodology_and_disclaimer_headings(
+        self, stub_logo_lookup, chdir_tmp, freeze_today,
+    ):
+        # The footer is split into two labelled blocks: the
+        # "Methodology" heading sits above the bulleted notes
+        # (base currency / Dietz / TWR scope / data source), and the
+        # "Disclaimer" heading sits above the informational-purposes
+        # paragraph and the logos/analytics legal note. Heading level
+        # mirrors ``.section__title`` (h2) inside ``<main>`` so the
+        # document outline stays linear.
+        freeze_today(datetime(2025, 6, 1))
+        w = Webpage()
+        w.add_return(_total_return(), [_benchmark()])
+        w.add_holding(_holding(ticker="NMS:CURR", name="Currentco"))
+        w.save()
+
+        out = (chdir_tmp / "index.html").read_text()
+        # Both headings present, rendered as ``<h2 class="footer__title">``.
+        assert '<h2 class="footer__title">Methodology</h2>' in out
+        assert '<h2 class="footer__title">Disclaimer</h2>' in out
+        # Methodology heading sits above the bullet list; Disclaimer
+        # heading sits above the informational-purposes paragraph
+        # (and consequently above the logos/analytics legal note).
+        methodology_idx = out.index('<h2 class="footer__title">Methodology</h2>')
+        notes_idx = out.index('class="footer__notes"')
+        disclaimer_heading_idx = out.index('<h2 class="footer__title">Disclaimer</h2>')
+        disclaimer_para_idx = out.index('class="footer__disclaimer"')
+        legal_idx = out.index('class="footer__legal"')
+        assert methodology_idx < notes_idx < disclaimer_heading_idx
+        assert disclaimer_heading_idx < disclaimer_para_idx < legal_idx
+        # And explicitly: neither heading shows up in the in-page nav
+        # -- the nav only lists portfolio sections, the footer remains
+        # a tail-of-page reference without nav targets.
+        nav_start = out.index('<nav class="site-nav"')
+        nav_end = out.index('</nav>', nav_start)
+        nav_html = out[nav_start:nav_end]
+        assert "Methodology" not in nav_html
+        assert "Disclaimer" not in nav_html
 
     def test_save_emits_seo_metadata_in_head(
         self, stub_logo_lookup, chdir_tmp, freeze_today,
@@ -1649,6 +1900,50 @@ class TestSave:
         # double-slash even though SITE_URL ends with one).
         assert "Sitemap: https://jan-grzybek.github.io/investing/sitemap.xml" in robots
         assert "//sitemap.xml" not in robots
+
+    def test_save_wires_click_to_scroll_targets_across_sections(
+        self, stub_logo_lookup, chdir_tmp, freeze_today,
+    ):
+        # End-to-end contract for the three new click affordances:
+        #   * a marquee logo links to the matching holding capsule;
+        #   * the "Equities" allocation bar links to the equities
+        #     sub-section right below the allocation chart;
+        #   * each ticker row in the equities chart links to the
+        #     matching holding capsule, while the synthetic
+        #     "Other equities" bucket stays non-clickable.
+        freeze_today(datetime(2025, 6, 1))
+        w = Webpage()
+        w.add_return(_total_return(), [])
+        w.add_allocations(
+            {"Equities": 95.4, "Cash & Cash Equivalents": 4.6},
+            {"NMS:AAA": 60.0, "NMS:BBB": 25.0, "Other equities": 10.0},
+        )
+        w.add_holding(_holding(ticker="NMS:AAA", name="Alpha"))
+        w.add_holding(_holding(ticker="NMS:BBB", name="Beta"))
+        w.save()
+        out = (chdir_tmp / "index.html").read_text()
+
+        # Holding capsules expose stable anchor ids.
+        assert ' id="holding-NMS-AAA"' in out
+        assert ' id="holding-NMS-BBB"' in out
+        # Equities sub-heading exposes the anchor the allocation
+        # chart's "Equities" row targets.
+        assert 'id="equities" class="section__subtitle"' in out
+        # Marquee logos link to the matching capsule.
+        assert 'href="#holding-NMS-AAA"' in out
+        assert 'href="#holding-NMS-BBB"' in out
+        # Allocation chart: "Equities" row links to the sub-section,
+        # cash row stays unlinked (no anchor block created for it).
+        assert 'href="#equities"' in out
+        # The two click-target classes are present (marquee + bar rows).
+        assert 'class="ticker__link"' in out
+        assert 'class="bars__row bars__row--link"' in out
+        # "Other equities" is rendered as a plain non-linked bar
+        # row: its label appears, but no ``href="#holding-Other-...
+        # "`` ever does (which would be a 404 anchor anyway since
+        # there's no card behind it).
+        assert "Other equities" in out
+        assert "holding-Other" not in out
 
     def test_save_without_current_holdings_skips_section(
         self, stub_logo_lookup, chdir_tmp, freeze_today
