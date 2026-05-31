@@ -27,7 +27,7 @@ import sys
 import traceback
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import gspread
 import numpy as np
@@ -191,7 +191,6 @@ def combine_and_sort(transactions):
 # single deliberate action, not four separate trades.
 
 TRADE_WINDOW_DAYS = 90
-TRADES_YEARS_BACK = 1
 
 # Reading these as a buy-vs-sell action partitions the four categories
 # along the only axis that matters for grouping (same-action trades go
@@ -199,28 +198,39 @@ TRADES_YEARS_BACK = 1
 # decides BUY bursts, last event decides SELL bursts).
 _BUY_CATEGORIES = frozenset({"OPEN", "INCREASE"})
 
-# Order used by the renderer; values double as the BEM modifier slug
-# appended to the badge class. Keys are the canonical category tokens
-# stored on each trade event. Labels are in the past tense because
-# this section is an executed-trades log -- everything shown has
-# already happened, so "Initiated" / "Increased" read as accurate
-# event reports rather than the ongoing-action gerunds we'd want on
-# a live order book. The verbs themselves ("Initiated" / "Divested")
-# come from the long-term-investor / fund-letter idiom that
-# describes positions as ownership stakes rather than tradable
-# instruments. The renderer attaches " by X%" to the magnitude-
-# bearing INCREASE / DECREASE labels at render time, so the dict
-# stays a flat verb table and an INCREASE row missing a ``delta_pct``
-# degrades to a sensible "Increased" badge rather than a broken
-# "Increased by" prefix. The BEM modifiers stay aligned with the
-# underlying token (``open`` / ``close``) so the CSS keeps reading
-# as "this badge marks an open / close" regardless of which surface
-# verb we pick.
-_TRADE_CATEGORY_DISPLAY: dict[str, tuple[str, str]] = {
-    "OPEN":     ("Initiated", "open"),
-    "INCREASE": ("Increased", "increase"),
-    "DECREASE": ("Decreased", "decrease"),
-    "CLOSE":    ("Divested",  "close"),
+# Display tables used by the trades-section renderer.
+#
+# The four semantic categories collapse onto a single buy-vs-sell
+# axis for the user-facing "Action" column -- a long-term-investor
+# trade log only needs the reader to spot direction at a glance; the
+# finer "was this the first fill or a top-up?" granularity lives in
+# the "Details" column instead. Past-tense verbs ("Bought" / "Sold")
+# match the executed-trades framing -- everything shown has already
+# happened. The BEM modifiers (``buy`` / ``sell``) drive the green /
+# red pill fills and stay aligned with the action axis so the
+# stylesheet keeps describing exactly what the badge marks.
+_TRADE_ACTION_DISPLAY: dict[str, tuple[str, str]] = {
+    "OPEN":     ("Bought", "buy"),
+    "INCREASE": ("Bought", "buy"),
+    "DECREASE": ("Sold",   "sell"),
+    "CLOSE":    ("Sold",   "sell"),
+}
+
+# Static "Details" labels for the boundary events. INCREASE and
+# DECREASE carry a magnitude percentage in the same column, computed
+# at render time from ``event["delta_pct"]`` -- a relative move
+# ("+30%", "-25%") describes the scale of the action without ever
+# leaking the nominal share count, which the page deliberately
+# keeps private. The two boundary labels stay in the past-tense
+# fund-letter idiom the rest of the page uses ("Initiated" for
+# the first fill that brings the position into existence,
+# "Divested" for the trade that closes it out), so the Details
+# column reads as a tight verb log next to the magnitude rows
+# rather than mixing noun phrases like "Initial stake" with
+# percentage values.
+_TRADE_DETAIL_LABELS: dict[str, str] = {
+    "OPEN":  "Initiated",
+    "CLOSE": "Divested",
 }
 
 
@@ -480,43 +490,30 @@ class Holding:
         self,
         *,
         window_days: int = TRADE_WINDOW_DAYS,
-        years_back: int = TRADES_YEARS_BACK,
-        today: datetime | None = None,
     ) -> list[dict]:
         """Return this ticker's burst-aggregated trades for the
-        "Recent trades" section.
+        "Trades" section.
 
-        Bursts older than ``years_back`` (measured against the burst's
-        most recent event) are dropped so the page focuses on recent
-        activity. The filter is intentionally lenient at the boundary:
-        a multi-fill burst that started outside the window but whose
-        last fill landed inside it survives whole, so a rolling-quarter
-        accumulation that finished in the retention window reads as a
-        single recent action rather than being chopped in half. Each
-        kept row is decorated with the identifying ``ticker`` / ``name``
+        Every burst this holding has ever recorded comes through -- the
+        section is now a complete activity log rather than a rolling
+        window. The reader can still drill into "what happened most
+        recently?" via the sortable date column on the rendered table.
+        Each row is decorated with the identifying ``ticker`` / ``name``
         / ``currency`` so the renderer can produce a self-contained
-        card without holding a reference to the originating
-        ``Holding``."""
-        today = today or datetime.today()
-        # Use the calendar-aware ``years`` accessor (via ``timedelta``
-        # times the average year length) rather than ``replace(year=...)``,
-        # which would fail on Feb 29 -- the cutoff doesn't need to be
-        # exact to the day for the retention window.
-        cutoff = today - timedelta(days=DAYS_YEAR * years_back)
+        row without holding a reference to the originating ``Holding``.
+        """
         combined = _combine_trade_events(
             self._trade_events, window_days=window_days,
         )
-        result: list[dict] = []
-        for event in combined:
-            if event["end_date"] < cutoff:
-                continue
-            result.append({
+        return [
+            {
                 **event,
                 "ticker": f"{self._info['exchange']}:{self._info['symbol']}",
                 "name": self._info["longName"],
                 "currency": self._info["currency"],
-            })
-        return result
+            }
+            for event in combined
+        ]
 
     def summary(self):
         outflows = self._add_dividends()
@@ -821,13 +818,28 @@ def get_benchmarks(total_return_history):
 
 
 def _fmt_date(dt) -> str:
-    # ``%-d`` (GNU/BSD) drops the leading zero on the day number, so
-    # we get "Mar 7, 2026" rather than "Mar 07, 2026". Long-form date
-    # prose reads more naturally without the zero pad, which is also
-    # how the page already renders the footer's "last updated" line.
-    # The ISO ``<time datetime="...">`` attributes that wrap each
-    # rendered date stay zero-padded -- that's the W3C machine
-    # format and a separate concern from the human-facing label.
+    # ``DD/MM/YYYY`` is the canonical human-readable format across
+    # the whole page (holding capsules, trade rows, footer "Updated
+    # on" line). The zero-padded day / month gives every date the
+    # exact same character width, which keeps columns of dates
+    # (the trades table, the holding capsules' period lists)
+    # vertically aligned without monospaced glyphs. The ISO
+    # ``<time datetime="...">`` attributes wrapping each rendered
+    # date stay in W3C ``YYYY-MM-DD`` form -- machine-format is a
+    # separate concern from the human-facing label.
+    return dt.strftime("%d/%m/%Y")
+
+
+def _fmt_date_long(dt) -> str:
+    # Long-form ``Mon D, YYYY`` (e.g. "Mar 7, 2026") used for the
+    # one-off "Since ..." caption that sits under the return chart
+    # (and its chart-less twin in the returns-compare block). Those
+    # captions read as full prose ("Since Jan 1, 2024 . 2 years, 1
+    # month"), and the slashes of the table-friendly DD/MM/YYYY
+    # format break the sentence rhythm there even though they read
+    # naturally in the tabular columns. ``%-d`` (GNU/BSD) drops the
+    # leading zero on the day number so the label reads as proper
+    # English rather than as date-stamp metadata.
     return dt.strftime("%b %-d, %Y")
 
 
@@ -994,7 +1006,7 @@ _PAGE_STYLES = """
      needs to win against it). */
   :where(
     .ticker__logo, .holding__logo,
-    .trade__logo,  .returns-compare__logo
+    .returns-compare__logo
   ):not([src$="courage.png"], [src$="VUAA.L.svg"]) {
     filter: invert(1) hue-rotate(180deg);
     opacity: 1;
@@ -1026,20 +1038,21 @@ main { display: block; }
 /* Smooth-scroll for in-page nav (clicking ``Performance`` /
    ``Current`` / ``Historical`` in the sticky header). The
    ``:focus-within`` gate is intentional and not an accident:
-   applying ``scroll-behavior: smooth`` directly to ``html`` makes
-   Chromium-based browsers ANIMATE the scroll when restoring
-   position on a normal refresh -- which on a page deep into the
-   holdings list (or whose URL carries a section hash from a prior
-   nav click) feels like the page is scrolling down uncontrollably,
-   especially while lazy-loaded logos progressively grow the
-   document and keep retargeting the smooth-scroll destination.
-   Anchor link clicks naturally focus the target element, so this
-   selector matches at exactly the right moment for smooth nav
-   scrolling without ever triggering the refresh-restoration
-   animation. */
-html:focus-within { scroll-behavior: smooth; }
+   we used to ship ``html:focus-within { scroll-behavior: smooth }``
+   here to opt into the browser's native smooth scroll for nav
+   clicks. With ``_NAV_SCROLL_SCRIPT`` taking over the scroll
+   animation in JS that rule turned into an active foot-gun:
+   anchor clicks focus the activated ``<a>`` (so ``:focus-within``
+   matches on ``<html>``), the matching CSS rule promotes every
+   subsequent ``window.scrollTo`` call to a *browser-driven* smooth
+   scroll, and that smooth scroll layers on top of our requestAnim
+   ation-Frame easing loop. The visible result is two competing
+   scroll animations per frame -- the user-reported "the scroll
+   accelerates / looks odd" feel, most obvious on short hops from
+   the allocation chart to a holding capsule, where the curves
+   disagree by tens of pixels at every frame. Leaving the JS
+   animation as the sole driver fixes it. */
 @media (prefers-reduced-motion: reduce) {
-  html:focus-within { scroll-behavior: auto; }
   /* Don't animate the ticker for users who request reduced motion;
      wrap into a static row so all logos remain visible at once. */
   .ticker__track {
@@ -1423,7 +1436,8 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
 .value--positive { color: var(--positive); }
 .value--negative { color: var(--negative); }
 /* Intro paragraph under a section title (e.g. the methodology note
-   beneath "Recent trades"). Sits on its own row, slightly muted, so
+   beneath the "Trades" section heading). Sits on its own row,
+   slightly muted, so
    the reader can skip it once they've internalised the rule. */
 .section__intro {
   margin: -4px 0 16px;
@@ -1432,97 +1446,269 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
   line-height: 1.5;
   max-width: 64ch;
 }
-/* Burst-aggregated trade capsule. Visually parallel to ``.holding`` so
-   the page reads as a single family of cards: a logo on the left, a
-   ticker/date block in the middle, and right-rail metadata (category
-   badge + per-share price). The logo column is narrower than on a
-   holding card (these capsules carry less per-row content and benefit
-   from a tighter look) and the meta column packs the badge above the
-   price in a small vertical stack. */
-.trade {
-  display: grid;
-  grid-template-columns: 64px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px 18px;
-  padding: 14px 18px;
+/* Burst-aggregated trades, rendered as a dense sortable table.
+
+   Six columns -- ticker / company / action / details / date / price
+   -- give the reader a fund-letter-style activity log they can
+   re-order on the ticker, company, action, details, or date column
+   by clicking a header. The earlier per-trade capsule layout was
+   nice to scan one row at a time but burned a lot of vertical
+   space for what amounts to one line of data per event; folding
+   the same fields into a real ``<table>`` lets the page show every
+   trade ever made without scrolling forever, and the column form
+   gives the eye a stable left-edge alignment to read down.
+
+   Action is a binary BUY-vs-SELL pill (green "Bought" / red "Sold")
+   with a ``min-width`` so the two labels render in pills of the
+   exact same width and the column edges stay flush regardless of
+   row. The finer-grained "Details" column carries the lifecycle
+   nuance the four-category model used to encode in the badge text:
+   "Initial stake" / "+30%" / "-25%" / "Disposal", so a reader can
+   tell at a glance not just direction but whether this was an
+   entry, a top-up, a trim, or an exit. */
+.trades__wrap {
+  /* Last-resort horizontal scroll for viewports so narrow that even
+     the mobile column-hiding rules below can't keep the remaining
+     columns from overflowing. On a typical mobile phone the inner
+     table already fits; this only kicks in for the unusually thin
+     iPhone SE / Galaxy Fold territory. */
+  overflow-x: auto;
   margin-top: 10px;
+}
+.trades {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--card-bg);
+  overflow: hidden;
+  font-size: 0.9375rem;
 }
-.trade__logo {
-  width: 100%;
-  max-width: 64px;
-  max-height: 48px;
-  object-fit: contain;
-  justify-self: center;
-}
-.trade__body { min-width: 0; }
-.trade__title {
-  font-size: 1rem;
+.trades thead th {
+  font-size: 0.75rem;
   font-weight: 600;
-  letter-spacing: -0.01em;
-  margin: 0;
-  overflow-wrap: anywhere;
-}
-.trade__period {
-  margin: 4px 0 0;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
   color: var(--muted);
-  font-size: 0.875rem;
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--card-bg) 60%, var(--bg) 40%);
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.trades__col--price { text-align: right; }
+/* Sort buttons: visually identical to the surrounding header text
+   so the table reads as a tight grid -- the interactive affordance
+   is communicated by the indicator triangle plus the focus ring,
+   not by chrome that would clutter the row. The inactive triangle
+   sits on every sortable column so the reader can see up-front
+   which columns can be re-ordered; the active column upgrades to
+   a solid arrow via the ``aria-sort`` selectors below. */
+.trades__sort {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.trades__sort:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.trades__sort-indicator {
+  display: inline-block;
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid color-mix(in srgb, var(--muted) 50%, transparent);
+  transition: transform 120ms ease, border-top-color 120ms ease;
+}
+.trades th[aria-sort="ascending"] .trades__sort-indicator {
+  transform: rotate(180deg);
+  border-top-color: var(--fg);
+}
+.trades th[aria-sort="descending"] .trades__sort-indicator {
+  border-top-color: var(--fg);
+}
+.trades th[aria-sort="ascending"],
+.trades th[aria-sort="descending"] {
+  color: var(--fg);
+}
+.trades tbody td {
+  padding: 8px 12px;
+  border-top: 1px solid var(--line);
+  vertical-align: middle;
+}
+/* Subtle zebra-stripe via ``:nth-child`` lets the eye track rows
+   horizontally across the page. The colour is a slight tint of
+   ``--card-bg`` rather than a hard contrast so the table still
+   reads as a single surface and the row striping doesn't fight
+   the badge colours. */
+.trades tbody tr:nth-child(even) td {
+  background: color-mix(in srgb, var(--card-bg) 60%, var(--bg) 40%);
+}
+.trades__cell--ticker {
+  font-weight: 600;
+  white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
-.trade__meta {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 6px;
-  white-space: nowrap;
+.trades__cell--name {
+  color: var(--fg);
+  /* Long names (e.g. "UnitedHealth Group Inc.") are allowed to wrap
+     so the column doesn't blow out the table on narrow tablets.
+     ``overflow-wrap: anywhere`` keeps the cell from forcing a
+     horizontal scrollbar on edge-case names with no natural break
+     points. */
+  overflow-wrap: anywhere;
 }
-/* Solid-pill badge so the four categories pop visually at a glance
-   when scanning a long list of trades. Uppercase + letter-spacing
-   gives it the "label" affordance a typographic reader expects from
-   a category tag and distinguishes it cleanly from the prose around
-   it. ``color: #fff`` (and the matching pure-black override in dark
-   mode below) is set independently of ``--bg`` so the contrast
-   against the saturated fills stays high regardless of the page's
-   ambient surface luminance. */
+.trades__cell--action { white-space: nowrap; }
+.trades__cell--detail {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.trades__cell--date {
+  color: var(--muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.trades__cell--price {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+/* Solid-pill BUY / SELL badge. Uppercase + letter-spacing give it
+   the "label" affordance a typographic reader expects from a
+   category tag and distinguishes it cleanly from the prose around
+   it. ``width`` (not ``min-width``) pins both pills to the same
+   fixed box so "BOUGHT" and "SOLD" render at byte-for-byte
+   identical widths -- ``min-width`` alone would have let the
+   longer label grow past the shorter one and the column would
+   read as two slightly different chips. ``7em`` is wide enough
+   that the longer "BOUGHT" label sits comfortably away from the
+   pill's rounded ends with visible breathing room on either side,
+   rather than touching the edges. The pill content is centered
+   inside the fixed box with ``text-align: center``; horizontal
+   padding is zeroed because the fixed width already reserves
+   the breathing room. ``color: #fff`` (with the pure-black
+   override in dark mode) is set independently of ``--bg`` so
+   contrast against the saturated fills stays high regardless of
+   the page's ambient surface luminance. */
 .trade__badge {
   display: inline-block;
-  padding: 3px 10px;
+  width: 7em;
+  padding: 3px 0;
   border-radius: 999px;
   font-size: 0.75rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: #ffffff;
+  text-align: center;
   /* The badge fills sit on coloured chips and overlap any
-     ``background`` ancestor; making the box-shadow none keeps the
-     pill flush. */
+     ``background`` ancestor; box-shadow: none keeps the pill flush. */
   box-shadow: none;
 }
-/* Four category fills collapsed onto a single BUY-vs-SELL axis:
-   green marks any move INTO a position (Initiated full-on or
-   Increased exposure) and red marks any move OUT (Decreased
-   exposure or Divested fully). The badge label itself already
-   spells out the size of the move ("Increased by 30%", "Divested"),
-   so a reader scanning a long list of trades can identify
-   direction at a glance from the colour and reach for the label
-   only when they care about magnitude. The earlier four-colour
-   diverging palette (green / blue for buys, orange / red for sells)
-   read as four equally-distinct buckets and asked the reader to
-   memorise which warm hue meant "partial sell" vs "full sell";
-   collapsing to two semantic colours is faster to scan and the
-   ``--open`` / ``--increase`` / ``--decrease`` / ``--close`` BEM
-   modifiers stay in place so the markup keeps describing exactly
-   what happened. */
-.trade__badge--open     { background: var(--positive); }
-.trade__badge--increase { background: var(--positive); }
-.trade__badge--decrease { background: var(--negative); }
-.trade__badge--close    { background: var(--negative); }
-.trade__price {
-  font-variant-numeric: tabular-nums;
-  font-size: 0.9375rem;
+/* The four semantic categories collapse onto a single buy-vs-sell
+   axis: green marks any move INTO a position, red marks any move
+   OUT. Direction lands at a glance from the colour; the magnitude
+   (and the lifecycle distinction between "open" and "top-up", or
+   between "trim" and "exit") lives in the adjacent "Details"
+   column instead of being squeezed onto the badge. */
+.trade__badge--buy  { background: var(--positive); }
+.trade__badge--sell { background: var(--negative); }
+/* "Details" column. ``--label`` rows (Initial stake / Disposal)
+   are qualitative and ride muted-grey so the action badge keeps
+   visual primacy; ``--pct`` rows (+30% / -25%) are quantitative
+   and pick up the page's standard green / red value colours via
+   the ``.value--positive`` / ``.value--negative`` modifier the
+   row already carries -- those classes are defined further up
+   and shared with the holding capsules' TSR / CAGR readouts so
+   the whole page speaks one colour-coding language. */
+.trades__detail--label { color: var(--muted); }
+.trades__detail--pct {
   font-weight: 600;
+}
+/* Plain-hyphen separator between the two ends of a multi-day
+   burst's date range. Wrapping the glyph in a ``<span>`` rather
+   than emitting a bare ``-`` between the two ``<time>`` elements
+   keeps the markup parallel to how the equity capsules above
+   render closed periods, and gives us a hook if we ever want
+   to switch the separator out later. */
+.trades__date-sep { color: var(--muted); }
+/* Collapse / expand mechanic for long trade logs.
+
+   Once the executed-trades history is long enough to dominate the
+   page (the renderer's threshold is 10 rows), the rows past that
+   cutoff are hidden until the user opts in via the
+   ``.trades__toggle`` button below the table. CSS does the
+   actual hiding with a single ``:nth-of-type`` rule against the
+   current DOM order; that means after a sort the same N most
+   recent (or alphabetically-first, etc.) rows always stay
+   visible -- the cutoff applies to "the top N rows in whatever
+   order they're in right now", which is the only sensible
+   reading once the user has re-ordered the table.
+
+   ``[data-expanded="true"]`` on the ``<table>`` overrides the
+   hide rule when the user opts in. ``[hidden]`` on the toggle
+   keeps the chrome out of the DOM when the table is short
+   enough that no overflow exists (no JS coordination needed --
+   the server simply omits the button entirely in that case). */
+.trades:not([data-expanded="true"]) tbody tr.trades__row:nth-of-type(n+11) {
+  display: none;
+}
+.trades__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 0 0;
+  padding: 8px 14px;
+  background: var(--card-bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.trades__toggle:hover {
+  background: color-mix(in srgb, var(--card-bg) 70%, var(--bg) 30%);
+  border-color: color-mix(in srgb, var(--line) 50%, var(--fg) 50%);
+}
+.trades__toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+/* Small chevron glyph that flips when the table opens so the
+   button visually signals which way the next click will move
+   the section. ``::after`` keeps the indicator decorative
+   (``aria-expanded`` on the button is what assistive tech
+   actually announces). */
+.trades__toggle::after {
+  content: "";
+  display: inline-block;
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid var(--muted);
+  transition: transform 150ms ease;
+}
+.trades__toggle[aria-expanded="true"]::after {
+  transform: rotate(180deg);
 }
 .bars {
   display: flex;
@@ -2078,38 +2264,21 @@ footer a { color: var(--accent-bench); }
      column 3. Historical rows simply leave column 3 empty. */
   .holding__stat:nth-child(2) { justify-self: center; }
   .holding__stat:nth-child(3) { justify-self: end; }
-  /* Trade capsule stacks the right-rail meta (badge + price)
-     into its own row underneath the logo+body block. Same
-     layout idea as ``.holding`` on mobile, scaled for the
-     trade card's denser content. The meta row uses
-     ``justify-content: space-between`` so the badge hugs the
-     left (under the logo column visually) and the price hugs
-     the right -- mirroring how a reader scans the desktop row
-     left-to-right. */
-  .trade {
-    grid-template-columns: 44px minmax(0, 1fr);
-    grid-template-areas:
-      "logo body"
-      "meta meta";
-    align-items: start;
-    gap: 10px 12px;
-    padding: 12px;
-  }
-  .trade__logo {
-    grid-area: logo;
-    max-width: 44px;
-    max-height: 44px;
-    align-self: center;
-  }
-  .trade__body { grid-area: body; }
-  .trade__title { font-size: 0.9375rem; }
-  .trade__meta {
-    grid-area: meta;
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
-    padding-top: 6px;
-    border-top: 1px solid var(--line);
+  /* Trades table: shrink the cell padding and hide the company-name
+     column (the ticker uniquely identifies the security on its own)
+     so the remaining ticker / action / details / date / price
+     columns still fit on a phone width without horizontal scrolling.
+     The wrapping ``.trades__wrap`` is the fallback when even those
+     remaining columns can't fit on an unusually narrow viewport. */
+  .trades { font-size: 0.875rem; }
+  .trades thead th { padding: 8px 8px; font-size: 0.6875rem; }
+  .trades tbody td { padding: 8px 8px; }
+  .trades__col--name,
+  .trades__cell--name { display: none; }
+  .trade__badge {
+    width: 7em;
+    padding: 2px 0;
+    font-size: 0.6875rem;
   }
   .returns-compare { padding: 14px 16px; }
   .returns-compare__col { column-gap: 14px; }
@@ -2179,6 +2348,26 @@ footer a { color: var(--accent-bench); }
   .holding__logo { max-width: 44px; max-height: 44px; }
   .holding__title { font-size: 0.9375rem; }
   .holding__stats { font-size: 0.875rem; gap: 6px 10px; }
+  /* Phone-portrait widths shrink the trades table padding further
+     and tighten the action pill so all five remaining columns
+     (ticker / action / details / date / price) sit on one line.
+     ``.trades__wrap`` still provides horizontal scroll as a final
+     fallback for the rare ultra-narrow viewport where even this
+     can't fit. */
+  .trades thead th { padding: 6px; }
+  .trades tbody td { padding: 6px; }
+  .trade__badge {
+    /* iPhone SE / Galaxy Fold widths: bump both the pill box and
+       the font so the longer "BOUGHT" label sits comfortably
+       inside the rounded ends instead of pressing against them.
+       The wider pill nudges other columns into ``.trades__wrap``'s
+       horizontal-scroll territory, which is fine -- the action
+       column is the one the reader scans first and it has to
+       read cleanly. */
+    width: 7em;
+    padding: 2px 0;
+    font-size: 0.6875rem;
+  }
 }
 """.strip()
 
@@ -2258,20 +2447,27 @@ _HASH_CLEAR_SCRIPT = (
 #
 # Kept as a tight ES5-flavoured IIFE so the inline payload stays
 # small and gets a single stable SHA-256 hash (pinned in CSP).
-# ``slide`` re-reads ``targetY(el)`` on every frame instead of locking
-# the destination in at click time. iOS Safari's URL bar collapses
-# mid-animation (extending the visual viewport) and lazy-loaded logos
-# in the sections above the target can finish painting while we're
-# in flight, both of which nudge the target section's document
-# position by a handful of pixels. With a static target the original
-# version landed slightly above the section title on the *first*
-# tap from the top of the page (most visible on the bottom-most
-# ``Trades`` link, which has the longest distance to travel);
-# subsequent taps worked because the URL bar was already collapsed
-# and logos already laid out. Tracking a moving target makes the
-# slide self-correcting, and a final ``scrollTo(targetY(el))``
-# guarantees we settle exactly on the section's current position
-# even if the last layout shift happened after the easing reached 1.
+#
+# ``slide`` locks the destination ``targetY(el)`` at the moment of
+# the click and animates against it for the rest of the duration.
+# An earlier version re-read ``targetY`` on every frame to absorb
+# layout shifts in flight (iOS Safari URL-bar collapse, lazy logos
+# finishing decode), but with explicit ``width``/``height`` on
+# every holding logo there is no CLS to absorb, programmatic
+# ``scrollTo`` does not trigger the iOS URL-bar transition, and
+# the per-frame re-read introduced a subtle but visible jitter:
+# each ``targetY`` call rescales the entire trajectory, so any
+# sub-pixel shift was amplified through the ease curve into a
+# visible micro-stutter -- the user-reported "the animation
+# looks odd" feel on short hops from the allocation chart. A
+# single ``scrollTo`` to the current ``targetY`` at the very end
+# of the slide still catches any pixel-level layout drift that
+# happened in flight without contaminating the easing curve.
+#
+# ``scrollTo`` is invoked with ``{behavior: 'auto'}`` to
+# explicitly opt out of any user-agent / page CSS smooth scroll
+# that might otherwise layer a second animation on top of our
+# rAF loop.
 _NAV_SCROLL_SCRIPT = (
     "(function(){"
     "var rm=false;"
@@ -2291,16 +2487,31 @@ _NAV_SCROLL_SCRIPT = (
     "catch(e){}"
     "return Math.max(0,top-smt);"
     "}"
+    # ``jump`` is used both for the reduced-motion path and for
+    # the per-frame and final settle scrollTo calls. The explicit
+    # ``behavior: 'auto'`` opts out of any CSS-driven smooth
+    # scroll the page might otherwise impose, so our rAF easing
+    # is the sole source of motion.
+    "function jump(y){"
+    "try{window.scrollTo({top:y,behavior:'auto'});}"
+    "catch(e){window.scrollTo(0,y);}"
+    "}"
     "function slide(el,d){"
     "if(raf!==null)cancelAnimationFrame(raf);"
-    "var sy0=sy(),t0=null;"
+    # Lock the destination at slide start. Re-reading ``targetY``
+    # every frame is mathematically equivalent on a stable layout
+    # but amplifies any sub-pixel layout drift into a visible
+    # mid-animation jitter -- see the script docstring above.
+    "var sy0=sy(),ty0=targetY(el),t0=null;"
     "function step(ts){"
     "if(t0===null)t0=ts;"
     "var t=Math.min(1,(ts-t0)/d);"
-    "var ty=targetY(el);"
-    "window.scrollTo(0,sy0+(ty-sy0)*ease(t));"
+    "jump(sy0+(ty0-sy0)*ease(t));"
     "if(t<1){raf=requestAnimationFrame(step);}"
-    "else{window.scrollTo(0,targetY(el));raf=null;}"
+    # Final settle to the *current* targetY captures any pixel-
+    # level shift that happened while we were animating, without
+    # contaminating the easing curve itself.
+    "else{jump(targetY(el));raf=null;}"
     "}"
     "raf=requestAnimationFrame(step);"
     "}"
@@ -2317,8 +2528,16 @@ _NAV_SCROLL_SCRIPT = (
     "var el=document.getElementById(href.slice(1));"
     "if(!el)return;"
     "e.preventDefault();"
-    "var ty=targetY(el);"
-    "if(rm){window.scrollTo(0,ty);}"
+    # Release focus from the activated anchor *before* the scroll
+    # starts. The browser focuses the ``<a>`` as part of the
+    # click, which (a) used to pull in a CSS ``scroll-behavior:
+    # smooth`` rule on ``html:focus-within`` that double-animated
+    # the slide, (b) keeps the marquee paused if the anchor sits
+    # inside the ticker (``aria-hidden``, ``tabindex='-1'``, so
+    # no a11y pathway loses), and (c) keeps the just-clicked bar
+    # row visually highlighted on touch devices.
+    "if(a.blur){try{a.blur();}catch(err){}}"
+    "if(rm){jump(targetY(el));}"
     "else{"
     # Duration scales gently with distance so a short hop in the
     # current section stays nearly instantaneous while a top-of-
@@ -2326,19 +2545,10 @@ _NAV_SCROLL_SCRIPT = (
     # earlier 450-900ms window left even short hops feeling
     # sluggish; tightening to 280-650ms with a 0.30 px-per-ms
     # ratio reads as immediate without crossing into "abrupt".
-    "var dist=Math.abs(ty-sy());"
+    "var dist=Math.abs(targetY(el)-sy());"
     "var dur=Math.min(650,Math.max(280,dist*0.30));"
     "slide(el,dur);"
     "}"
-    # Release focus from the activated anchor so the marquee can
-    # resume its loop (the ``.ticker:hover`` rule is gated on real
-    # pointer hover via ``@media (hover: hover)``, but a click on
-    # a ``.ticker__link`` still focuses the anchor; without this
-    # blur, future browsers / extensions that visualize that
-    # focus could keep the bar paused). Also stops the just-
-    # clicked bar row from staying highlighted on touch devices
-    # after the tap completes.
-    "if(a.blur){try{a.blur();}catch(err){}}"
     "try{history.pushState(null,'',href);}catch(err){}"
     "});"
     "})();"
@@ -2515,6 +2725,153 @@ _RETURN_CHART_SCRIPT = (
 )
 
 
+# Click-to-sort behaviour for the "Trades" table.
+#
+# Each ``<tr class="trades__row">`` carries the sort keys it can be
+# ordered by on ``data-sort-*`` attributes (date / ticker / name /
+# action / detail). The script wires every ``<th data-sort-key="...">``
+# so a click on the inner ``.trades__sort`` button:
+#
+#   * toggles the direction when the same column is clicked twice in
+#     a row (asc <-> desc);
+#   * picks a sensible initial direction the first time the user lands
+#     on a column -- "desc" for date (newest first matches the way the
+#     section was already ordered by default), "asc" for everything
+#     else (alphabetical A -> Z for ticker / name, BUY before SELL for
+#     action, OPEN -> CLOSE for detail);
+#   * updates ``aria-sort`` on the active ``<th>`` so screen readers
+#     announce the new state, and resets the other columns to "none"
+#     so only one indicator triangle ever reads as active;
+#   * keeps a deterministic tie-break (date desc, then ticker asc) so
+#     equal-key rows always reorder the same way and the table doesn't
+#     visibly shuffle when the user sorts by action and several rows
+#     share a label.
+#
+# Bursts span multiple days but only one ``data-sort-date`` value is
+# emitted per row (the burst's ``end_date``, i.e. its most recent
+# event) -- it's the natural anchor for the "when did this trade
+# happen?" question and matches the desktop convention of headlining
+# a burst by its last fill.
+#
+# ``boot`` is deferred to ``DOMContentLoaded`` because the script ships
+# from <head> and the ``<table class="trades">`` body it queries for
+# isn't parsed yet at that point. Without the defer the IIFE would
+# observe a null table on every page load and bail out, leaving the
+# sort headers silently inert (which is exactly the bug we're fixing
+# here). The pattern matches ``_RETURN_CHART_SCRIPT`` further up.
+#
+# Kept as a tight ES5-flavoured IIFE so the inline payload stays
+# small and gets a single stable SHA-256 hash (pinned in CSP).
+_TRADES_SORT_SCRIPT = (
+    "(function(){"
+    "function boot(){"
+    "var table=document.querySelector('table.trades');"
+    "if(!table)return;"
+    "var tbody=table.querySelector('tbody');"
+    "if(!tbody)return;"
+    "var ths=table.querySelectorAll('th[data-sort-key]');"
+    "var state={key:null,dir:null};"
+    "function rowKey(row,key){"
+    "return row.getAttribute('data-sort-'+key)||'';"
+    "}"
+    "function cmp(a,b,key){"
+    "var av=rowKey(a,key),bv=rowKey(b,key);"
+    # ``data-sort-action`` and ``data-sort-detail`` are small ints;
+    # everything else is a lower-cased string or an ISO date. Convert
+    # the numeric keys so "10" doesn't sort before "2"; date / ticker
+    # / name stay as strings (ISO dates lex-sort chronologically, and
+    # lower-cased strings sort the way the eye expects).
+    "if(key==='action'||key==='detail'){"
+    "av=parseInt(av,10);bv=parseInt(bv,10);"
+    "if(av<bv)return -1;if(av>bv)return 1;return 0;"
+    "}"
+    "if(av<bv)return -1;if(av>bv)return 1;return 0;"
+    "}"
+    "function sortBy(key,dir){"
+    "var rows=Array.prototype.slice.call(tbody.querySelectorAll('tr'));"
+    "rows.sort(function(a,b){"
+    "var c=cmp(a,b,key);"
+    "if(dir==='desc')c=-c;"
+    "if(c!==0)return c;"
+    # Tie-break: newest first by date, then alphabetical by ticker.
+    # Keeps the sort stable across re-clicks and makes equal-key
+    # groups read in a predictable secondary order.
+    "var ad=rowKey(a,'date'),bd=rowKey(b,'date');"
+    "if(ad!==bd)return ad<bd?1:-1;"
+    "var at=rowKey(a,'ticker'),bt=rowKey(b,'ticker');"
+    "if(at<bt)return -1;if(at>bt)return 1;return 0;"
+    "});"
+    "for(var i=0;i<rows.length;i++)tbody.appendChild(rows[i]);"
+    "for(var j=0;j<ths.length;j++){"
+    "var th=ths[j];"
+    "var k=th.getAttribute('data-sort-key');"
+    "if(k===key){"
+    "th.setAttribute('aria-sort',dir==='asc'?'ascending':'descending');"
+    "}else{"
+    "th.setAttribute('aria-sort','none');"
+    "}"
+    "}"
+    "state.key=key;state.dir=dir;"
+    "}"
+    "table.addEventListener('click',function(e){"
+    "var t=e.target;"
+    "if(!t||!t.closest)return;"
+    "var btn=t.closest('.trades__sort');"
+    "if(!btn)return;"
+    "var th=btn.closest('th[data-sort-key]');"
+    "if(!th)return;"
+    "var key=th.getAttribute('data-sort-key');"
+    "var dir;"
+    "if(state.key===key){"
+    "dir=state.dir==='asc'?'desc':'asc';"
+    "}else{"
+    "dir=key==='date'?'desc':'asc';"
+    "}"
+    "sortBy(key,dir);"
+    "});"
+    # Initial pass: aligns the visible indicator with the order the
+    # rows were already emitted in (date desc) so the table reads
+    # consistently from the first paint.
+    "var ik=table.getAttribute('data-sort-default')||'date';"
+    "var id=table.getAttribute('data-sort-default-dir')||'desc';"
+    "sortBy(ik,id);"
+    # ----- "Show all N trades" toggle ---------------------------------
+    # The button only exists in the DOM when the trade log is longer
+    # than the threshold the server bakes into the page (see
+    # ``_TRADES_VISIBLE_DEFAULT``). When present, clicking it flips
+    # the ``data-expanded`` attribute on the ``<table>`` and the
+    # ``aria-expanded`` / text label on the button itself. The CSS
+    # rule ``.trades:not([data-expanded="true"]) tbody tr:nth-of-type
+    # (n+11) { display: none; }`` does the actual hiding, which means
+    # the cutoff naturally follows whatever sort the user has applied
+    # -- after a re-order, the same N rows in the new top positions
+    # remain visible.
+    "var toggle=document.querySelector('.trades__toggle');"
+    "if(toggle){"
+    "var total=toggle.getAttribute('data-total')||'';"
+    "var showLabel='Show all '+total+' trades';"
+    "var hideLabel='Show fewer trades';"
+    "toggle.addEventListener('click',function(){"
+    "var open=table.getAttribute('data-expanded')==='true';"
+    "if(open){"
+    "table.removeAttribute('data-expanded');"
+    "toggle.setAttribute('aria-expanded','false');"
+    "toggle.textContent=showLabel;"
+    "}else{"
+    "table.setAttribute('data-expanded','true');"
+    "toggle.setAttribute('aria-expanded','true');"
+    "toggle.textContent=hideLabel;"
+    "}"
+    "});"
+    "}"
+    "}"
+    "if(document.readyState==='loading'){"
+    "document.addEventListener('DOMContentLoaded',boot);"
+    "}else{boot();}"
+    "})();"
+)
+
+
 class Webpage:
     """Builds the JG Investing index page as a single responsive document."""
 
@@ -2524,7 +2881,7 @@ class Webpage:
         self.historical: list[str] = []
         self.allocation_pct: dict[str, float] | None = None
         self.top_10: dict[str, float] | None = None
-        # Pre-rendered HTML for each row in the "Recent trades"
+        # Pre-rendered HTML for each row in the "Trades"
         # section, in newest-first order. Populated by
         # ``add_trades``; an empty list omits the whole section
         # (and its nav link) cleanly.
@@ -2563,22 +2920,27 @@ class Webpage:
         self.top_10 = top_10
 
     def add_trades(self, trade_events):
-        """Render each burst-aggregated trade event into a card.
+        """Render each burst-aggregated trade event into a table row.
 
         ``trade_events`` is the newest-first list produced by
         ``get_holdings`` (or by ``Holding.trade_events`` directly in
-        the preview/test paths). Cards are stored pre-rendered so the
-        page assembly in ``save()`` stays linear."""
+        the preview/test paths). Rows are stored pre-rendered as
+        ``<tr>`` fragments so the page assembly in ``save()`` stays
+        linear; ``_build_trades_table`` wraps them with the matching
+        ``<thead>`` and sortable column headers."""
         self.trades = [
-            self._build_trade_card(event) for event in trade_events
+            self._build_trade_row(event) for event in trade_events
         ]
 
     def save(self):
         now = datetime.now()
-        # Reuse the shared ``_fmt_date`` helper so the footer's
-        # "last updated" label and every other human-facing date on
-        # the page agree on a single formatting convention.
-        update_date = _fmt_date(now)
+        # Long-form date here ("Updated on May 31, 2026") rather than
+        # the page-wide DD/MM/YYYY -- the footer line reads as prose,
+        # not as tabular data, so slashes break the sentence the same
+        # way they did under the chart's "Since X" caption above
+        # ``_render_return_chart``. The ISO ``<time datetime="...">``
+        # attribute stays in W3C YYYY-MM-DD form regardless.
+        update_date = _fmt_date_long(now)
         update_iso = now.strftime("%Y-%m-%d")
         # Best-effort: generate the OG image first so its filename can
         # be referenced from <head>. If Pillow / fonts aren't available
@@ -2651,31 +3013,26 @@ class Webpage:
 
         if self.trades:
             parts.append('<section id="trades" class="section section--trades">')
-            parts.append('<h2 class="section__title">Recent trades</h2>')
-            # Subtitle states the two methodology details the reader
-            # would otherwise have to infer from the data: how far
-            # back the section reaches, and what "combined" rows
-            # represent. The "rolling quarter" wording matches the
-            # long-term-investor framing of the page (a fund-letter
-            # cadence rather than a high-frequency trade log) and is
-            # the natural human reading of the 90-day numerical
-            # ``TRADE_WINDOW_DAYS`` constant. The horizon phrase
-            # collapses the ``N == 1`` case to a bare "Last year"
-            # because "Last 1 years" reads as a string-formatting bug.
-            # Keeping the subtitle short avoids cluttering the cards
-            # themselves.
-            if TRADES_YEARS_BACK == 1:
-                horizon = "Last year."
-            else:
-                horizon = f"Last {TRADES_YEARS_BACK} years."
+            parts.append('<h2 class="section__title">Trades</h2>')
+            # Subtitle pins the one methodology detail the reader
+            # would otherwise have to infer from the data: what
+            # "combined" rows represent. The section now spans the
+            # full ownership history (the year-back horizon is gone)
+            # so the subtitle no longer mentions a retention window;
+            # the sortable date column lets the reader find recent
+            # activity on their own terms. The "rolling quarter"
+            # wording matches the long-term-investor framing of the
+            # page (a fund-letter cadence rather than a high-frequency
+            # trade log) and is the natural human reading of the
+            # 90-day numerical ``TRADE_WINDOW_DAYS`` constant.
             parts.append(
                 '<p class="section__intro">'
-                f'{horizon} Trades within a '
+                'Every executed trade since inception. Fills within a '
                 'rolling quarter are combined into a single entry at '
                 'their volume-weighted average per-share price.'
                 '</p>'
             )
-            parts.append('\n'.join(self.trades))
+            parts.append(self._build_trades_table(self.trades))
             parts.append('</section>')
 
         parts.append('</main>')
@@ -2855,12 +3212,14 @@ class Webpage:
         hash_clear_hash = _sha256_b64(_HASH_CLEAR_SCRIPT)
         nav_scroll_hash = _sha256_b64(_NAV_SCROLL_SCRIPT)
         return_chart_hash = _sha256_b64(_RETURN_CHART_SCRIPT)
+        trades_sort_hash = _sha256_b64(_TRADES_SORT_SCRIPT)
         csp = (
             "default-src 'self'; "
             f"script-src 'self' 'sha256-{jsonld_hash}' "
             f"'sha256-{hash_clear_hash}' "
             f"'sha256-{nav_scroll_hash}' "
             f"'sha256-{return_chart_hash}' "
+            f"'sha256-{trades_sort_hash}' "
             "https://static.cloudflareinsights.com; "
             "style-src 'self' 'unsafe-inline'; "
             f"style-src-elem 'self' 'sha256-{style_hash}'; "
@@ -2939,6 +3298,9 @@ class Webpage:
             # user slides a finger or cursor across the plot. See
             # ``_RETURN_CHART_SCRIPT`` for the data-attribute contract.
             f'<script>{_RETURN_CHART_SCRIPT}</script>\n'
+            # Click-to-sort for the "Trades" table. See
+            # ``_TRADES_SORT_SCRIPT`` for the data-attribute contract.
+            f'<script>{_TRADES_SORT_SCRIPT}</script>\n'
             f'<style>{_PAGE_STYLES}</style>\n'
             '</head>'
         )
@@ -3483,10 +3845,15 @@ class Webpage:
         if include_period:
             start_date = total_return["start_date"]
             duration = _format_duration(relativedelta(datetime.today(), start_date))
+            # Long-form date here -- the caption reads as prose
+            # ("Since Jan 1, 2024 . 2 years, 1 month"), not as a
+            # tabular slot, so the slash-separated DD/MM/YYYY
+            # format used everywhere else on the page would break
+            # the sentence rhythm.
             period_html = (
                 '<p class="returns-compare__period">'
                 f'Since <time datetime="{start_date.strftime("%Y-%m-%d")}">'
-                f'{_fmt_date(start_date)}</time> &middot; '
+                f'{_fmt_date_long(start_date)}</time> &middot; '
                 f'{html.escape(duration)}'
                 '</p>'
             )
@@ -3596,38 +3963,116 @@ class Webpage:
             '</article>'
         )
 
-    def _build_trade_card(self, event) -> str:
-        """Render one burst-aggregated trade as a capsule.
+    # Numeric sort indices for the Action and Details columns. The
+    # buy-vs-sell axis is binary (action == 0 for BUY, 1 for SELL),
+    # so sorting ascending groups Bought rows above Sold rows. The
+    # finer-grained "Details" sort uses the dict-order index --
+    # OPEN -> INCREASE -> DECREASE -> CLOSE, ascending -- so an
+    # ascending sweep flows through the position's lifecycle:
+    # initial stake, then top-ups, then trims, then disposal. Both
+    # tables are derived rather than written out by hand so
+    # ``_TRADE_ACTION_DISPLAY`` / ``_TRADE_DETAIL_LABELS`` stay the
+    # single source of truth for the four-category space.
+    _TRADE_DETAIL_SORT_INDEX: dict[str, int] = {
+        # Canonical category order -- matches the dict literals at
+        # the top of this module.
+        category: index
+        for index, category in enumerate(
+            ("OPEN", "INCREASE", "DECREASE", "CLOSE")
+        )
+    }
+    _TRADE_ACTION_SORT_INDEX: dict[str, int] = {
+        category: 0 if category in _BUY_CATEGORIES else 1
+        for category in _TRADE_ACTION_DISPLAY
+    }
 
-        The layout mirrors the holding cards (logo / body / right-rail
-        metadata) so the page reads as a consistent family of capsules
-        even when the reader scrolls between sections. The per-share
-        price is shown in the security's native currency, prefixed by
-        ``@`` and the ISO code (e.g. ``@ EUR 76.32``) -- the ``@``
-        glyph reads as the finance-shorthand "at the price of",
-        making the right-rail value unambiguously a transaction
-        price rather than some balance. Quantities are deliberately
-        absent: the page commits to publishing only relative
-        percentages and per-share prices, never nominal sizes.
+    @staticmethod
+    def _strip_exchange(ticker: str) -> str:
+        """Trim the ``EXCHANGE:`` prefix off a ticker.
+
+        The "Trades" table lists tickers without the exchange
+        prefix -- the page already groups trades by security and the
+        exchange is redundant noise for a reader scanning the column
+        for a familiar symbol like ``AAPL`` or ``GOOGL``. Tickers
+        without a colon (synthetic / test data) pass through
+        unchanged. Only the first colon splits; any colon-bearing
+        ticker symbol (none today, but defensive) keeps the rest of
+        the symbol intact.
         """
-        label, modifier = _TRADE_CATEGORY_DISPLAY[event["category"]]
-        # INCREASE / DECREASE rows attach " by X%" so the scale of
-        # the action lands in the same glance as the verb. OPEN /
-        # CLOSE rows pass the bare label through -- the long-term-
-        # investor verbs ("Initiated" / "Divested") already read as
-        # complete actions, so no "position" suffix is needed to
-        # avoid sounding half-finished next to the magnitude-bearing
-        # rows. The percentage is rendered as a whole number -- this
-        # is the user-facing readout convention for this section
-        # specifically; the page-wide ``_fmt_pct`` helper that gives
-        # one decimal under 100 is reserved for the performance /
-        # return rows where that extra digit is meaningful.
+        _, sep, rest = ticker.partition(":")
+        return rest if sep else ticker
+
+    @classmethod
+    def _trade_detail_text(cls, event) -> str:
+        """Human-facing text for the "Details" column.
+
+        OPEN / CLOSE return the static lifecycle labels (the
+        position came into existence / was disposed of, respectively).
+        INCREASE / DECREASE return a signed whole-number percentage
+        of the burst's magnitude relative to the prior position --
+        ``+30%`` reads as "this BUY grew the existing stake by 30%",
+        ``-25%`` as "this SELL trimmed it by 25%". The minus glyph
+        is the typographically correct ``\u2212`` (U+2212), not the
+        ASCII hyphen-minus: it lines up to the same width as ``+``
+        in tabular-numbers fonts so the column edges stay flush.
+        A defensive fallback returns the bare ``Bought`` / ``Sold``
+        label if ``delta_pct`` is missing for an INCREASE / DECREASE
+        burst (which the production data path never produces, but
+        guards us against malformed test fixtures).
+        """
+        category = event["category"]
+        if category in cls._TRADE_DETAIL_LABELS_REF:
+            return cls._TRADE_DETAIL_LABELS_REF[category]
         delta_pct = event.get("delta_pct")
-        if (
-            event["category"] in ("INCREASE", "DECREASE")
-            and delta_pct is not None
-        ):
-            label = f"{label} by {delta_pct:.0f}%"
+        if delta_pct is None:
+            return _TRADE_ACTION_DISPLAY[category][0]
+        sign = "+" if category == "INCREASE" else "\u2212"
+        return f"{sign}{delta_pct:.0f}%"
+
+    # Module-level table is referenced through a class attribute so
+    # the renderer code reads top-down with no ``global`` jumps;
+    # this also gives subclasses a single place to override the
+    # mapping if a future variation of the page wants different
+    # boundary labels.
+    _TRADE_DETAIL_LABELS_REF: dict[str, str] = _TRADE_DETAIL_LABELS
+
+    def _build_trade_row(self, event) -> str:
+        """Render one burst-aggregated trade as a ``<tr>`` for the
+        sortable trades table.
+
+        Five columns: ticker (without exchange prefix), company
+        name, action badge (Bought / Sold), details (initial stake
+        / signed percentage / disposal), date / range, per-share
+        price. ``data-sort-*`` attributes carry the sort key for
+        each sortable column so the inline ``_TRADES_SORT_SCRIPT``
+        can re-order rows without re-parsing cell text. The
+        per-share price stays in the security's native currency
+        (e.g. ``EUR 76.32``); we use the ISO code rather than the
+        symbol because a leading ``$`` would silently misrepresent
+        a EUR / GBp trade as USD in a multi-market portfolio.
+        Nominal share counts are deliberately absent: the page
+        commits to publishing only relative percentages and
+        per-share prices, never sizes.
+        """
+        category = event["category"]
+        action_label, action_modifier = _TRADE_ACTION_DISPLAY[category]
+        detail_label = self._trade_detail_text(event)
+        # The two "boundary" labels (Initial stake / Disposal) are
+        # qualitative; the magnitude rows (+30% / -25%) are
+        # quantitative and benefit from a tabular-numbers treatment
+        # plus a sign-driven colour cue. The CSS hooks both off this
+        # modifier so the cell either renders muted-grey text or
+        # green / red value-style text depending on context.
+        if category in ("INCREASE", "DECREASE"):
+            detail_modifier = "pct"
+            detail_class = (
+                "trades__detail trades__detail--pct "
+                + ("value--positive" if category == "INCREASE"
+                   else "value--negative")
+            )
+        else:
+            detail_modifier = "label"
+            detail_class = "trades__detail trades__detail--label"
         start = event["start_date"]
         end = event["end_date"]
         if start == end:
@@ -3639,43 +4084,171 @@ class Webpage:
                 f'{_fmt_date(start)}</time>'
             )
         else:
+            # Plain ASCII hyphen ``-`` (wrapped in its own ``<span>``)
+            # matches the equity capsules' period rows above on the
+            # page, where the "Aug 14, 2024 - Present" separator is
+            # written the same way. Using the same glyph here means
+            # the eye can scan dates across the trades table and the
+            # holding cards with one mental model.
             period_html = (
                 f'<time datetime="{start.strftime("%Y-%m-%d")}">'
                 f'{_fmt_date(start)}</time>'
-                ' &ndash; '
+                '<span class="trades__date-sep"> - </span>'
                 f'<time datetime="{end.strftime("%Y-%m-%d")}">'
                 f'{_fmt_date(end)}</time>'
             )
         # Thousands separator + 2 decimals reads well across the full
         # range of equity prices we ingest (sub-dollar US tickers up
-        # through GBp pence quotes in the thousands). The currency
-        # code prefix is unambiguous in a multi-market portfolio --
-        # a leading "$" would silently misrepresent a EUR or GBp
-        # trade as USD.
+        # through GBp pence quotes in the thousands). The ISO
+        # currency code follows the value (``921.40 USD`` rather
+        # than ``USD 921.40``) so the eye lands on the magnitude
+        # first and the currency is read as a unit, the way every
+        # other quantity on the page does it. Using the ISO code
+        # rather than the symbol is still important: a leading
+        # ``$`` would silently misrepresent a EUR or GBp trade as
+        # USD in a multi-market portfolio.
         price_html = html.escape(
-            f"@ {event['currency']} {event['price']:,.2f}"
+            f"{event['price']:,.2f} {event['currency']}"
         )
-        logo_url = self._get_logo_url(event["ticker"])
-        title = f"{event['ticker']} - {event['name']}"
+        symbol = self._strip_exchange(event["ticker"])
+        name = event["name"]
+        # Sort keys: dates are ISO so lexical compare = chronological;
+        # the ``end_date`` is the most-recent activity in the burst
+        # so it's the natural "when did this trade happen?" anchor
+        # for the date sort. Ticker / name keys are lower-cased so
+        # the sort is case-insensitive (avoids the "Z before a"
+        # surprise that ASCII compare would otherwise produce).
+        # Action / detail use dict-order indices so an ascending
+        # sweep clusters BUYs before SELLs / opens before closes.
+        sort_date = end.strftime("%Y-%m-%d")
+        sort_ticker = symbol.lower()
+        sort_name = name.lower()
+        sort_action = self._TRADE_ACTION_SORT_INDEX[category]
+        sort_detail = self._TRADE_DETAIL_SORT_INDEX[category]
         return (
-            '<article class="trade">'
-            # Below-the-fold: lazy decoding + reserved dimensions to
-            # avoid CLS while logos stream in, mirroring the holding
-            # card's image attributes.
-            f'<img class="trade__logo" src="{html.escape(logo_url)}" '
-            'alt="" loading="lazy" decoding="async" '
-            'width="48" height="48">'
-            '<div class="trade__body">'
-            f'<h3 class="trade__title">{html.escape(title)}</h3>'
-            f'<p class="trade__period">{period_html}</p>'
-            '</div>'
-            '<div class="trade__meta">'
-            f'<span class="trade__badge trade__badge--{modifier}">'
-            f'{html.escape(label)}</span>'
-            f'<span class="trade__price">{price_html}</span>'
-            '</div>'
-            '</article>'
+            '<tr class="trades__row"'
+            f' data-sort-date="{sort_date}"'
+            f' data-sort-ticker="{html.escape(sort_ticker)}"'
+            f' data-sort-name="{html.escape(sort_name)}"'
+            f' data-sort-action="{sort_action}"'
+            f' data-sort-detail="{sort_detail}">'
+            f'<td class="trades__cell trades__cell--ticker">{html.escape(symbol)}</td>'
+            f'<td class="trades__cell trades__cell--name">{html.escape(name)}</td>'
+            '<td class="trades__cell trades__cell--action">'
+            f'<span class="trade__badge trade__badge--{action_modifier}">'
+            f'{html.escape(action_label)}</span>'
+            '</td>'
+            '<td class="trades__cell trades__cell--detail">'
+            f'<span class="{detail_class}" '
+            f'data-detail-kind="{detail_modifier}">'
+            f'{html.escape(detail_label)}</span>'
+            '</td>'
+            f'<td class="trades__cell trades__cell--date">{period_html}</td>'
+            f'<td class="trades__cell trades__cell--price">{price_html}</td>'
+            '</tr>'
         )
+
+    # Headers for the sortable columns of the trades table. ``key`` is
+    # the ``data-sort-key`` consumed by ``_TRADES_SORT_SCRIPT`` and
+    # matched against the ``data-sort-*`` attributes on each row;
+    # ``label`` is the displayed text. The non-sortable price column
+    # is emitted separately so this tuple captures exactly the keys
+    # the JS module knows how to handle.
+    _TRADES_SORTABLE_COLUMNS: tuple[tuple[str, str, str], ...] = (
+        ("ticker", "Ticker",  "trades__col--ticker"),
+        ("name",   "Company", "trades__col--name"),
+        ("action", "Action",  "trades__col--action"),
+        ("detail", "Details", "trades__col--detail"),
+        ("date",   "Date",    "trades__col--date"),
+    )
+
+    # How many rows the trades table shows by default before the
+    # rest are tucked behind the "Show all" toggle. Kept conservative
+    # so a glance at the section reads as "recent activity" rather
+    # than "every trade ever"; the full log is one click away. The
+    # same constant lives in the CSS rule that hides overflow rows
+    # (``:nth-of-type(n+11)``); the two must stay in sync.
+    _TRADES_VISIBLE_DEFAULT: int = 10
+
+    @classmethod
+    def _build_trades_table(cls, rows: list[str]) -> str:
+        """Wrap pre-rendered ``<tr>`` fragments in the sortable
+        ``<table>`` and add the "Show all" toggle when the log is
+        longer than the default visible window.
+
+        The header row exposes click-to-sort buttons on the ticker /
+        company / action / details / date columns. The default sort
+        (the order the rows are emitted in) is by date descending so
+        the most recent activity sits at the top before the user
+        touches anything; ``_TRADES_SORT_SCRIPT`` reads
+        ``data-sort-default`` / ``data-sort-default-dir`` and marks
+        the matching header with ``aria-sort`` + the indicator
+        triangle on load. ``data-sort-key`` lives on the ``<th>``
+        (not the inner button) so the script can update ``aria-sort``
+        and the indicator without walking back up the DOM.
+
+        Once ``len(rows) > _TRADES_VISIBLE_DEFAULT`` the renderer
+        also emits a ``.trades__toggle`` button after the table.
+        CSS hides every ``<tr>`` past the threshold (``:nth-of-type``
+        in DOM order, so the cutoff naturally follows whatever sort
+        the user has applied); the inline sort script also wires the
+        button up so a click toggles the table's ``data-expanded``
+        attribute and updates the button's ``aria-expanded`` /
+        text label.
+        """
+        headers: list[str] = []
+        for key, label, modifier in cls._TRADES_SORTABLE_COLUMNS:
+            headers.append(
+                f'<th class="trades__col {modifier}" scope="col" '
+                f'data-sort-key="{key}" aria-sort="none">'
+                # The ``<button>`` is what receives focus / clicks --
+                # a real button gets keyboard activation (Enter / Space)
+                # and focus styles for free. The trailing
+                # ``aria-hidden`` indicator span carries no semantic
+                # value; the live ``aria-sort`` on the ``<th>`` is
+                # what assistive tech announces.
+                f'<button type="button" class="trades__sort">'
+                f'{html.escape(label)}'
+                '<span class="trades__sort-indicator" aria-hidden="true"></span>'
+                '</button></th>'
+            )
+        # Price column is not sortable -- mixing currencies in a
+        # numeric sort would imply a meaningful ordering across
+        # USD / EUR / GBp etc. that doesn't exist without an FX
+        # conversion, and surfacing that machinery in a personal
+        # trade log would obscure the simpler intent of the column.
+        headers.append(
+            '<th class="trades__col trades__col--price" scope="col">Price</th>'
+        )
+        thead = f'<thead><tr>{"".join(headers)}</tr></thead>'
+        tbody = f'<tbody>{"".join(rows)}</tbody>'
+        # ``.trades__wrap`` is a horizontal-scroll fallback for very
+        # narrow viewports where the six columns still don't fit
+        # even after the mobile-specific column-hiding rules below;
+        # the visible table itself sits inside it.
+        table_html = (
+            '<div class="trades__wrap">'
+            '<table class="trades" '
+            'data-sort-default="date" '
+            'data-sort-default-dir="desc">'
+            f'{thead}{tbody}'
+            '</table>'
+            '</div>'
+        )
+        toggle_html = ""
+        total = len(rows)
+        if total > cls._TRADES_VISIBLE_DEFAULT:
+            # ``data-total`` is read by the inline script to compose
+            # the "Show all N trades" label after each toggle. Keeping
+            # the count in markup means the script never has to count
+            # rows itself, which would otherwise have to filter the
+            # currently-hidden ones out of ``querySelectorAll``.
+            toggle_html = (
+                '<button type="button" class="trades__toggle" '
+                f'data-total="{total}" aria-expanded="false">'
+                f'Show all {total} trades</button>'
+            )
+        return table_html + toggle_html
 
     def _build_holding_card(self, holding) -> str:
         stats: list[tuple[str, str, float | None]] = [
@@ -4013,10 +4586,16 @@ class Webpage:
         # the anchor point ("since when?") and the elapsed window
         # ("how long?") in one glance.
         duration = _format_duration(relativedelta(history[-1][0], start_date))
+        # Long-form date here -- the caption reads as prose
+        # ("Since Jan 1, 2024 . 2 years, 1 month"), not as a tabular
+        # slot, so the slash-separated DD/MM/YYYY format used
+        # everywhere else on the page would break the sentence
+        # rhythm. The chart-less variant in ``returns-compare``
+        # makes the same choice (see ``_render_returns_compare``).
         caption = (
             f'<div class="return-chart__caption">'
             f'Since <time datetime="{start_date.strftime("%Y-%m-%d")}">'
-            f'{_fmt_date(start_date)}</time> &middot; '
+            f'{_fmt_date_long(start_date)}</time> &middot; '
             f'{html.escape(duration)}</div>'
         )
 

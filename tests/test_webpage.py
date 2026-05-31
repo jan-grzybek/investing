@@ -164,10 +164,12 @@ class TestAddReturn:
         w.add_return(_total_return(), [_benchmark()])
         assert w.return_html.count('"returns-compare__period"') == 1
         # Date is wrapped in a machine-readable <time> element. The
-        # human-facing label drops the leading zero on the day
-        # ("Jan 1" not "Jan 01") -- that's the page-wide convention
-        # set in ``_fmt_date``. The ISO ``datetime`` attribute keeps
-        # the zero-pad because that's the W3C machine format.
+        # "Since X" caption reads as prose ("Since Jan 1, 2024 . 1
+        # year, 5 months"), so this one specific spot uses the
+        # long-form ``%b %-d, %Y`` format from ``_fmt_date_long``
+        # rather than the page-wide DD/MM/YYYY convention -- the
+        # slashes would break the sentence rhythm. The ISO
+        # ``datetime`` attribute stays in W3C YYYY-MM-DD form.
         assert (
             '<time datetime="2024-01-01">Jan 1, 2024</time>'
             in w.return_html
@@ -194,10 +196,14 @@ class TestAddReturn:
             (datetime(2024, 6, 1), 1.05),
             (datetime(2024, 12, 1), 1.1),
         ]}])
-        # The chart's caption owns the period and wraps the date as a
-        # machine-readable <time> element. Day numbers render without
-        # a leading zero ("Jan 1") in the human label; the ISO
-        # ``datetime`` attribute keeps the zero-pad.
+        # The chart's caption owns the period and wraps the date
+        # as a machine-readable <time> element. This caption reads
+        # as prose ("Since Jan 1, 2024 . X months"), so it carries
+        # the long-form ``%b %-d, %Y`` label from
+        # ``_fmt_date_long`` -- the slash-separated DD/MM/YYYY
+        # format used everywhere else on the page would break the
+        # sentence rhythm. ISO ``datetime`` attribute stays in
+        # W3C YYYY-MM-DD.
         assert (
             '<time datetime="2024-01-01">Jan 1, 2024</time>'
             in w.return_html
@@ -399,8 +405,8 @@ class TestAddHolding:
         # No weight rendered for closed positions.
         assert "Weight:" not in w.historical[0]
         # Closed period renders a real end date, not "Present".
-        # Day number drops the leading zero per ``_fmt_date``.
-        assert "Jan 1, 2024" in w.historical[0]
+        # Date uses the page-wide DD/MM/YYYY format.
+        assert "01/01/2024" in w.historical[0]
 
     def test_cagr_above_sentinel_renders_as_tba(self, stub_logo_lookup):
         # The check uses `math.nextafter(1_000_000, 0)`; anything strictly
@@ -424,12 +430,12 @@ class TestAddHolding:
         assert "value--negative" in w.current[0]
 
     def test_period_dates_are_wrapped_in_time_elements(self, stub_logo_lookup):
-        # Wrapping each rendered date in <time datetime="..."> makes the
-        # holding period machine-readable for crawlers and screen readers
-        # without altering the human-facing label. The label uses
-        # ``%-d`` (no leading zero on the day) while the ISO attribute
-        # keeps ``%Y-%m-%d`` zero-padded -- two different conventions
-        # serving two different audiences.
+        # Wrapping each rendered date in <time datetime="..."> makes
+        # the holding period machine-readable for crawlers and screen
+        # readers without altering the human-facing label. The label
+        # uses the page-wide DD/MM/YYYY convention; the ISO
+        # ``datetime`` attribute keeps the W3C YYYY-MM-DD format --
+        # two conventions serving two different audiences.
         w = Webpage()
         w.add_holding(_holding(
             ticker="NMS:CLO",
@@ -440,13 +446,10 @@ class TestAddHolding:
             ],
         ))
         card = w.historical[0]
-        # Day 4 -> "Nov 4" in the label, but ``2022-11-04`` in the
-        # machine-readable ISO attribute.
-        assert '<time datetime="2022-11-04">Nov 4, 2022</time>' in card
-        # Day 12 has two digits already, so the visible label is
-        # unchanged whether we zero-pad or not -- the assertion still
-        # exercises the wrapping.
-        assert '<time datetime="2024-04-12">Apr 12, 2024</time>' in card
+        # Day 4 -> "04/11/2022" in the visible label (zero-padded);
+        # the ISO attribute is ``2022-11-04``.
+        assert '<time datetime="2022-11-04">04/11/2022</time>' in card
+        assert '<time datetime="2024-04-12">12/04/2024</time>' in card
 
     def test_open_period_only_wraps_the_start_date(self, stub_logo_lookup):
         # "Present" is a label, not a date, so we don't wrap it in
@@ -459,9 +462,9 @@ class TestAddHolding:
             {"start": datetime(2024, 1, 1), "end": None},
         ]))
         card = w.current[0]
-        # Day number 1 renders as "Jan 1" (no leading zero); ISO
-        # datetime attribute keeps the zero-pad.
-        assert '<time datetime="2024-01-01">Jan 1, 2024</time>' in card
+        # DD/MM/YYYY for the visible label; ISO ``datetime``
+        # attribute stays in YYYY-MM-DD.
+        assert '<time datetime="2024-01-01">01/01/2024</time>' in card
         # "Present" never gets a <time> wrapper.
         assert "<time>Present" not in card
         # The end-of-period section is the dash span followed by the
@@ -472,9 +475,12 @@ class TestAddHolding:
     def test_periods_render_as_three_grid_columns(self, stub_logo_lookup):
         # Multi-period cards use a 3-column grid (start, dash, end)
         # so dates and the separator stay aligned vertically across
-        # rows even when day numbers have different digit counts
-        # ("Jan 22, 2024" vs "Aug 5, 2022"). Each <li> is therefore
-        # required to emit exactly three children in that order.
+        # rows. With the page-wide DD/MM/YYYY format every date now
+        # has identical character width, which removes the
+        # "Jan 22" vs "Aug 5" alignment hazard the grid was first
+        # introduced to defend against -- but the structural three-
+        # children-per-li contract still has to hold for the layout
+        # to work.
         w = Webpage()
         w.add_holding(_holding(
             ticker="NMS:GRID",
@@ -489,16 +495,16 @@ class TestAddHolding:
         # Newest-first (per the defensive sort in _build_card).
         expected_top = (
             '<li>'
-            '<time datetime="2024-01-22">Jan 22, 2024</time>'
+            '<time datetime="2024-01-22">22/01/2024</time>'
             '<span>-</span>'
-            '<time datetime="2024-11-30">Nov 30, 2024</time>'
+            '<time datetime="2024-11-30">30/11/2024</time>'
             '</li>'
         )
         expected_bottom = (
             '<li>'
-            '<time datetime="2022-08-05">Aug 5, 2022</time>'
+            '<time datetime="2022-08-05">05/08/2022</time>'
             '<span>-</span>'
-            '<time datetime="2023-06-09">Jun 9, 2023</time>'
+            '<time datetime="2023-06-09">09/06/2023</time>'
             '</li>'
         )
         assert expected_top in card
@@ -795,7 +801,7 @@ def _trade_event(
 
 
 class TestAddTrades:
-    def test_renders_one_card_per_event(self, stub_logo_lookup):
+    def test_renders_one_row_per_event(self, stub_logo_lookup):
         w = Webpage()
         w.add_trades([
             _trade_event(ticker="NMS:AAA", category="OPEN"),
@@ -803,17 +809,27 @@ class TestAddTrades:
                          start=datetime(2024, 5, 1)),
         ])
         assert len(w.trades) == 2
-        assert all('class="trade"' in card for card in w.trades)
+        # Each event materialises as a single ``<tr class="trades__row">``;
+        # the surrounding ``<table>`` chrome is added by the section
+        # builder in ``save()``.
+        assert all('class="trades__row"' in row for row in w.trades)
+        assert all(row.startswith('<tr ') for row in w.trades)
 
-    def test_no_trades_means_no_cards(self, stub_logo_lookup):
+    def test_no_trades_means_no_rows(self, stub_logo_lookup):
         w = Webpage()
         w.add_trades([])
         assert w.trades == []
 
-    def test_category_drives_badge_modifier(self, stub_logo_lookup):
-        # Each category maps to its own pill colour via a BEM modifier
-        # so a reader scanning the list can identify the kind of
-        # action at a glance.
+    def test_action_collapses_categories_to_bought_or_sold(
+        self, stub_logo_lookup,
+    ):
+        # The "Action" column collapses the four-category space onto
+        # a single buy-vs-sell axis: OPEN / INCREASE -> "Bought"
+        # (green), DECREASE / CLOSE -> "Sold" (red). Direction is
+        # the only thing a glance at this column needs to convey;
+        # the lifecycle distinction (was this the first fill or a
+        # top-up? did this SELL close the position?) lives in the
+        # adjacent "Details" column instead.
         w = Webpage()
         w.add_trades([
             _trade_event(category="OPEN"),
@@ -821,42 +837,125 @@ class TestAddTrades:
             _trade_event(category="DECREASE", delta_pct=25.0),
             _trade_event(category="CLOSE"),
         ])
-        assert "trade__badge--open"     in w.trades[0]
-        assert "trade__badge--increase" in w.trades[1]
-        assert "trade__badge--decrease" in w.trades[2]
-        assert "trade__badge--close"    in w.trades[3]
-        # Labels are past tense ("Initiated" / "Divested") because
-        # this section is an executed-trades log -- everything shown
-        # has already happened. The verbs come from the long-term-
-        # investor / fund-letter idiom so they pair with the rest of
-        # the page's "owner of businesses" framing. INCREASE /
-        # DECREASE rows attach " by X%" so the scale lands in the
-        # same glance as the verb; the magnitude is whole-number
-        # (one-decimal precision is reserved for the performance /
-        # return rows where it's meaningful). The ``open`` / ``close``
-        # modifier slugs stay aligned with the underlying tokens so
-        # the CSS keeps describing what the badge marks regardless
-        # of the surface label choice.
-        assert ">Initiated<"          in w.trades[0]
-        assert ">Increased by 30%<"   in w.trades[1]
-        assert ">Decreased by 25%<"   in w.trades[2]
-        assert ">Divested<"           in w.trades[3]
+        # Both BUY-side categories share the green pill modifier
+        # ``--buy`` and the "Bought" label; both SELL-side categories
+        # share the red ``--sell`` pill and the "Sold" label.
+        for row in (w.trades[0], w.trades[1]):
+            assert "trade__badge--buy" in row
+            assert ">Bought<" in row
+            assert "trade__badge--sell" not in row
+        for row in (w.trades[2], w.trades[3]):
+            assert "trade__badge--sell" in row
+            assert ">Sold<" in row
+            assert "trade__badge--buy" not in row
+
+    def test_action_pill_is_pinned_to_a_fixed_width(self, stub_logo_lookup):
+        # The "Bought" / "Sold" pills must render at byte-for-byte
+        # identical width so the column reads as a stack of uniform
+        # chips. ``min-width`` alone wasn't enough -- the longer
+        # "BOUGHT" label still grew past the shorter "SOLD" one --
+        # so the stylesheet pins both to an exact ``width`` box
+        # with zero horizontal padding and centered content. ``7em``
+        # leaves the longer "BOUGHT" with comfortable padding off
+        # the rounded pill ends rather than touching them, and the
+        # same value is reused at every mobile breakpoint so the
+        # iPhone SE / Galaxy Fold widths don't crop the longer
+        # label against the rounded ends (a regression that bit us
+        # at 5.25em).
+        # (We can't measure actual pixel widths from a static-HTML
+        # test, but holding the CSS rule in place is what guarantees
+        # the visual invariant downstream.)
+        from update import _PAGE_STYLES
+        # Locate the ``.trade__badge`` declaration block and assert
+        # both ``width`` and ``text-align: center`` survive in it.
+        block = _PAGE_STYLES.split(".trade__badge {", 1)[1].split("}", 1)[0]
+        assert "width: 7em;" in block
+        assert "text-align: center;" in block
+        # ``min-width`` is explicitly NOT used here any more; if it
+        # crept back in it would re-introduce the "longer label
+        # grows the pill" regression.
+        assert "min-width" not in block
+        # Every mobile override of ``.trade__badge`` also pins to
+        # ``width: 7em`` -- there are three ``.trade__badge``
+        # declaration blocks total (base + two media-query
+        # overrides), and all three must carry the same width
+        # token. A future refactor that shrinks the mobile pill
+        # back down would silently re-introduce the iPhone SE
+        # cropping issue without this guard.
+        badge_blocks = _PAGE_STYLES.split(".trade__badge {")
+        assert len(badge_blocks) == 4  # 1 base + 2 overrides + leading "" split
+        for declared in badge_blocks[1:]:
+            assert "width: 7em;" in declared.split("}", 1)[0]
+
+    def test_details_column_uses_past_tense_initiated_and_divested(
+        self, stub_logo_lookup,
+    ):
+        # OPEN / CLOSE rows surface a qualitative label
+        # ("Initiated" / "Divested") in the Details column -- the
+        # position came into existence or was closed out, and the
+        # reader doesn't need a number for those rows. Past-tense
+        # verbs match the long-term-investor / fund-letter idiom
+        # the rest of the page uses ("Bought" / "Sold" in the
+        # action column, "Updated on ..." in the footer). INCREASE
+        # / DECREASE rows surface a signed percentage instead
+        # ("+30%" for a 30% top-up of the pre-burst position,
+        # "-25%" for a 25% trim, using the typographically correct
+        # U+2212 minus glyph). Shares never leak into either
+        # branch -- the page commits to publishing relative
+        # percentages and per-share prices only.
+        w = Webpage()
+        w.add_trades([
+            _trade_event(category="OPEN",     delta_pct=None),
+            _trade_event(category="INCREASE", delta_pct=30.0),
+            _trade_event(category="DECREASE", delta_pct=25.0),
+            _trade_event(category="CLOSE",    delta_pct=None),
+        ])
+        open_row, inc_row, dec_row, close_row = w.trades
+        assert ">Initiated<" in open_row
+        assert ">Divested<" in close_row
+        # The earlier noun-phrase labels ("Initial stake", "Disposal")
+        # are gone.
+        for row in w.trades:
+            assert "Initial stake" not in row
+            assert "Disposal" not in row
+        for row in (open_row, close_row):
+            # Boundary rows ride the muted ``--label`` modifier so
+            # the action badge stays the column's visual primary;
+            # no percentage / minus glyph is rendered.
+            assert "trades__detail--label" in row
+            assert "%" not in row.split("trades__cell--detail")[1].split("</td>")[0]
+        # INCREASE / DECREASE: signed-percent readouts with the
+        # ``--pct`` modifier and the page's standard
+        # ``value--positive`` / ``value--negative`` colour classes
+        # so the cell speaks the same language as the holdings'
+        # TSR / CAGR rows.
+        assert ">+30%<" in inc_row
+        assert "trades__detail--pct" in inc_row
+        assert "value--positive" in inc_row
+        # The minus is the typographically correct U+2212 sign,
+        # not the ASCII hyphen-minus, so it aligns with ``+`` in
+        # tabular-numbers fonts.
+        assert ">\u221225%<" in dec_row
+        assert "trades__detail--pct" in dec_row
+        assert "value--negative" in dec_row
 
     def test_single_day_trade_renders_one_date_not_a_range(
         self, stub_logo_lookup,
     ):
         # Bursts of one event collapse to a single date -- rendering
-        # "Jan 14, 2025 - Jan 14, 2025" would read as a typo.
+        # "14/01/2025 - 14/01/2025" would read as a typo.
         w = Webpage()
         w.add_trades([
             _trade_event(start=datetime(2025, 1, 14)),
         ])
-        card = w.trades[0]
-        assert "Jan 14, 2025" in card
-        # No date separator -- the en-dash is only used for ranges.
-        assert "&ndash;" not in card
+        row = w.trades[0]
+        assert "14/01/2025" in row
+        # No separator -- the hyphen is only used for ranges.
+        assert "trades__date-sep" not in row
 
-    def test_multi_day_burst_renders_date_range(self, stub_logo_lookup):
+    def test_multi_day_burst_renders_date_range_with_plain_hyphen(
+        self, stub_logo_lookup,
+    ):
         w = Webpage()
         w.add_trades([
             _trade_event(
@@ -864,67 +963,55 @@ class TestAddTrades:
                 end=datetime(2024, 6, 11),
             ),
         ])
-        card = w.trades[0]
-        # Both ends wrapped in <time> for machine readability; visible
-        # label uses the page-wide ``%b %-d, %Y`` convention.
-        assert '<time datetime="2024-05-22">May 22, 2024</time>' in card
-        assert '<time datetime="2024-06-11">Jun 11, 2024</time>' in card
-        # Separated by an en-dash, not a hyphen, to mirror how the
-        # holding cards render closed periods elsewhere on the page.
-        assert "&ndash;" in card
+        row = w.trades[0]
+        # Both ends wrapped in <time> for machine readability; the
+        # visible label uses the page-wide DD/MM/YYYY convention,
+        # and the ISO ``datetime`` attribute stays in YYYY-MM-DD.
+        assert '<time datetime="2024-05-22">22/05/2024</time>' in row
+        assert '<time datetime="2024-06-11">11/06/2024</time>' in row
+        # Plain ASCII hyphen ``-`` (in its own ``<span>``) matches
+        # how the equity capsules above on the page render closed
+        # ownership periods. The earlier en-dash ``&ndash;`` is gone.
+        assert '<span class="trades__date-sep"> - </span>' in row
+        assert "&ndash;" not in row
 
-    def test_price_carries_currency_prefix(self, stub_logo_lookup):
-        # Prices in the security's native currency; the ISO code is
-        # prefixed (not suffixed) and the ``@`` glyph reads as the
-        # finance shorthand "at the price of". A multi-market
-        # portfolio mixes EUR / USD / GBp etc., so a leading ``$``
-        # would silently misrepresent them.
+    def test_price_value_precedes_currency(self, stub_logo_lookup):
+        # Prices render as ``<value> <ISO currency>`` (e.g.
+        # ``247.85 USD``) so the magnitude lands first and the
+        # currency reads as a trailing unit -- the same convention
+        # every other quantity on the page uses ("+6.7 pp Total
+        # Return", "48.8 %", "2 years"). The ISO code (not the
+        # symbol) is still required: a leading ``$`` would silently
+        # misrepresent a EUR or GBp trade as USD. The earlier
+        # ``@`` "at-the-price-of" prefix is gone -- the column
+        # header "Price" already tells the reader what the number
+        # is.
         w = Webpage()
         w.add_trades([
             _trade_event(price=247.85, currency="USD"),
             _trade_event(price=181.25, currency="EUR"),
         ])
-        assert ">@ USD 247.85<" in w.trades[0]
-        assert ">@ EUR 181.25<" in w.trades[1]
+        assert ">247.85 USD<" in w.trades[0]
+        assert ">181.25 EUR<" in w.trades[1]
+        # Currency code never precedes the value any more.
+        assert "USD 247.85" not in w.trades[0]
+        assert "EUR 181.25" not in w.trades[1]
+        # No stray ``@`` glyph anywhere on either row.
+        assert "@" not in w.trades[0]
+        assert "@" not in w.trades[1]
 
     def test_price_uses_thousands_separator(self, stub_logo_lookup):
         # Large prices (GBp pence quotes, JPY etc.) get a comma so a
-        # 4-digit number is readable at a glance.
+        # 4-digit number is readable at a glance. Currency code
+        # follows the value (the rest of the page reads quantities
+        # the same way).
         w = Webpage()
         w.add_trades([
             _trade_event(price=4820.50, currency="GBp"),
         ])
-        assert ">@ GBp 4,820.50<" in w.trades[0]
+        assert ">4,820.50 GBp<" in w.trades[0]
 
-    def test_delta_pct_renders_only_for_increase_and_decrease(
-        self, stub_logo_lookup,
-    ):
-        # OPEN ("Initiated") and CLOSE ("Divested") have no meaningful
-        # denominator: there's no prior holding to compare to on the
-        # way in, and the whole position is gone on the way out.
-        # Surfacing a percentage on those rows would either divide
-        # by zero or read as redundant "100% Divested" noise next to
-        # the verb that already conveys the magnitude.
-        w = Webpage()
-        w.add_trades([
-            _trade_event(category="OPEN",     delta_pct=None),
-            _trade_event(category="CLOSE",    delta_pct=None),
-            _trade_event(category="INCREASE", delta_pct=42.0),
-            _trade_event(category="DECREASE", delta_pct=10.0),
-        ])
-        assert ">Initiated<" in w.trades[0]
-        assert ">Divested<"  in w.trades[1]
-        # No stray "%" on OPEN / CLOSE badges, and crucially no
-        # "by" prefix slipping in either (would happen if the
-        # renderer fell through to the magnitude branch).
-        for closed in (w.trades[0], w.trades[1]):
-            badge_text = closed.split('trade__badge')[1].split('</span>')[0]
-            assert "%"  not in badge_text
-            assert " by " not in badge_text
-        assert ">Increased by 42%<" in w.trades[2]
-        assert ">Decreased by 10%<" in w.trades[3]
-
-    def test_delta_pct_renders_as_whole_number(self, stub_logo_lookup):
+    def test_details_pct_renders_as_whole_number(self, stub_logo_lookup):
         # Whole-number percentages by design in this section: the
         # one-decimal page convention from ``_fmt_pct`` is reserved
         # for the performance rows where that extra digit is
@@ -937,38 +1024,219 @@ class TestAddTrades:
             _trade_event(category="DECREASE", delta_pct=99.5),
             _trade_event(category="INCREASE", delta_pct=42.4),
         ])
-        assert ">Increased by 30%<"  in w.trades[0]
-        assert ">Increased by 100%<" in w.trades[1]
+        assert ">+30%<"  in w.trades[0]
+        assert ">+100%<" in w.trades[1]
         # 99.5 rounds up to 100; 42.4 rounds down to 42 -- standard
         # banker's-rounding-adjacent ``{:.0f}`` behaviour, which is
         # close enough to "round half to even" that the rendering
         # convention is uncontroversial for the values that show up
-        # in practice.
-        assert ">Decreased by 100%<" in w.trades[2]
-        assert ">Increased by 42%<"  in w.trades[3]
+        # in practice. The minus sign is U+2212.
+        assert ">\u2212100%<" in w.trades[2]
+        assert ">+42%<"  in w.trades[3]
 
-    def test_ticker_and_name_appear_in_title(self, stub_logo_lookup):
+    def test_table_has_no_logo_cell(self, stub_logo_lookup):
+        # Logos were removed from the trades table -- the ticker
+        # column is the row's anchor now and a 32px glyph stacked
+        # to the left of every row added visual noise without
+        # carrying information the ticker / company columns
+        # didn't already convey. Both the rendered ``<tr>`` and
+        # the surrounding ``<table>`` chrome must be logo-free.
         w = Webpage()
         w.add_trades([
             _trade_event(ticker="NMS:NVDA", name="NVIDIA Corporation"),
         ])
-        card = w.trades[0]
-        # Combined "TICKER - Name" header, same pattern as the
-        # holding cards.
-        assert "NMS:NVDA - NVIDIA Corporation" in card
+        row = w.trades[0]
+        assert "trade__logo" not in row
+        assert "trades__cell--logo" not in row
+        assert "<img" not in row
 
-    def test_logo_is_lazy_loaded_with_dimensions(self, stub_logo_lookup):
-        # Below-the-fold logos in the trades section reuse the same
-        # lazy-loading + reserved dimensions discipline as the holding
-        # cards so CLS stays at zero while the bitmaps stream in.
+    def test_ticker_strips_exchange_prefix(self, stub_logo_lookup):
+        # The table's ticker column shows only the security symbol --
+        # the exchange prefix (``NMS:`` / ``NYQ:`` / ``DUS:``) is
+        # redundant noise once the column reads vertically and would
+        # bloat the cell width for no information gain. Both the
+        # visible cell text and the case-folded sort key must drop it.
         w = Webpage()
-        w.add_trades([_trade_event()])
-        card = w.trades[0]
-        assert 'class="trade__logo"' in card
-        assert 'loading="lazy"' in card
-        assert 'decoding="async"' in card
-        assert 'width="48"' in card
-        assert 'height="48"' in card
+        w.add_trades([
+            _trade_event(ticker="NMS:NVDA", name="NVIDIA Corporation"),
+        ])
+        row = w.trades[0]
+        assert '>NVDA<' in row
+        # Ticker column should not surface the exchange anywhere on
+        # the row -- the prefix is stripped before the cell text is
+        # rendered.
+        assert "NMS:NVDA" not in row
+        # Sort key is case-folded so descending / ascending compare
+        # ignores capitalisation oddities.
+        assert 'data-sort-ticker="nvda"' in row
+        # The company name still appears (in its own dedicated cell)
+        # so the row remains identifiable even when the table is
+        # sorted by symbol.
+        assert "NVIDIA Corporation" in row
+
+    def test_row_carries_sort_keys_for_all_sortable_columns(
+        self, stub_logo_lookup,
+    ):
+        # The five sortable columns (ticker / name / action / detail /
+        # date) are wired up via ``data-sort-*`` attributes the inline
+        # ``_TRADES_SORT_SCRIPT`` reads off each row. Bursts spanning
+        # multiple days anchor the date key on ``end_date`` (the most
+        # recent event) so sorting by date matches what a reader sees
+        # in the rendered cell. ``data-sort-action`` is binary
+        # (0 = BUY-into-position, 1 = SELL-out-of-position) so
+        # ascending groups Bought above Sold. ``data-sort-detail``
+        # uses the four-category dict-order index (OPEN=0, INCREASE=1,
+        # DECREASE=2, CLOSE=3) so ascending walks through the
+        # position's lifecycle.
+        w = Webpage()
+        w.add_trades([
+            _trade_event(
+                ticker="NMS:NVDA", name="NVIDIA Corporation",
+                category="INCREASE",
+                start=datetime(2024, 5, 22),
+                end=datetime(2024, 6, 11),
+                delta_pct=30.0,
+            ),
+        ])
+        row = w.trades[0]
+        # Date key reflects the burst's most recent event in ISO form.
+        assert 'data-sort-date="2024-06-11"' in row
+        # Tickers and names are case-folded so the sort is case-
+        # insensitive (avoids the "Z before a" surprise that ASCII
+        # compare would otherwise produce).
+        assert 'data-sort-ticker="nvda"' in row
+        assert 'data-sort-name="nvidia corporation"' in row
+        # INCREASE is a buy (action == 0) and the second entry in
+        # the four-category order (detail == 1).
+        assert 'data-sort-action="0"' in row
+        assert 'data-sort-detail="1"' in row
+
+    def test_action_sort_key_is_binary_buy_or_sell(self, stub_logo_lookup):
+        # OPEN / INCREASE both map to action == 0 (BUY); DECREASE /
+        # CLOSE both map to action == 1 (SELL). That collapse is
+        # what makes the "Action" column sort group Bought rows
+        # above Sold rows with a single numeric compare in the
+        # inline sort script.
+        w = Webpage()
+        w.add_trades([
+            _trade_event(category="OPEN"),
+            _trade_event(category="INCREASE", delta_pct=10.0),
+            _trade_event(category="DECREASE", delta_pct=10.0),
+            _trade_event(category="CLOSE"),
+        ])
+        assert 'data-sort-action="0"' in w.trades[0]
+        assert 'data-sort-action="0"' in w.trades[1]
+        assert 'data-sort-action="1"' in w.trades[2]
+        assert 'data-sort-action="1"' in w.trades[3]
+
+    def test_sort_script_is_deferred_until_dom_ready(self):
+        # The inline ``<script>`` ships from <head>, so the
+        # ``<table class="trades">`` it queries for hasn't been
+        # parsed yet at that point. Without a DOMContentLoaded
+        # gate the script would silently bail out on every page
+        # load -- which is the sorting bug we're fixing here.
+        # The render-chart script uses the same defer pattern;
+        # asserting the gate explicitly keeps a regression from
+        # quietly re-introducing the issue.
+        from update import _TRADES_SORT_SCRIPT
+        assert "DOMContentLoaded" in _TRADES_SORT_SCRIPT
+        assert "document.readyState===\'loading\'" in _TRADES_SORT_SCRIPT
+
+    def test_short_log_does_not_render_show_all_toggle(
+        self, stub_logo_lookup,
+    ):
+        # When the trade log already fits in the default visible
+        # window (``_TRADES_VISIBLE_DEFAULT``) there's nothing to
+        # collapse, so no toggle chrome should appear -- the page
+        # stays clean and no inert button confuses a screen-reader
+        # user. The threshold lives on the ``Webpage`` class so this
+        # test reads it rather than hard-coding 10.
+        from update import Webpage as _Webpage
+        threshold = _Webpage._TRADES_VISIBLE_DEFAULT
+        w = Webpage()
+        w.add_trades([
+            _trade_event(start=datetime(2025, 1, i + 1))
+            for i in range(threshold)
+        ])
+        w.add_return(_total_return(), [])
+        # Build the table HTML directly so we exercise the toggle
+        # decision without having to call ``save()``.
+        table_html = _Webpage._build_trades_table(w.trades)
+        assert "trades__toggle" not in table_html
+        # The hide-overflow CSS rule still ships unconditionally (a
+        # short log just never trips it), so its presence isn't
+        # part of the contract this test enforces.
+
+    def test_long_log_renders_show_all_toggle_with_total_count(
+        self, stub_logo_lookup,
+    ):
+        # Once the log exceeds the threshold the renderer emits a
+        # ``<button class="trades__toggle">`` after the table whose
+        # text labels the full count and whose ``data-total``
+        # attribute lets the inline script rebuild the label each
+        # time the user collapses the section. ``aria-expanded`` /
+        # ``data-expanded`` start out closed so the page paints in
+        # the collapsed state without the JS having to "fix it up"
+        # post-DOMContentLoaded.
+        from update import Webpage as _Webpage
+        threshold = _Webpage._TRADES_VISIBLE_DEFAULT
+        w = Webpage()
+        w.add_trades([
+            _trade_event(start=datetime(2025, 1, i + 1))
+            for i in range(threshold + 5)
+        ])
+        table_html = _Webpage._build_trades_table(w.trades)
+        total = threshold + 5
+        assert 'class="trades__toggle"' in table_html
+        assert f'data-total="{total}"' in table_html
+        assert 'aria-expanded="false"' in table_html
+        assert f">Show all {total} trades<" in table_html
+        # The button is emitted AFTER the table closes so it sits
+        # below the rows in the visual / reading order, not inside
+        # the horizontal-scroll wrapper where it could be clipped.
+        toggle_idx = table_html.index('class="trades__toggle"')
+        table_close = table_html.index("</table>")
+        wrap_close = table_html.index("</div>", table_close)
+        assert wrap_close < toggle_idx
+
+    def test_collapse_rule_hides_overflow_rows_by_default(self):
+        # The actual hiding is purely CSS: a
+        # ``.trades:not([data-expanded="true"]) tbody tr:nth-of-type
+        # (n+11) { display: none; }`` rule that walks the current
+        # DOM order. That means a sort re-applies the cutoff to
+        # whatever the new top N rows are without any JS
+        # coordination -- which is the whole point of doing it in
+        # CSS instead of building a paging layer. Assert the rule
+        # is present so a future refactor can't quietly drop it.
+        from update import _PAGE_STYLES, Webpage as _Webpage
+        threshold = _Webpage._TRADES_VISIBLE_DEFAULT
+        # Threshold + 1 is the first row hidden, which matches the
+        # ``:nth-of-type(n+11)`` index in the stylesheet rule.
+        rule = (
+            f'.trades:not([data-expanded="true"]) tbody '
+            f'tr.trades__row:nth-of-type(n+{threshold + 1})'
+        )
+        assert rule in _PAGE_STYLES
+
+    def test_toggle_script_flips_state_and_relabels_button(self):
+        # The toggle handler is folded into ``_TRADES_SORT_SCRIPT``
+        # so the trades section ships one inline script (one CSP
+        # hash). Assert the script (a) queries for the toggle, (b)
+        # flips ``data-expanded`` on the table on click, and (c)
+        # rewrites the button label and ``aria-expanded`` so the
+        # collapsed / expanded states stay in sync. We're checking
+        # textual presence rather than running the script -- the
+        # browser-level smoke test in /tmp/check_sort.py exercises
+        # the full state machine end-to-end.
+        from update import _TRADES_SORT_SCRIPT
+        for needle in (
+            ".trades__toggle",
+            "data-expanded",
+            "aria-expanded",
+            "Show fewer trades",
+            "Show all ",
+        ):
+            assert needle in _TRADES_SORT_SCRIPT
 
     def test_name_and_currency_are_html_escaped(self, stub_logo_lookup):
         # Even though tickers/names are sourced from a trusted sheet,
@@ -978,10 +1246,10 @@ class TestAddTrades:
         w.add_trades([
             _trade_event(name="S&P Global Inc."),
         ])
-        card = w.trades[0]
-        assert "S&amp;P Global Inc." in card
+        row = w.trades[0]
+        assert "S&amp;P Global Inc." in row
         # No raw ``&P`` leaks.
-        assert "S&P Global" not in card
+        assert "S&P Global" not in row
 
 
 class TestSaveTradesSection:
@@ -998,9 +1266,21 @@ class TestSaveTradesSection:
         w.save()
         out = (chdir_tmp / "index.html").read_text()
         # Section anchor + heading + methodology subtitle are present.
+        # The visible heading is just "Trades" -- the same word the
+        # nav link uses, keeping the section name and the nav label
+        # in lock-step. The URL fragment stays ``#trades`` so old
+        # bookmarks and the nav link don't break.
         assert 'id="trades"' in out
-        assert "Recent trades" in out
-        assert "Last year" in out
+        assert ">Trades</h2>" in out
+        # Previous headings are fully retired -- a leftover "Recent
+        # trades" or "Trade log" anywhere on the page would mean we
+        # missed a comment or label during the rename.
+        assert "Recent trades" not in out
+        assert "Trade log" not in out
+        # Subtitle covers the section's two methodology facts: it
+        # spans the full ownership history (no trailing-year cutoff
+        # any more) and rolling-quarter bursts are combined.
+        assert "Every executed trade since inception" in out
         assert "rolling quarter" in out
         # Nav picks up the new section once trades are present.
         assert 'href="#trades"' in out
@@ -1010,6 +1290,22 @@ class TestSaveTradesSection:
         idx_perf = out.index('id="performance"')
         idx_trades = out.index('id="trades"')
         assert idx_perf < idx_trades
+        # Single ``<table class="trades">`` per page, with the
+        # sortable thead and the row tbody wired up via
+        # ``data-sort-*`` attributes. Sanity-check the contract the
+        # inline ``_TRADES_SORT_SCRIPT`` depends on (one such table,
+        # default sort key + direction declared on it).
+        assert out.count('<table class="trades"') == 1
+        assert 'data-sort-default="date"' in out
+        assert 'data-sort-default-dir="desc"' in out
+        # All five sortable column headers carry their sort key so
+        # the click handler can dispatch on it.
+        for key in ("ticker", "name", "action", "detail", "date"):
+            assert f'data-sort-key="{key}"' in out
+        # The Price column is non-sortable (mixing currencies in a
+        # numeric sort would imply an FX-converted ordering the
+        # page doesn't compute), so it never carries a sort key.
+        assert 'data-sort-key="price"' not in out
 
     def test_save_skips_trades_section_when_empty(
         self, stub_logo_lookup, chdir_tmp, freeze_today,
@@ -1022,13 +1318,15 @@ class TestSaveTradesSection:
         out = (chdir_tmp / "index.html").read_text()
         # Anchor, heading element, and nav link are all gone. We
         # match the rendered ``<h2>`` heading rather than the bare
-        # "Recent trades" substring -- the section's name also lives
-        # in a CSS comment in the embedded stylesheet, so a plain
+        # "Trades" substring -- the section's name also lives in
+        # a CSS comment in the embedded stylesheet, so a plain
         # substring search would yield a false positive.
         assert 'id="trades"' not in out
-        assert ">Recent trades</h2>" not in out
+        assert ">Trades</h2>" not in out
         assert 'href="#trades"' not in out
-        assert 'class="trade"' not in out
+        # No actual rendered table either.
+        assert '<table class="trades"' not in out
+        assert 'class="trades__row"' not in out
 
     def test_save_trades_after_historical_section(
         self, stub_logo_lookup, chdir_tmp, freeze_today,
@@ -1305,8 +1603,11 @@ class TestRenderReturnChart:
         # with the elapsed window so the reader gets both at a glance.
         caption = out.split('return-chart__caption', 1)[1].split("</div>", 1)[0]
         # Date is wrapped in a machine-readable <time> element. The
-        # human label drops the leading zero on the day number while
-        # the ISO ``datetime`` attribute keeps it zero-padded.
+        # "Since X" caption reads as prose, so this one specific
+        # spot uses the long-form ``%b %-d, %Y`` from
+        # ``_fmt_date_long`` rather than the page-wide DD/MM/YYYY
+        # convention. ISO ``datetime`` attribute stays in W3C
+        # YYYY-MM-DD.
         assert (
             '<time datetime="2024-01-01">Jan 1, 2024</time>'
             in caption
@@ -1619,6 +1920,61 @@ class TestNavScrollScript:
         script = update._NAV_SCROLL_SCRIPT
         assert "scrollMarginTop" in script
 
+    def test_target_is_locked_at_slide_start(self):
+        # An earlier version re-read ``targetY(el)`` on every frame
+        # to absorb mid-flight layout shifts. With explicit logo
+        # dimensions reserving the layout, that re-read no longer
+        # absorbs anything -- but it does amplify sub-pixel drift
+        # into visible jitter because each frame rescales the full
+        # trajectory. The slide now locks ``ty0`` once at start and
+        # only re-reads ``targetY`` once more at the very end (the
+        # "settle") to catch any pixel-level shift without
+        # contaminating the easing curve.
+        script = update._NAV_SCROLL_SCRIPT
+        # Both the start scroll position and the start target are
+        # captured at slide entry.
+        assert "var sy0=sy(),ty0=targetY(el)" in script
+        # The body of the easing loop drives off the locked target
+        # rather than re-reading every frame.
+        assert "sy0+(ty0-sy0)*ease(t)" in script
+        # And the no-longer-needed mid-flight ``ty`` lookup that
+        # used to live inside ``step`` is gone.
+        assert "var ty=targetY(el);" not in script
+
+    def test_scroll_uses_explicit_behavior_auto(self):
+        # The page used to ship ``html:focus-within { scroll-
+        # behavior: smooth }`` so anchor clicks would smooth-
+        # scroll via CSS. With ``_NAV_SCROLL_SCRIPT`` driving the
+        # animation in JS that rule turned into a hazard: it
+        # promoted every ``window.scrollTo`` in our easing loop
+        # to a *browser-native* smooth scroll on top of our own
+        # frame-by-frame motion, producing the user-reported
+        # "the animation looks odd" double-animation feel.
+        # Even with the CSS rule removed (see the
+        # ``TestPageStyles`` regression guard), the script still
+        # opts out of any future / inherited smooth-scroll by
+        # passing ``behavior: 'auto'`` explicitly.
+        script = update._NAV_SCROLL_SCRIPT
+        assert "behavior:'auto'" in script
+        # A graceful fallback to the legacy positional form is
+        # in place for engines that don't accept the options
+        # object (very old WebKit etc.).
+        assert "window.scrollTo(0,y)" in script
+
+    def test_blur_happens_before_the_slide_starts(self):
+        # If the activated anchor stays focused when ``slide``
+        # begins, ``html:focus-within`` would (re-)match any
+        # future CSS rule that gates on focus, and the marquee's
+        # pause-on-focus rule (defensive, kept gated behind
+        # ``@media (hover: hover)``) plus any user-style
+        # extensions could re-introduce the double-scroll glitch.
+        # Blurring before the slide guarantees the rAF loop runs
+        # with focus already off the anchor.
+        script = update._NAV_SCROLL_SCRIPT
+        blur_idx = script.index("a.blur")
+        slide_idx = script.index("slide(el,dur)")
+        assert blur_idx < slide_idx
+
 
 class TestInteractionStyles:
     """CSS gating around interactive states (marquee pause + linked
@@ -1678,6 +2034,50 @@ class TestInteractionStyles:
             "  .ticker__link:hover .ticker__logo { opacity: 1; }\n"
             "}"
         ) in out
+
+    def test_no_css_smooth_scroll_layered_on_top_of_js_animation(
+        self, stub_logo_lookup, chdir_tmp, freeze_today,
+    ):
+        # The previous shape of the page shipped
+        # ``html:focus-within { scroll-behavior: smooth; }`` so the
+        # browser would smooth-scroll once an anchor was focused.
+        # ``_NAV_SCROLL_SCRIPT`` now drives the scroll itself, and
+        # the CSS rule -- which still matched the moment a click
+        # focused the anchor -- promoted every per-frame
+        # ``window.scrollTo`` to a browser-native smooth scroll
+        # too, producing two competing animations and the "the
+        # animation looks odd" feel from short hops in the
+        # allocation chart. The fix is to keep the JS animation as
+        # the sole driver: no ``html:focus-within {scroll-behavior:
+        # smooth}`` (or the matching reduced-motion override) in
+        # the rendered stylesheet.
+        freeze_today(datetime(2025, 6, 1))
+        w = Webpage()
+        w.add_return(_total_return(), [])
+        w.add_holding(_holding(ticker="NMS:AAA"))
+        w.save()
+        out = (chdir_tmp / "index.html").read_text()
+
+        # The page emits no ``scroll-behavior`` *declaration* (a
+        # semicolon-terminated CSS property): the only ``scroll-
+        # behavior`` text left in the file is inside an explanatory
+        # CSS comment, which never reaches the rendered style.
+        # ``smooth;`` / ``auto;`` are what a real declaration would
+        # look like, so this catches both the old rule and any
+        # accidental reintroduction.
+        assert "scroll-behavior: smooth;" not in out
+        assert "scroll-behavior: auto;" not in out
+        # The reduced-motion media query is still emitted (the
+        # ticker animation override needs to live), but no
+        # ``html:focus-within`` *selector* should appear in the
+        # reduced-motion block either. We tokenise the block by
+        # its selector-introducing newline + ``html:focus-within``
+        # so a comment-text mention doesn't trip the check.
+        rm_split = out.split("@media (prefers-reduced-motion: reduce)", 1)
+        assert len(rm_split) > 1, "reduced-motion block missing"
+        rm_tail = rm_split[1].split("\n}\n", 1)[0]
+        assert "\n  html:focus-within " not in rm_tail
+        assert "\nhtml:focus-within " not in rm_tail
 
     def test_bars_row_link_hover_is_gated_to_pointer_devices(
         self, stub_logo_lookup, chdir_tmp, freeze_today,
@@ -1826,7 +2226,12 @@ class TestSave:
         assert "USD as the base currency" in out
         assert "portfolio-level time-weighted return (TWR)" in out
         # The frozen date appears in the footer, wrapped in a
-        # machine-readable <time> element.
+        # machine-readable <time> element. The "Updated on X"
+        # line reads as prose, so the human label uses the
+        # long-form ``%b %-d, %Y`` from ``_fmt_date_long`` (the
+        # slash-separated DD/MM/YYYY format used in the tabular
+        # parts of the page would break the sentence rhythm).
+        # The ISO ``datetime`` attribute stays in W3C YYYY-MM-DD.
         assert '<time datetime="2025-06-01">Jun 1, 2025</time>' in out
 
     def test_save_footer_has_methodology_and_disclaimer_headings(

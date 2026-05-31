@@ -1,6 +1,6 @@
 """Tests for the trade-event categorisation and burst combiner.
 
-The "Recent trades" section on the webpage is built from per-ticker
+The "Trades" section on the webpage is built from per-ticker
 events that ``Holding`` tags with one of four semantic categories
 (OPEN/INCREASE/DECREASE/CLOSE), then folded by
 ``_combine_trade_events`` into burst-level rows. These tests pin both
@@ -11,8 +11,8 @@ halves:
   event for BUY bursts, last event for SELL bursts);
 * ``Holding.buy`` / ``Holding.sell`` correctly tagging each transaction
   as the position quantity transitions across the 0 boundary, plus the
-  ``trade_events`` helper that combines, filters, and decorates rows
-  for the renderer.
+  ``trade_events`` helper that combines and decorates rows for the
+  renderer over the full ownership history.
 """
 from __future__ import annotations
 
@@ -20,7 +20,6 @@ from datetime import datetime
 
 import pytest
 
-import update
 from update import (
     Holding,
     Trade,
@@ -414,9 +413,8 @@ class TestHoldingCategorisesTrades:
 
 class TestHoldingTradeEventsDecoration:
     def test_attaches_ticker_name_currency(
-        self, stub_exchange_rate, fake_apple, freeze_today,
+        self, stub_exchange_rate, fake_apple,
     ):
-        freeze_today(datetime(2024, 6, 1))
         h = Holding("AAPL")
         h.buy(_trade(datetime(2024, 1, 1), 10, 100.0, "BUY"))
         events = h.trade_events()
@@ -431,69 +429,34 @@ class TestHoldingTradeEventsDecoration:
         assert ev["end_date"] == datetime(2024, 1, 1)
         assert ev["price"] == pytest.approx(100.0)
 
-    def test_drops_events_older_than_years_back(
-        self, stub_exchange_rate, fake_apple, freeze_today,
+    def test_returns_all_bursts_regardless_of_age(
+        self, stub_exchange_rate, fake_apple,
     ):
-        # The default trailing-year window means anything ending more
-        # than ~1 year before "today" is excluded. Pin today and stage
-        # one ancient event + one recent event; only the recent one
-        # should come through.
-        freeze_today(datetime(2025, 6, 1))
+        # The trades section is a complete activity log -- every
+        # burst this holding has ever recorded must come through,
+        # even ones from years before "today". The reader can still
+        # focus on recent activity via the rendered table's
+        # sortable date column.
         h = Holding("AAPL")
-        h.buy(_trade(datetime(2018, 1, 1), 10, 90.0, "BUY"))   # too old
-        h.sell(_trade(datetime(2018, 6, 1), 10, 100.0, "SELL"))  # too old
-        h.buy(_trade(datetime(2025, 1, 1), 5, 150.0, "BUY"))   # kept
+        h.buy(_trade(datetime(2018, 1, 1), 10, 90.0, "BUY"))
+        h.sell(_trade(datetime(2018, 6, 1), 10, 100.0, "SELL"))
+        h.buy(_trade(datetime(2025, 1, 1), 5, 150.0, "BUY"))
         events = h.trade_events()
-        assert len(events) == 1
-        assert events[0]["start_date"] == datetime(2025, 1, 1)
-        assert events[0]["category"] == "OPEN"
-
-    def test_burst_straddling_cutoff_is_kept_whole(
-        self, stub_exchange_rate, fake_apple, freeze_today,
-    ):
-        # Inclusivity rule: a rolling-quarter burst whose first fill
-        # falls outside the trailing-year window but whose last fill
-        # lands inside it should survive whole -- the reader cares
-        # about "did the position accumulate around this time?", and
-        # chopping the first fill off would either misrepresent the
-        # burst's start date or split one deliberate accumulation
-        # into two unrelated-looking entries. With ``years_back=1``
-        # the cutoff sits ~365 days before "today"; staging the first
-        # BUY a couple of weeks before that and the next BUY a couple
-        # of weeks after exercises both ends of the rule in one shot.
-        freeze_today(datetime(2025, 6, 15))
-        h = Holding("AAPL")
-        h.buy(_trade(datetime(2024, 6, 1),   3, 100.0, "BUY"))  # pre-cutoff
-        h.buy(_trade(datetime(2024, 7, 5),   7, 110.0, "BUY"))  # post-cutoff
-        events = h.trade_events()
-        assert len(events) == 1
-        ev = events[0]
-        # Burst boundaries reflect the raw fills -- the pre-cutoff
-        # start survives precisely because the filter looks at
-        # ``end_date``, not ``start_date``.
-        assert ev["start_date"] == datetime(2024, 6, 1)
-        assert ev["end_date"] == datetime(2024, 7, 5)
-        assert ev["category"] == "OPEN"
-
-    def test_burst_entirely_outside_cutoff_is_dropped(
-        self, stub_exchange_rate, fake_apple, freeze_today,
-    ):
-        # Mirror image of the straddle case: when both fills of a
-        # burst sit before the trailing-year cutoff, the whole burst
-        # falls out so the section stays focused on recent activity.
-        freeze_today(datetime(2025, 6, 15))
-        h = Holding("AAPL")
-        h.buy(_trade(datetime(2023, 1, 1),  3, 100.0, "BUY"))
-        h.buy(_trade(datetime(2023, 2, 1),  7, 110.0, "BUY"))
-        assert h.trade_events() == []
+        assert len(events) == 3
+        # Chronological order is preserved from the combiner.
+        assert [e["category"] for e in events] == ["OPEN", "CLOSE", "OPEN"]
+        assert [e["start_date"] for e in events] == [
+            datetime(2018, 1, 1),
+            datetime(2018, 6, 1),
+            datetime(2025, 1, 1),
+        ]
 
     def test_combines_within_holding(
-        self, stub_exchange_rate, fake_apple, freeze_today,
+        self, stub_exchange_rate, fake_apple,
     ):
         # Per-ticker combining flows through ``trade_events``: two
         # BUYs nine days apart should surface as a single OPENING row
         # with a volume-weighted price.
-        freeze_today(datetime(2024, 12, 1))
         h = Holding("AAPL")
         h.buy(_trade(datetime(2024, 6, 1),  2, 100.0, "BUY"))
         h.buy(_trade(datetime(2024, 6, 10), 8, 110.0, "BUY"))
@@ -506,14 +469,13 @@ class TestHoldingTradeEventsDecoration:
         assert ev["end_date"] == datetime(2024, 6, 10)
 
     def test_delta_pct_flows_through_trade_events(
-        self, stub_exchange_rate, fake_apple, freeze_today,
+        self, stub_exchange_rate, fake_apple,
     ):
         # OPEN the position with 1,000 shares, then INCREASE by
         # another 1,000 inside a fresh burst (well outside the
         # rolling window from the OPEN). The INCREASE row
         # should expose ``delta_pct = 100`` so the badge renders as
         # "Increased by 100%".
-        freeze_today(datetime(2024, 12, 1))
         h = Holding("AAPL")
         h.buy(_trade(datetime(2024, 1, 1),  1000, 100.0, "BUY"))
         h.buy(_trade(datetime(2024, 6, 1),  1000, 110.0, "BUY"))
