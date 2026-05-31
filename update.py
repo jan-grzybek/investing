@@ -913,21 +913,12 @@ _PAGE_STYLES = """
     --bg: #111418;
     --fg: #e8eaed;
     --muted: #a0a4ab;
-    --line: #4a5260;
+    --line: #2c3138;
     --accent: #f29a4f;
     --accent-bench: #6ea8d8;
     --positive: #58c97f;
     --negative: #ff6b63;
-    /* Card surfaces (holding capsules, JG/benchmark compare
-       capsule, ticker strip) sit a clear elevation step above
-       the page background so the predominantly dark brand
-       wordmarks (Adobe, S&P Global, Baidu, Meta, Salesforce,
-       Samsung, ...) gain enough surrounding luminance to be
-       legible against the card without resorting to a stark
-       white backdrop behind each logo. Light foreground text
-       (#e8eaed) on this surface still clears WCAG AA for body
-       text (~6.5:1 contrast). */
-    --card-bg: #3a424e;
+    --card-bg: #181c22;
   }
   /* The dashed 0% reference line on the return chart inherits
      ``var(--muted)`` (see the base rule above). In dark mode
@@ -937,6 +928,72 @@ _PAGE_STYLES = """
      stays elegant but the baseline is now clearly traceable
      across the chart. */
   .return-chart__ref { stroke: var(--fg); }
+  /* Recolour every wordmark logo for dark surfaces by negating
+     luminance while preserving hue. Many holdings ship dark-on-
+     transparent SVGs (Adobe, S&P Global, Baidu, Meta, Salesforce,
+     Samsung, ...) that brands authored to sit on a light page
+     and that all but disappear against the dark page / card
+     background here. Rather than wrap each logo in a light chip
+     (which paints chrome around every image), we transform the
+     logo's own pixels:
+
+       * ``invert(1)`` negates every RGB channel, so pure black
+         flips to pure white, dark SAP blue flips to a pale
+         peach, dark Meta blue flips to a sand orange, NVIDIA's
+         brand green flips to magenta, etc. Crucially the alpha
+         channel is untouched, so transparent areas of the SVG
+         stay transparent and the page background still shows
+         through around each glyph.
+       * ``hue-rotate(180deg)`` then rotates the hue wheel by a
+         half-turn, which undoes the colour-channel flip
+         introduced by ``invert(1)`` (invert is equivalent to a
+         180deg rotation of hue plus an inversion of luminance,
+         so chaining a second 180deg rotation cancels the hue
+         flip and leaves only the luminance inversion behind).
+         The net effect: dark colours become light versions of
+         the same hue (SAP and Salesforce stay blue, NVIDIA
+         stays green, Adobe stays red, ...), and any near-white
+         pixels become near-black ones -- which we accept because
+         brand-coloured glyphs sit on transparent backgrounds in
+         the SVGs we ship, not on opaque white plates, so this
+         degenerate case doesn't actually arise.
+
+     Identical rule for the standalone holding card logo, the
+     trade card logo, the JG/benchmark compare capsule logo, and
+     the marquee ticker logos because they share the same
+     vanishing-on-dark-surface problem. ``opacity: 1`` overrides
+     the marquee ticker's ``opacity: 0.92`` (set globally to
+     soften the strip against a pure-white card in light mode)
+     so the recoloured glyphs stay fully crisp in dark mode where
+     they're doing all the readability work.
+
+     Two assets are explicitly opted out via attribute-``:not()``
+     because they're not single-hue wordmarks that benefit from
+     a luminance flip:
+
+       * ``LSE:VUAA.L`` (the S&P 500 ETF benchmark) ships as the
+         US flag; inverting it turns the red stripes cyan and
+         the blue canton orange, which reads as "some other
+         country's flag" rather than "USA". The flag's mid-tone
+         palette is already legible on the dark surface.
+       * ``courage.png`` is the per-ticker fallback shown when a
+         holding has no on-file logo; it's a coloured
+         illustration whose meaning would be similarly destroyed
+         by a luminance flip, and it's also already legible.
+
+     The exclusion matches the URL's basename (``$=`` suffix
+     match) rather than the full path so the rule stays robust
+     against ``LOGOS_ADDRESS`` changes, and ``:where()`` keeps
+     the four logo selectors compact while leaving the rule at
+     zero specificity (which matters only if a future override
+     needs to win against it). */
+  :where(
+    .ticker__logo, .holding__logo,
+    .trade__logo,  .returns-compare__logo
+  ):not([src$="courage.png"], [src$="VUAA.L.svg"]) {
+    filter: invert(1) hue-rotate(180deg);
+    opacity: 1;
+  }
 }
 @media print {
   body { background: white; color: black; }
@@ -1103,9 +1160,41 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
 .ticker:focus-within .ticker__track {
   animation-play-state: paused;
 }
+/* Normalize logos to a uniform-area cell so every holding reads
+   at the same visual prominence along the marquee. The portfolio's
+   wordmarks span a wide aspect-ratio range -- from square-ish (SAP,
+   Apple, Meta, ~1:1) to long banners (Salesforce, NVIDIA, S&P
+   Global, ~4:1) -- and earlier strategies each had a failure mode:
+
+     * Pinning both axes to a square (the original 48x48) lets
+       ``object-fit: contain`` work, but it letterboxes wide logos
+       into a tiny strip at the centre of the cell while square
+       logos fill the whole box, so the wide ones look 3-4x
+       smaller in ink even though they occupy the same cell.
+     * Pinning height only (the height-only step we tried after
+       that) gives every logo identical height, but wide logos
+       then claim their full natural width on the marquee track
+       and the strip reads as a parade of giant brand banners
+       sandwiching tiny square ones.
+
+   The fix is a landscape 2:1 cell with ``object-fit: contain``:
+   each ``<img>`` becomes a fixed 56x28 box and the SVG is fitted
+   inside, preserving its aspect ratio. The math behind the 2:1
+   ratio is intentional -- a square logo hits the height cap and
+   renders as 28x28 (ink area 784 px^2), a 4:1 wide logo hits the
+   width cap and renders as 56x14 (ink area also 784 px^2), and
+   2:1 logos (the geometric mean) hit both caps and render at the
+   full 56x28 (ink area 1568 px^2). The result is a symmetric
+   prominence curve around the 2:1 sweet spot rather than a
+   monotonic "wider == bigger" or "wider == smaller" bias, so the
+   strip feels uniform regardless of which logos happen to be in
+   the current portfolio. The 28px height is also a touch smaller
+   than the prior 32px height-only target so the logos sit
+   visibly inside the marquee strip rather than crowding its
+   vertical padding. */
 .ticker__logo {
-  width: 48px;
-  height: 48px;
+  width: 56px;
+  height: 28px;
   object-fit: contain;
   flex: 0 0 auto;
   opacity: 0.92;
@@ -1356,17 +1445,24 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
      pill flush. */
   box-shadow: none;
 }
-/* Four category fills, chosen so the actions sit on a meaningful
-   diverging palette: greens / blues mark "moving into" a position
-   (Initiated full-on, or Increased exposure), warm orange marks
-   pulling back (Decreased), and red marks the full exit (Divested).
-   Increased uses the secondary brand blue rather than the primary
-   accent orange so the warmer hue is reserved for de-risking
-   actions, which a reader is likely scanning for at a glance.
-   Decreased then earns the primary accent. */
+/* Four category fills collapsed onto a single BUY-vs-SELL axis:
+   green marks any move INTO a position (Initiated full-on or
+   Increased exposure) and red marks any move OUT (Decreased
+   exposure or Divested fully). The badge label itself already
+   spells out the size of the move ("Increased by 30%", "Divested"),
+   so a reader scanning a long list of trades can identify
+   direction at a glance from the colour and reach for the label
+   only when they care about magnitude. The earlier four-colour
+   diverging palette (green / blue for buys, orange / red for sells)
+   read as four equally-distinct buckets and asked the reader to
+   memorise which warm hue meant "partial sell" vs "full sell";
+   collapsing to two semantic colours is faster to scan and the
+   ``--open`` / ``--increase`` / ``--decrease`` / ``--close`` BEM
+   modifiers stay in place so the markup keeps describing exactly
+   what happened. */
 .trade__badge--open     { background: var(--positive); }
-.trade__badge--increase { background: var(--accent-bench); }
-.trade__badge--decrease { background: var(--accent); }
+.trade__badge--increase { background: var(--positive); }
+.trade__badge--decrease { background: var(--negative); }
 .trade__badge--close    { background: var(--negative); }
 .trade__price {
   font-variant-numeric: tabular-nums;
@@ -1668,8 +1764,8 @@ footer a { color: var(--accent-bench); }
     margin: 0 -16px 20px;
     padding: 12px 0;
   }
-  .ticker__track { gap: 30px; animation-duration: 45s; }
-  .ticker__logo { width: 40px; height: 40px; }
+  .ticker__track { gap: 28px; animation-duration: 45s; }
+  .ticker__logo { width: 48px; height: 24px; }
   /* With the compacted mobile nav above, the header collapses to a
      single row at iPhone widths (~81px tall). 100px of reserve
      gives us a comfortable ~18px buffer between header bottom and
@@ -1836,8 +1932,8 @@ footer a { color: var(--accent-bench); }
   }
   .site-title { font-size: 1.25rem; }
   .ticker { margin: 0 -12px 16px; padding: 10px 0; }
-  .ticker__track { gap: 24px; animation-duration: 35s; }
-  .ticker__logo { width: 34px; height: 34px; }
+  .ticker__track { gap: 22px; animation-duration: 35s; }
+  .ticker__logo { width: 40px; height: 20px; }
   .holding {
     grid-template-columns: 44px minmax(0, 1fr);
     gap: 10px 12px;
@@ -2218,11 +2314,22 @@ class Webpage:
             return ""
         items = "".join(
             # Ticker is above the fold so we don't lazy-load, but we
-            # still set decode=async + dimensions to keep layout
-            # stable while images stream in.
+            # still set ``decoding="async"`` so the marquee paints as
+            # soon as the first logo is ready. Both ``width`` and
+            # ``height`` are pinned at the desktop cell dimensions
+            # (56x28 -- the landscape 2:1 cell that normalizes wide
+            # and square wordmarks to similar visual prominence; see
+            # the ``.ticker__logo`` CSS for the rationale) so the
+            # browser reserves the exact box up-front and the
+            # marquee paints with zero layout shift even before
+            # individual SVGs decode. CSS ``object-fit: contain``
+            # fits each logo inside that box without distortion;
+            # smaller viewports override the dimensions further down
+            # in ``_PAGE_STYLES`` so the cell scales gracefully on
+            # mobile.
             f'<img class="ticker__logo" src="{html.escape(url)}" alt="" '
             f'title="{html.escape(f"{ticker} - {name}")}" '
-            f'decoding="async" width="48" height="48">'
+            f'decoding="async" width="56" height="28">'
             for ticker, name, url in self._current_logos
         )
         return (

@@ -600,13 +600,18 @@ class TestTicker:
         assert 'title="NMS:AAA - Alpha Inc."' in out
         assert 'title="NMS:BBB - Beta Co."' in out
         # Image attrs: ticker is above the fold so loads eagerly, but
-        # async decode + explicit dimensions keep layout stable while
-        # the bitmaps stream in. The width/height match the largest
-        # rendered size (desktop) so the browser reserves enough
-        # space; CSS scales them down on narrow viewports.
+        # async decode keeps the marquee painting as soon as the
+        # first logo is ready. Both width and height are pinned to
+        # the desktop cell dimensions (56x28 -- a landscape 2:1 box
+        # that ``object-fit: contain`` letterboxes wide wordmarks
+        # and square logos into for similar visual prominence) so
+        # the browser reserves the exact box up-front and the
+        # marquee paints with zero layout shift even before
+        # individual SVGs decode. CSS overrides scale the cell down
+        # on narrow viewports.
         assert 'decoding="async"' in out
-        assert 'width="48"' in out
-        assert 'height="48"' in out
+        assert 'width="56"' in out
+        assert 'height="28"' in out
         # Lazy loading would be wrong here: the marquee animates from
         # the moment the page paints, off-screen logos must already be
         # decoded.
