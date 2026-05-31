@@ -7,6 +7,9 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
 
+from .errors import InvariantError
+from .types import EquityTransaction, TradeEvent  # noqa: F401 (re-exported as documentation)
+
 
 @dataclass
 class Trade:
@@ -24,7 +27,7 @@ ACTIONS = ["BUY", "SELL"]
 
 
 
-def combine_and_sort(transactions):
+def combine_and_sort(transactions: list[EquityTransaction]) -> list[Trade]:
     """Bucket transactions by (ticker, date, action), then aggregate each
     bucket into a single :class:`Trade` whose price is the volume-weighted
     average of its constituents.
@@ -32,9 +35,16 @@ def combine_and_sort(transactions):
     The result is sorted by ``(date, action)`` so that on intraday tie-breaks
     BUYs are processed before SELLs (matters for tax-loss harvesting cases).
     """
-    buckets: dict[tuple[str, str, str], list[dict]] = defaultdict(list)
+    buckets: dict[tuple[str, str, str], list[EquityTransaction]] = defaultdict(list)
     for txn in transactions:
-        assert txn["action"] in ACTIONS, f"Action unknown: {txn['action']}"
+        if txn["action"] not in ACTIONS:
+            # Should be unreachable -- ``_parse_equity_row`` already
+            # normalises action tokens against the same set. Treat as
+            # an internal invariant rather than a sheet-parse error so
+            # the maintainer can chase down the upstream regression.
+            raise InvariantError(
+                f"transaction action {txn['action']!r} is not one of {ACTIONS}",
+            )
         buckets[(txn["ticker"], txn["date"], txn["action"])].append(txn)
 
     trades: list[Trade] = []
@@ -49,7 +59,6 @@ def combine_and_sort(transactions):
             action=action,
         ))
 
-    assert "BUY" in ACTIONS and "SELL" in ACTIONS
     return sorted(trades, key=lambda t: (t.date, t.action))
 
 
@@ -129,7 +138,11 @@ _TRADE_DETAIL_LABELS: dict[str, str] = {
 
 
 
-def _combine_trade_events(events, *, window_days: int = TRADE_WINDOW_DAYS):
+def _combine_trade_events(
+    events: list[dict],
+    *,
+    window_days: int = TRADE_WINDOW_DAYS,
+) -> list[dict]:
     """Fold a ticker's raw trade events into burst-level rows.
 
     Walks ``events`` chronologically and joins each event to the

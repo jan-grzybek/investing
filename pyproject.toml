@@ -1,23 +1,30 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "jg-investing"
-version = "0.0.0"
+version = "0.1.0"
 description = "Generator for the JG Investment Portfolio webpage."
 readme = "README.md"
 requires-python = ">=3.12"
 authors = [{ name = "Jan Grzybek" }]
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE"]
+# Minimum floors keep Dependabot's bumps reviewable: a major upgrade
+# that breaks the integration shape (e.g. yfinance dropping
+# ``Ticker.get_info``) will fail to install rather than fail at runtime
+# in CI. ``requirements.in`` carries the same floors so the resolver
+# sees them whether you build via ``pip install -e`` or compile a
+# lockfile with ``pip-compile requirements.in``.
 dependencies = [
-  "gspread",
-  "yfinance",
-  "requests",
-  "python-dateutil",
-  "Pillow",
-  "cairosvg",
-  "scipy",
+  "gspread>=6",
+  "yfinance>=0.2.40",
+  "requests>=2.32",
+  "python-dateutil>=2.9",
+  "Pillow>=10",
+  "cairosvg>=2.7",
+  "numpy>=1.26",
 ]
 
 [project.optional-dependencies]
@@ -27,18 +34,27 @@ dev = [
   "ruff>=0.6",
   "mypy>=1.10",
   "beautifulsoup4>=4.12",
+  "html5lib>=1.1",
   "pre-commit>=3.7",
+  "rjsmin>=1.2",
+  "csscompressor>=0.9",
 ]
 
 [tool.setuptools]
-# This repo is built as a single ``update.py`` plus ``preview.py`` script
-# rather than an installable library. Listing both as py_modules lets
-# editable installs / lint targets pick them up without inventing a
-# package layout.
+# The page generator lives in ``investing/``. ``update.py`` is a tiny
+# launcher that ``.github/workflows/main.yml`` invokes as ``python
+# update.py``; ``preview.py`` renders the page locally with synthetic
+# data. Listing both as ``py_modules`` keeps editable installs / lint
+# targets picking them up alongside the package.
+packages = ["investing", "investing.webpage"]
 py-modules = ["update", "preview"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# ``pythonpath = ["."]`` lets the test suite resolve ``import
+# update`` / ``import investing`` without the historical ``sys.path``
+# mutation in ``tests/conftest.py``.
+pythonpath = ["."]
 addopts = "-ra --strict-markers"
 filterwarnings = [
   "ignore::DeprecationWarning",
@@ -47,13 +63,17 @@ filterwarnings = [
 
 [tool.coverage.run]
 branch = true
-source = ["update", "preview"]
+source = ["investing", "update", "preview"]
 omit = ["tests/*"]
 
 [tool.coverage.report]
 show_missing = true
 skip_covered = false
 precision = 1
+# Baseline measured at 89.3% on main; ratchet downward only after a
+# deliberate decision. A drop below this floor fails CI rather than
+# silently eroding the safety net.
+fail_under = 85
 
 [tool.ruff]
 line-length = 100
@@ -63,6 +83,7 @@ extend-exclude = [
   ".testvenv",
   "preview",
   "logos",
+  "assets",
 ]
 
 [tool.ruff.lint]
@@ -70,7 +91,7 @@ extend-exclude = [
 # bugbear, comprehensions. Tightening can come once the codebase has been
 # through a first formatting pass.
 select = ["E", "F", "I", "UP", "B", "C4", "SIM", "RUF"]
-# Long literal lines inside the still-large update.py are existing prose;
+# Long literal lines inside the HTML / SVG builders are existing prose;
 # allow them for now so the lint baseline is clean. The CSS / JS payloads
 # have already moved out into assets/ where they're handled by their own
 # tooling.
@@ -85,7 +106,13 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["B011", "RUF018"]
+# Pytest fixtures imported from ``tests._webpage_support`` /
+# ``conftest`` get flagged as F811 (redefined) and F401 (unused) by
+# ruff because the link between "imported name" and "fixture
+# parameter" only exists at collection time. The pattern is
+# conventional in pytest and rewriting the suite around indirect
+# fixture lookup would obscure intent for no real safety benefit.
+"tests/*" = ["B011", "RUF018", "F401", "F811", "RUF100"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -104,5 +131,5 @@ disallow_untyped_defs = false
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = ["update", "preview"]
+module = ["update", "preview", "investing.*"]
 disallow_untyped_defs = false

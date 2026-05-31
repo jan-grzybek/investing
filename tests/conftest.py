@@ -1,30 +1,24 @@
-"""Shared pytest fixtures and import-path setup for the test suite.
+"""Shared pytest fixtures for the test suite.
 
-``update.py`` lives at the repository root, so we prepend the project
-root to ``sys.path`` before any test imports it.
+Import-path bootstrapping (``update.py`` and the ``investing/``
+package live at the repository root) is declared in
+``pyproject.toml`` under ``[tool.pytest.ini_options] pythonpath``;
+no ``sys.path`` mutation is needed here.
 
-The module no longer carries a mutable ``exchange_rate`` singleton -- FX
-is threaded through the API as an explicit ``fx`` parameter on
+The package no longer carries a mutable ``exchange_rate`` singleton --
+FX is threaded through the API as an explicit ``fx`` parameter on
 ``Holding``/``get_holdings``/``summarize``/``get_benchmarks``. Tests
 pass the :func:`stub_exchange_rate` callable directly to whichever
-constructor they're exercising; no module-level patching is needed and
-no autouse cleanup fixture is required to keep tests isolated.
+constructor they're exercising; no module-level patching is needed
+and no autouse cleanup fixture is required to keep tests isolated.
 """
 from __future__ import annotations
 
 import os
-import sys
 from datetime import datetime
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-
-import update  # noqa: E402  (import after sys.path mutation)
 
 
 @pytest.fixture
@@ -85,13 +79,15 @@ def patch_yf_ticker(monkeypatch):
         def test_x(patch_yf_ticker, make_ticker_mock):
             patch_yf_ticker({"AAPL": make_ticker_mock(price=42.0)})
     """
+    import investing.holdings as _holdings
+
     def _install(mapping):
         def _factory(ticker):
             if ticker not in mapping:
                 raise AssertionError(f"Unexpected ticker requested: {ticker!r}")
             return mapping[ticker]
 
-        monkeypatch.setattr(update.yf, "Ticker", _factory)
+        monkeypatch.setattr(_holdings.yf, "Ticker", _factory)
         return mapping
 
     return _install
@@ -101,18 +97,22 @@ def patch_yf_ticker(monkeypatch):
 def freeze_today(monkeypatch):
     """Pin ``datetime.today()`` / ``datetime.now()`` across the package.
 
-    The page generator was split into ``investing/<module>.py`` files;
-    each module that calls ``datetime.today()`` or ``datetime.now()``
-    holds its own import-bound name, so patching just one of them (the
-    historical ``update.datetime``) leaves the others on the real
-    clock and breaks any cross-module test. Walking the package and
-    swapping ``datetime`` on every module that exports it keeps the
-    "freeze the world" semantic the suite previously had under the
-    monolithic layout.
+    The page generator is composed of several modules
+    (``investing.holdings``, ``investing.performance``,
+    ``investing.webpage._page``, ...) and each one holds its own
+    import-bound ``datetime`` symbol. Patching just one leaves the
+    others on the real clock and breaks any cross-module test, so
+    we walk the whole list and swap ``datetime`` everywhere it
+    appears.
+
+    New code prefers the explicit ``now=`` parameter exposed on
+    :class:`Holding` / :class:`Webpage` / :func:`calc_twr` /
+    :func:`get_benchmarks` -- pass a closure and skip this fixture
+    entirely.
     """
     import investing.holdings as _holdings
     import investing.performance as _performance
-    import investing.webpage as _webpage
+    import investing.webpage._page as _webpage_page
 
     def _freeze(when: datetime):
         class _FrozenDateTime(datetime):
@@ -124,7 +124,7 @@ def freeze_today(monkeypatch):
             def now(cls, tz=None):  # noqa: ARG002
                 return when
 
-        for mod in (update, _holdings, _performance, _webpage):
+        for mod in (_holdings, _performance, _webpage_page):
             monkeypatch.setattr(mod, "datetime", _FrozenDateTime)
         return when
 

@@ -25,8 +25,8 @@ import sys
 
 import pytest
 
-import update
-
+import investing.safe_run as _safe_run
+from investing import safe_run as _safe_run_mod  # noqa: F401 (alias used below)
 
 # Distinctive leak canaries we plant inside fake ``main`` bodies so
 # the assertions can prove the leak-safe wrapper either suppressed
@@ -54,12 +54,12 @@ def _run_safely_capturing(monkeypatch, fake_main, capfd):
     a clean return and ``captured`` is the post-restoration stderr seen
     by ``capfd`` (i.e. the sanitized summary, if any).
     """
-    monkeypatch.setattr(update, "main", fake_main)
+    monkeypatch.setattr(_safe_run, "main", fake_main)
     # Flush any pre-test output so ``capfd.readouterr()`` only returns
     # bytes produced by our wrapper.
     capfd.readouterr()
     try:
-        update._run_main_safely()
+        _safe_run._run_main_safely()
     except SystemExit as exc:
         captured = capfd.readouterr()
         return exc.code, captured
@@ -233,8 +233,8 @@ class TestFailingRun:
         def fake_main():
             try:
                 raise KeyError(runtime_secret)
-            except KeyError:
-                raise _BoomError("outer")
+            except KeyError as exc:
+                raise _BoomError("outer") from exc
 
         _, captured = _run_safely_capturing(monkeypatch, fake_main, capfd)
 

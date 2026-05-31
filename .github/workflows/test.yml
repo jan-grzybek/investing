@@ -55,39 +55,49 @@ jobs:
       - name: Install deps
         run: pip install -r requirements-dev.txt
 
+      - name: Verify generated assets match readable sources
+        # Pre-commit runs ``scripts/build_assets.py`` whenever
+        # ``assets/src/`` changes, but contributors who skip the
+        # hook can still ship drift. This step fails CI when
+        # ``assets/<name>.js`` / ``assets/page.css`` are not byte-
+        # identical to the freshly-built versions, which would
+        # silently break the CSP hashes in
+        # ``investing/webpage/head.py``.
+        run: python scripts/build_assets.py --check
+
       - name: Run pytest with coverage
         # ``--cov`` enables the coverage plugin from ``pytest-cov``;
         # the config in ``pyproject.toml`` selects ``update`` /
-        # ``preview`` / the ``investing`` package as the source set
-        # and turns on branch coverage so the report flags untested
-        # ``if`` / ``elif`` branches in addition to unexecuted lines.
+        # ``preview`` / the ``investing`` package as the source set,
+        # turns on branch coverage, and enforces the
+        # ``fail_under`` floor declared in ``[tool.coverage.report]``
+        # so a coverage drop fails the build.
         run: python -m pytest -v --cov=investing --cov=update --cov=preview --cov-report=term-missing --cov-report=xml
 
       - name: HTML smoke parse
         # Render the page from synthetic fixtures and parse the result
-        # with an HTML parser to confirm it's well-formed. Catches
-        # regressions like an unclosed tag in a template branch that
-        # the unit tests' string-level assertions miss.
+        # with the strict html5lib parser. The previous
+        # ``html.parser`` from the stdlib is famously lenient and
+        # would silently accept unclosed tags, missing quotes, etc.;
+        # html5lib follows the WHATWG spec, so a template branch that
+        # emits broken markup fails the build here instead of in the
+        # browser.
         run: |
           python preview.py --out ci-smoke
           python -c "
-          from html.parser import HTMLParser
+          import html5lib
           import sys
-          class Strict(HTMLParser):
-              def __init__(self):
-                  super().__init__(convert_charrefs=True)
-                  self.errors = []
-              def error(self, msg):
-                  self.errors.append(msg)
           html = open('ci-smoke/index.html', encoding='utf-8').read()
-          parser = Strict()
-          parser.feed(html)
-          parser.close()
-          if parser.errors:
-              print('\n'.join(parser.errors))
+          parser = html5lib.HTMLParser(strict=True)
+          try:
+              parser.parse(html)
+          except html5lib.html5parser.ParseError as exc:
+              print(f'html5lib rejected the rendered page: {exc}')
               sys.exit(1)
-          assert '<!DOCTYPE html>' in html, 'missing doctype'
-          assert '</html>' in html, 'missing closing tag'
+          if '<!DOCTYPE html>' not in html:
+              print('missing doctype'); sys.exit(1)
+          if '</html>' not in html:
+              print('missing closing tag'); sys.exit(1)
           print(f'OK -- {len(html)} bytes parsed')
           "
 

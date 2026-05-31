@@ -8,15 +8,31 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import update
-from update import Webpage, LOGOS_ADDRESS
-
+from investing.logos import LogoCache
+from investing.paths import COURAGE_LOGO, LOGOS_ADDRESS
+from investing.webpage import Webpage
 from tests._webpage_support import (
+    _benchmark,
     _holding,
     _total_return,
-    _benchmark,
     stub_logo_lookup,
 )
+
+
+def _make_session_stub(*, ok_extensions):
+    """Build a ``requests.Session`` substitute whose ``head`` returns 200
+    for URLs ending in any of ``ok_extensions`` and 404 otherwise."""
+    calls: list[str] = []
+
+    def fake_head(url, timeout=None):  # noqa: ARG001
+        calls.append(url)
+        resp = MagicMock()
+        resp.status_code = 200 if any(url.endswith(ext) for ext in ok_extensions) else 404
+        return resp
+
+    session = MagicMock()
+    session.head.side_effect = fake_head
+    return session, calls
 
 
 class TestInit:
@@ -28,31 +44,53 @@ class TestInit:
         assert w.allocation_pct is None
         assert w.top_10 is None
 class TestGetLogoUrl:
-    def test_returns_first_extension_that_responds_200(self, monkeypatch):
-        calls = []
+    def test_returns_first_extension_that_responds_200(self):
+        session, calls = _make_session_stub(ok_extensions=(".png",))
+        w = Webpage(logo_cache=LogoCache(session=session))
 
-        def fake_head(url):
-            calls.append(url)
-            resp = MagicMock()
-            # PNG (the second extension probed) is the first one that exists.
-            resp.status_code = 200 if url.endswith(".png") else 404
-            return resp
-
-        monkeypatch.setattr(update.requests, "head", fake_head)
-
-        w = Webpage()
         url = w._get_logo_url("NMS:AAA")
         assert url == LOGOS_ADDRESS + "NMS%3AAAA.png"
         # Confirms we tried .svg first.
         assert calls[0].endswith(".svg")
 
-    def test_falls_back_to_courage_when_no_extension_matches(self, monkeypatch):
-        resp = MagicMock()
-        resp.status_code = 404
-        monkeypatch.setattr(update.requests, "head", lambda url: resp)  # noqa: ARG005
+    def test_falls_back_to_courage_when_no_extension_matches(self):
+        session, _ = _make_session_stub(ok_extensions=())
+        w = Webpage(logo_cache=LogoCache(session=session))
 
-        w = Webpage()
-        assert w._get_logo_url("NMS:UNKNOWN") == LOGOS_ADDRESS + "courage.png"
+        assert w._get_logo_url("NMS:UNKNOWN") == COURAGE_LOGO
+
+    def test_caches_both_hits_and_misses(self):
+        """Looking up the same ticker twice must not re-probe the network."""
+        session, calls = _make_session_stub(ok_extensions=())
+        w = Webpage(logo_cache=LogoCache(session=session))
+
+        w._get_logo_url("NMS:X")
+        first_round = list(calls)
+        w._get_logo_url("NMS:X")
+        assert calls == first_round  # No additional HEADs on the second call.
+
+    def test_network_error_falls_through_to_next_extension(self):
+        """A RequestException on one extension must not abort the resolution."""
+        import requests as _requests
+
+        calls: list[str] = []
+
+        def flaky_head(url, timeout=None):  # noqa: ARG001
+            calls.append(url)
+            if url.endswith(".svg"):
+                raise _requests.ConnectionError("simulated network drop")
+            resp = MagicMock()
+            resp.status_code = 200 if url.endswith(".png") else 404
+            return resp
+
+        session = MagicMock()
+        session.head.side_effect = flaky_head
+        w = Webpage(logo_cache=LogoCache(session=session))
+
+        url = w._get_logo_url("NMS:X")
+        assert url == LOGOS_ADDRESS + "NMS%3AX.png"
+        # .svg raised; .png returned 200; we never reached .jpg.
+        assert [c.rsplit(".", 1)[1] for c in calls] == ["svg", "png"]
 class TestHoldingAnchor:
     def test_strips_punctuation_to_a_dash_form(self):
         # Tickers carry exchange prefixes and dotted suffixes

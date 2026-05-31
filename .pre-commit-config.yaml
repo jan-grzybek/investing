@@ -8,7 +8,12 @@ repos:
     rev: v4.6.0
     hooks:
       - id: trailing-whitespace
+        # Asset minifier outputs are byte-exact; whitespace fixers must
+        # not rewrite them or the CSP hashes pinned in webpage/head.py
+        # drift away from the served bytes.
+        exclude: '^assets/(?!src/).*'
       - id: end-of-file-fixer
+        exclude: '^assets/(?!src/).*'
       - id: check-yaml
       - id: check-toml
       - id: check-merge-conflict
@@ -16,6 +21,7 @@ repos:
         args: ["--maxkb=2048"]
       - id: mixed-line-ending
         args: ["--fix=lf"]
+        exclude: '^assets/(?!src/).*'
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.6.9
@@ -28,9 +34,37 @@ repos:
     rev: v1.11.2
     hooks:
       - id: mypy
-        # Type-check only the hand-maintained sources. Tests stay
-        # untyped for now to keep the loop fast and the diff small.
-        files: '^(update|preview)\.py$'
+        # Type-check the whole ``investing/`` package plus both
+        # top-level launchers. The previous scope was just
+        # ``^(update|preview)\.py$``, which only caught the ~150 lines
+        # of those launchers and skipped the ~1900-line package the
+        # generator actually lives in.
+        files: '^(investing/.*|update|preview)\.py$'
         additional_dependencies:
           - types-python-dateutil
           - types-requests
+
+  - repo: https://github.com/thibaudcolas/pre-commit-stylelint
+    rev: v16.10.0
+    hooks:
+      - id: stylelint
+        # Lint the readable CSS sources only; ``assets/page.css`` is a
+        # generated artefact (minified by ``scripts/build_assets.py``).
+        files: '^assets/src/css/.*\.css$'
+        additional_dependencies:
+          - stylelint@16.10.0
+          - stylelint-config-standard@36.0.1
+
+  - repo: local
+    hooks:
+      - id: build-assets
+        name: build minified assets
+        entry: python scripts/build_assets.py
+        language: python
+        additional_dependencies:
+          - rjsmin>=1.2
+          - csscompressor>=0.9
+        # Re-run any time the readable sources change so the committed
+        # minified outputs (and their CSP hashes) stay in sync.
+        files: '^assets/src/'
+        pass_filenames: false

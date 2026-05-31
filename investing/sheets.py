@@ -10,6 +10,8 @@ from datetime import datetime
 
 import gspread
 
+from .types import CashBalance, EquityTransaction, Valuation
+
 # ---------------------------------------------------------------------------
 # Sheet ingestion
 # ---------------------------------------------------------------------------
@@ -108,7 +110,7 @@ def _check_row_shape(worksheet: str, row_index: int, row: list[str]) -> None:
 
 
 
-def _parse_equity_row(row_index: int, row: list[str]) -> dict | None:
+def _parse_equity_row(row_index: int, row: list[str]) -> EquityTransaction | None:
     """Parse one ``Equities`` row into the transaction dict shape.
 
     Returns ``None`` when the include flag is anything other than a YES
@@ -159,7 +161,7 @@ def _parse_equity_row(row_index: int, row: list[str]) -> dict | None:
 
 
 
-def _parse_return_row(row_index: int, row: list[str]) -> dict | None:
+def _parse_return_row(row_index: int, row: list[str]) -> Valuation | None:
     _check_row_shape("Return", row_index, row)
     if row[4] not in _YES_TOKENS:
         return None
@@ -183,7 +185,7 @@ def _parse_return_row(row_index: int, row: list[str]) -> dict | None:
 
 
 
-def _parse_cash_row(row_index: int, row: list[str]) -> dict | None:
+def _parse_cash_row(row_index: int, row: list[str]) -> CashBalance | None:
     _check_row_shape("Cash & Cash Equivalents", row_index, row)
     if row[4] not in _YES_TOKENS:
         return None
@@ -229,28 +231,28 @@ def _iter_data_rows(rows: list[list[str]]):
 
 
 
-def pull_data():
+def pull_data() -> tuple[list[EquityTransaction], list[Valuation], list[CashBalance]]:
     gc = _gspread_client()
     sh = gc.open_by_key(os.environ["GSHEET_ID"])
 
-    transactions: list[dict] = []
+    transactions: list[EquityTransaction] = []
     for row_index, row in _iter_data_rows(sh.worksheet("Equities").get_all_values()):
-        parsed = _parse_equity_row(row_index, row)
-        if parsed is not None:
-            transactions.append(parsed)
+        parsed_txn = _parse_equity_row(row_index, row)
+        if parsed_txn is not None:
+            transactions.append(parsed_txn)
 
-    valuations: list[dict] = []
+    valuations: list[Valuation] = []
     for row_index, row in _iter_data_rows(sh.worksheet("Return").get_all_values()):
-        parsed = _parse_return_row(row_index, row)
-        if parsed is not None:
-            valuations.append(parsed)
+        parsed_val = _parse_return_row(row_index, row)
+        if parsed_val is not None:
+            valuations.append(parsed_val)
 
-    cash: list[dict] = []
+    cash: list[CashBalance] = []
     for row_index, row in _iter_data_rows(
         sh.worksheet("Cash & Cash Equivalents").get_all_values()
     ):
-        parsed = _parse_cash_row(row_index, row)
-        if parsed is not None:
-            cash.append(parsed)
+        parsed_cash = _parse_cash_row(row_index, row)
+        if parsed_cash is not None:
+            cash.append(parsed_cash)
 
     return transactions, valuations, cash

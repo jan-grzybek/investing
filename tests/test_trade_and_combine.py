@@ -5,8 +5,8 @@ from datetime import datetime
 
 import pytest
 
-import update
-from update import Trade, combine_and_sort
+import investing.trades as _trades
+from investing.trades import Trade, combine_and_sort
 
 
 def _txn(date, ticker, qty, price, action):
@@ -97,10 +97,14 @@ class TestCombineAndSort:
         assert tickers == {"AAPL", "MSFT"}
 
     def test_unknown_action_raises(self):
-        with pytest.raises(AssertionError):
+        # combine_and_sort previously used a bare ``assert`` for this
+        # invariant; the contract is now a load-bearing
+        # ``InvariantError`` so it survives ``python -O``.
+        from investing.errors import InvariantError
+        with pytest.raises(InvariantError):
             combine_and_sort([_txn("01-01-2024", "AAPL", 1, 1.0, "HOLD")])
 
     def test_actions_constant_is_well_formed(self):
         # combine_and_sort relies on this; an explicit check guards against
         # accidental edits that would silently break the sort order.
-        assert update.ACTIONS == ["BUY", "SELL"]
+        assert _trades.ACTIONS == ["BUY", "SELL"]

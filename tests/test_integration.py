@@ -13,8 +13,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import update
-from update import get_holdings, generate_webpage
+import investing.holdings as _holdings
+from investing.performance import get_holdings
+from investing.webpage import generate_webpage
 
 
 def _mk_ticker(symbol, *, price, currency="USD"):
@@ -47,14 +48,22 @@ def stub_world(monkeypatch):
     use the :func:`stub_fx` fixture alongside this one when the test
     constructs holdings.
     """
+    from investing.logos import LogoCache
+
     tickers = {
         "AAA": _mk_ticker("AAA", price=150.0),
         "BBB": _mk_ticker("BBB", price=80.0),
     }
-    monkeypatch.setattr(update.yf, "Ticker", lambda s: tickers[s])
-    resp = MagicMock()
-    resp.status_code = 404  # forces fall-through to "courage.png"
-    monkeypatch.setattr(update.requests, "head", lambda url: resp)  # noqa: ARG005
+    monkeypatch.setattr(_holdings.yf, "Ticker", lambda s: tickers[s])
+    # Force the logo resolver to skip every probe -- the integration
+    # tests run without network, so all extensions must return 404 and
+    # the resolver should fall through to the bundled placeholder.
+    fake_session = MagicMock()
+    fake_session.head.return_value = MagicMock(status_code=404)
+    monkeypatch.setattr(
+        "investing.webpage._page.LogoCache",
+        lambda: LogoCache(session=fake_session),
+    )
     return tickers
 
 

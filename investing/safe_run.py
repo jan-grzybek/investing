@@ -8,15 +8,12 @@ import os
 import sys
 import traceback
 
-# Import ``main`` indirectly through the ``update`` shim so the test
-# suite can replace ``update.main`` with a fake via
-# ``monkeypatch.setattr(update, "main", fake_main)`` and have
-# ``_run_main_safely`` see the swap. A direct ``from .cli import main``
-# would bind a local name here that the patch can't reach. ``import
-# update`` lives inside the function body to keep the package-level
-# import graph acyclic (``update`` re-exports from this module).
-
-
+# Module-level binding so the test suite can swap ``main`` for a fake
+# via ``monkeypatch.setattr(investing.safe_run, "main", fake_main)``.
+# ``_run_main_safely`` reads this attribute through the module
+# namespace (``main()``), not a locally-captured reference, so the
+# patch is visible at call time.
+from .cli import main  # noqa: F401  (re-bound; used via module namespace below)
 
 # ---------------------------------------------------------------------------
 # Leak-safe entrypoint
@@ -114,12 +111,14 @@ def _run_main_safely() -> None:
             os.close(saved_stderr_fd)
             os.close(devnull_fd)
 
-    import update  # local import; see module-level note above
+    # Read ``main`` through the module namespace so a test-time
+    # ``monkeypatch.setattr(_safe_run, "main", fake)`` is honoured.
+    from . import safe_run as _self
 
     os.dup2(devnull_fd, 2)
     sys.stderr = devnull_py
     try:
-        update.main()
+        _self.main()
     except SystemExit as exc:
         _restore()
         # Preserve an explicit ``sys.exit(0)`` from inside ``main``; only

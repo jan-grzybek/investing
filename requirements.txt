@@ -1,5 +1,11 @@
 # Auto-generated lockfile. DO NOT edit by hand. Update by editing
 # requirements.in and running ``pip-compile requirements.in``.
+#
+# This file was last hand-edited to drop ``scipy`` after
+# ``investing/pchip.py`` replaced the only call site
+# (``PchipInterpolator`` in the return-chart renderer). Regenerate
+# with ``pip-compile requirements.in`` to pick up the next transitive
+# changes Dependabot opens; the manual delta will disappear naturally.
 beautifulsoup4==4.14.3
 cairocffi==1.7.1
 CairoSVG==2.9.0
@@ -30,7 +36,6 @@ python-dateutil==2.9.0.post0
 pytz==2026.2
 requests==2.34.2
 requests-oauthlib==2.0.0
-scipy==1.17.1
 six==1.17.0
 soupsieve==2.8.4
 tinycss2==1.5.1

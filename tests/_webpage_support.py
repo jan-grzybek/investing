@@ -11,8 +11,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import update
-from update import Webpage, LOGOS_ADDRESS
+from investing.paths import LOGOS_ADDRESS
+from investing.webpage import Webpage
 
 
 def _holding(
@@ -60,10 +60,21 @@ def _benchmark():
 
 @pytest.fixture
 def stub_logo_lookup(monkeypatch):
-    """Avoid all HTTP traffic from ``_get_logo_url``."""
-    resp = MagicMock()
-    resp.status_code = 200
-    monkeypatch.setattr(update.requests, "head", lambda url: resp)  # noqa: ARG005
+    """Avoid all HTTP traffic from ``Webpage._get_logo_url``.
+
+    Replaces :class:`investing.logos.LogoCache.__call__` with a
+    deterministic stub that mirrors the historical "all extensions
+    return 200" behaviour: the first probed extension (``.svg``)
+    wins, so the resolved URL is ``<LOGOS_ADDRESS><ticker>.svg``
+    with the colon URL-encoded the way ``LogoCache`` does it.
+    """
+    from investing.logos import LogoCache
+
+    def _stub(self, ticker):  # noqa: ARG001
+        encoded = ticker.replace(":", "%3A")
+        return f"{LOGOS_ADDRESS}{encoded}.svg"
+
+    monkeypatch.setattr(LogoCache, "__call__", _stub)
 
 
 def _trade_event(
