@@ -1527,17 +1527,6 @@ class TestReturnChartScript:
         digest = update._sha256_b64(update._RETURN_CHART_SCRIPT)
         assert f"sha256-{digest}" in head
 
-    def test_nav_scroll_script_targets_all_in_page_anchors_except_skip_link(self):
-        # The smooth-scroll handler used to be scoped to ``.site-nav``
-        # only. With marquee logos and equities-bar rows also acting
-        # as in-page anchors, the selector is broadened to cover every
-        # same-page link -- minus ``.skip-link``, which assistive-tech
-        # users expect to jump instantly.
-        script = update._NAV_SCROLL_SCRIPT
-        assert 'a[href^="#"]:not(.skip-link)' in script
-        # And the old narrow selector is gone (regression guard).
-        assert ".site-nav a[" not in script
-
     def test_script_initialises_pointer_event_handlers(self):
         # The script must own the contract its rendered chart expects:
         # it has to react to pointer movement and project values onto
@@ -1561,6 +1550,164 @@ class TestReturnChartScript:
         # Uses the same ``--delta-color`` custom property the static
         # caliper consumes so green/red mapping stays uniform.
         assert "--delta-color" in script
+
+
+class TestNavScrollScript:
+    """The inline ``_NAV_SCROLL_SCRIPT`` payload + the smooth-scroll
+    contract that drives clicks on every in-page anchor."""
+
+    def test_selector_targets_all_in_page_anchors_except_skip_link(self):
+        # The smooth-scroll handler used to be scoped to ``.site-nav``
+        # only. With marquee logos and equities-bar rows also acting
+        # as in-page anchors, the selector is broadened to cover every
+        # same-page link -- minus ``.skip-link``, which assistive-tech
+        # users expect to jump instantly.
+        script = update._NAV_SCROLL_SCRIPT
+        assert 'a[href^="#"]:not(.skip-link)' in script
+        # And the old narrow selector is gone (regression guard).
+        assert ".site-nav a[" not in script
+
+    def test_easing_is_ease_out_quart_not_ease_in_out_cubic(self):
+        # ``easeOutQuart`` (``1 - (1-t)^4``) front-loads motion so the
+        # scroll picks up speed in the first frame and decelerates
+        # into the target. The earlier ``easeInOutCubic`` curve
+        # (``t < 0.5 ? 4t^3 : 1 - (-2t + 2)^3 / 2``) felt as though
+        # the page lagged at the start and then "caught up" through
+        # an accelerating middle, which is what the user-reported
+        # "accelerates with lag" complaint was describing.
+        script = update._NAV_SCROLL_SCRIPT
+        # The new curve uses a quartic decay over ``1 - t``.
+        assert "var u=1-t;return 1-u*u*u*u;" in script
+        # And the old cubic-in-out branches are gone.
+        assert "4*t*t*t" not in script
+        assert "Math.pow(-2*t+2,3)" not in script
+
+    def test_duration_window_is_tightened(self):
+        # ``Math.min(650,Math.max(280,dist*0.30))`` -- shorter and
+        # more responsive than the previous ``min(900, max(450,
+        # dist*0.45))``. Tight enough that even a top-of-page-to-
+        # bottom slide completes in ~650ms while a same-section
+        # hop is nearly instantaneous (280ms).
+        script = update._NAV_SCROLL_SCRIPT
+        assert "Math.min(650,Math.max(280,dist*0.30))" in script
+        # Sanity-check the old window isn't still hiding somewhere.
+        assert "Math.max(450" not in script
+        assert "Math.min(900" not in script
+
+    def test_blurs_clicked_anchor_so_marquee_can_resume(self):
+        # When a marquee logo is clicked the browser focuses the
+        # ``<a>``, which (combined with a ``.ticker:focus-within``
+        # CSS rule) used to keep the strip paused until the user
+        # clicked elsewhere. Even though the CSS rule is gone, we
+        # also blur the activated anchor: it stops any sticky-
+        # focus highlight (e.g. on the equities-allocation rows
+        # on touch) and is robust to a future CSS regression that
+        # accidentally re-introduces a focus-within pause.
+        script = update._NAV_SCROLL_SCRIPT
+        # ``a`` is the local variable holding the closest matching
+        # anchor; blur is wrapped in a try/catch so an environment
+        # without a blur method never crashes the handler.
+        assert "a.blur" in script
+
+    def test_reads_scroll_margin_top_so_anchored_targets_clear_header(self):
+        # The slide must respect ``scroll-margin-top`` -- otherwise
+        # holding capsules (which set it to 120px so the sticky
+        # header doesn't cover them) would land underneath the
+        # header. The renderer relies on this contract when it
+        # plumbs ``scroll-margin-top`` onto ``.holding`` /
+        # ``.section__subtitle``.
+        script = update._NAV_SCROLL_SCRIPT
+        assert "scrollMarginTop" in script
+
+
+class TestInteractionStyles:
+    """CSS gating around interactive states (marquee pause + linked
+    rows). Verified against the saved page so we exercise the same
+    inline stylesheet a browser would render."""
+
+    def test_marquee_pauses_only_on_real_pointer_hover(
+        self, stub_logo_lookup, chdir_tmp, freeze_today,
+    ):
+        # The pause-on-hover rule lives inside ``@media (hover:
+        # hover)`` so a tap on a touch device (which historically
+        # latched into a sticky ``:hover`` state) never freezes
+        # the marquee. The ``:focus-within`` variant is gone too:
+        # mouse-clicking a marquee anchor focuses it by default,
+        # and the previous CSS used to keep the strip parked
+        # until the user clicked somewhere else.
+        freeze_today(datetime(2025, 6, 1))
+        w = Webpage()
+        w.add_return(_total_return(), [])
+        w.add_holding(_holding(ticker="NMS:AAA"))
+        w.save()
+        out = (chdir_tmp / "index.html").read_text()
+
+        # The pause rule is wrapped in a hover-capable media query.
+        assert (
+            "@media (hover: hover) {\n"
+            "  .ticker:hover .ticker__track { animation-play-state: paused; }\n"
+            "}"
+        ) in out
+        # And the focus-within variant that used to keep the bar
+        # parked after a click is gone.
+        assert ".ticker:focus-within" not in out
+        # Regression guard: the unconditional ``.ticker:hover``
+        # rule (the previous shape) is absent.
+        assert (
+            ".ticker:hover .ticker__track,\n.ticker:focus-within"
+        ) not in out
+
+    def test_marquee_link_hover_is_gated_to_pointer_devices(
+        self, stub_logo_lookup, chdir_tmp, freeze_today,
+    ):
+        # Same touch-device caveat as the strip itself: the
+        # logo-lift hover effect lives behind ``@media (hover:
+        # hover)`` so a tap doesn't leave a logo permanently
+        # brightened. ``:focus-visible`` stays outside the gate
+        # for keyboard users.
+        freeze_today(datetime(2025, 6, 1))
+        w = Webpage()
+        w.add_return(_total_return(), [])
+        w.add_holding(_holding(ticker="NMS:AAA"))
+        w.save()
+        out = (chdir_tmp / "index.html").read_text()
+
+        assert ".ticker__link:focus-visible .ticker__logo { opacity: 1; }" in out
+        assert (
+            "@media (hover: hover) {\n"
+            "  .ticker__link:hover .ticker__logo { opacity: 1; }\n"
+            "}"
+        ) in out
+
+    def test_bars_row_link_hover_is_gated_to_pointer_devices(
+        self, stub_logo_lookup, chdir_tmp, freeze_today,
+    ):
+        # The user-reported regression: tapping a ticker row in the
+        # equities allocation chart on a touch device left the row
+        # highlighted after the finger lifted (``:hover`` sticks on
+        # touch). Gating on ``@media (hover: hover)`` keeps the
+        # hover affordance for mouse / trackpad readers while touch
+        # users only see the highlight while their finger is
+        # actually on the row.
+        freeze_today(datetime(2025, 6, 1))
+        w = Webpage()
+        w.add_return(_total_return(), [])
+        w.add_allocations({"Equities": 95.0}, {"NMS:AAA": 50.0})
+        w.add_holding(_holding(ticker="NMS:AAA"))
+        w.save()
+        out = (chdir_tmp / "index.html").read_text()
+
+        # The hover branch is gated.
+        assert "@media (hover: hover)" in out
+        # The keyboard focus branch is not, so the row still gets
+        # a visible state when reached via the tab order.
+        assert ".bars__row--link:focus-visible {" in out
+        # Regression guard: the comma-joined unconditional
+        # ``:hover, :focus-visible`` shape that produced the
+        # sticky-tap behaviour is gone.
+        assert (
+            ".bars__row--link:hover,\n.bars__row--link:focus-visible"
+        ) not in out
 
 
 class TestAddAllocations:

@@ -1161,9 +1161,19 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
   width: max-content;
   animation: ticker-scroll 60s linear infinite;
 }
-.ticker:hover .ticker__track,
-.ticker:focus-within .ticker__track {
-  animation-play-state: paused;
+/* Pause the marquee while a real pointer is hovering over it
+   (mouse / trackpad / pen) so a reader can study a passing logo.
+   Gated on ``@media (hover: hover)`` so it never fires on touch
+   devices, where a tap was previously latching into a sticky
+   :hover state and freezing the bar mid-loop; and the
+   ``:focus-within`` variant is gone entirely so a click on a
+   marquee anchor (which focuses that anchor by browser default)
+   no longer keeps the strip parked until the user clicks
+   elsewhere. The marquee itself is ``aria-hidden`` and every
+   link is ``tabindex="-1"``, so there's no keyboard pathway in
+   that needs the focus-based pause anyway. */
+@media (hover: hover) {
+  .ticker:hover .ticker__track { animation-play-state: paused; }
 }
 /* Normalize logos to a uniform-area cell so every holding reads
    at the same visual prominence along the marquee. The portfolio's
@@ -1224,8 +1234,16 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
   cursor: pointer;
   transition: opacity 0.15s ease;
 }
-.ticker__link:hover .ticker__logo,
+/* Hover lift is gated on real pointer devices: on touch, ``:hover``
+   sticks until the user taps somewhere else, which would leave a
+   logo permanently brightened after a tap-through. ``:focus-visible``
+   stays outside the gate so keyboard users still get the lift
+   if they ever programmatically focus a logo (browser default
+   doesn't, but extensions and tests sometimes do). */
 .ticker__link:focus-visible .ticker__logo { opacity: 1; }
+@media (hover: hover) {
+  .ticker__link:hover .ticker__logo { opacity: 1; }
+}
 @keyframes ticker-scroll {
   from { transform: translateX(0); }
   to { transform: translateX(-50%); }
@@ -1534,10 +1552,23 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
   border-radius: 6px;
   transition: background-color 0.15s ease;
 }
-.bars__row--link:hover,
+/* Same touch-device caveat as the marquee links above: ``:hover``
+   latches on touch and would otherwise leave the just-tapped row
+   highlighted after the finger lifted (especially noticeable on
+   the equity allocation chart, where the highlight then bled into
+   the user's view of the next row down). Gating on real pointer
+   devices keeps the affordance for mouse / trackpad readers while
+   touch users only see the highlight while their finger is
+   actually pressing the row. */
 .bars__row--link:focus-visible {
   background: var(--line);
   outline: none;
+}
+@media (hover: hover) {
+  .bars__row--link:hover {
+    background: var(--line);
+    outline: none;
+  }
 }
 .bars__label {
   font-size: 0.9375rem;
@@ -2197,8 +2228,18 @@ _HASH_CLEAR_SCRIPT = (
 # which reads as a brief "blink" right after the tap. Driving the
 # scroll from JS lets us:
 #
-#   * use a slower, cubic-eased animation that genuinely "slides"
-#     between sections instead of snapping;
+#   * use an ease-out quartic animation that genuinely "slides"
+#     between sections instead of snapping. ``easeOutQuart``
+#     (``1 - (1-t)^4``) front-loads motion: the scroll picks up
+#     speed in the first frame and decelerates smoothly into the
+#     target. The earlier ``easeInOutCubic`` curve started slow
+#     (perceived as input lag), then accelerated through the
+#     middle, then decelerated -- on a long page that "slow start,
+#     fast middle, slow end" reads as "the page is stuttering and
+#     then catching up" rather than as a smooth slide. Ease-out
+#     also lets us shorten the overall duration without the
+#     animation feeling rushed, since the user immediately sees
+#     meaningful motion;
 #   * cancel ``preventDefault()`` the anchor click so the browser
 #     never performs the instant-jump that fights our animation;
 #   * call ``window.scrollTo`` programmatically (which does NOT
@@ -2236,9 +2277,10 @@ _NAV_SCROLL_SCRIPT = (
     "var rm=false;"
     "try{rm=matchMedia('(prefers-reduced-motion: reduce)').matches;}"
     "catch(e){}"
-    "function ease(t){"
-    "return t<0.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2;"
-    "}"
+    # easeOutQuart: 1 - (1-t)^4. Snappy start, smooth deceleration
+    # into the target -- avoids the "starts slow, then catches up"
+    # feel of the previous ease-in-out-cubic curve.
+    "function ease(t){var u=1-t;return 1-u*u*u*u;}"
     "function sy(){"
     "return window.pageYOffset||document.documentElement.scrollTop||0;"
     "}"
@@ -2278,10 +2320,25 @@ _NAV_SCROLL_SCRIPT = (
     "var ty=targetY(el);"
     "if(rm){window.scrollTo(0,ty);}"
     "else{"
+    # Duration scales gently with distance so a short hop in the
+    # current section stays nearly instantaneous while a top-of-
+    # page-to-bottom slide still completes within ~650ms. The
+    # earlier 450-900ms window left even short hops feeling
+    # sluggish; tightening to 280-650ms with a 0.30 px-per-ms
+    # ratio reads as immediate without crossing into "abrupt".
     "var dist=Math.abs(ty-sy());"
-    "var dur=Math.min(900,Math.max(450,dist*0.45));"
+    "var dur=Math.min(650,Math.max(280,dist*0.30));"
     "slide(el,dur);"
     "}"
+    # Release focus from the activated anchor so the marquee can
+    # resume its loop (the ``.ticker:hover`` rule is gated on real
+    # pointer hover via ``@media (hover: hover)``, but a click on
+    # a ``.ticker__link`` still focuses the anchor; without this
+    # blur, future browsers / extensions that visualize that
+    # focus could keep the bar paused). Also stops the just-
+    # clicked bar row from staying highlighted on touch devices
+    # after the tap completes.
+    "if(a.blur){try{a.blur();}catch(err){}}"
     "try{history.pushState(null,'',href);}catch(err){}"
     "});"
     "})();"
