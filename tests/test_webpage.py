@@ -1306,7 +1306,10 @@ class TestSave:
         # substring of ``out``, which CodeQL flags as
         # ``py/incomplete-url-substring-sanitization``); this is also
         # a stronger check -- a typo that drops the URL outside
-        # ``script-src`` would no longer pass.
+        # ``script-src`` would no longer pass. The token check uses
+        # explicit ``==`` per element rather than ``URL in <list>``,
+        # because CodeQL doesn't reliably distinguish list-membership
+        # from substring containment and still flags the latter shape.
         csp = out.split(
             'http-equiv="Content-Security-Policy" content="', 1
         )[1].split('"', 1)[0]
@@ -1315,9 +1318,15 @@ class TestSave:
             tokens = directive.strip().split()
             if tokens:
                 directives[tokens[0]] = tokens[1:]
-        assert "'self'" in directives["default-src"]
-        assert "https://static.cloudflareinsights.com" in directives["script-src"]
-        assert "'none'" in directives["frame-ancestors"]
+
+        def _contains(tokens: list[str], expected: str) -> bool:
+            return any(token == expected for token in tokens)
+
+        assert _contains(directives["default-src"], "'self'")
+        assert _contains(
+            directives["script-src"], "https://static.cloudflareinsights.com"
+        )
+        assert _contains(directives["frame-ancestors"], "'none'")
         # Both the inline JSON-LD and the inline <style> are still
         # hash-pinned (XSS-relevant payloads stay locked).
         assert "'sha256-" in out
