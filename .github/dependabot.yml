@@ -1,0 +1,23 @@
+version: 2
+updates:
+  # Python production dependencies tracked via the pip-tools generated
+  # ``requirements.txt`` lockfile. The companion ``requirements.in`` is
+  # the human-edited source of truth, so Dependabot's PRs against the
+  # lock provide the reproducibility signal we want without colliding
+  # with the unpinned ``.in`` source.
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "python"]
+    groups:
+      python-minor:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "github-actions"]

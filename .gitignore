@@ -1,8 +1,14 @@
 .DS_Store
 .idea
 .venv/
+.testvenv/
 __pycache__/
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
 *.pyc
 # Generated at build time by update.py (and uploaded as Pages artifact).
 index.html
@@ -11,3 +17,5 @@ robots.txt
 og-image.png
 # Local debug renders produced by preview.py.
 preview/
+# CI smoke-parse output (HTML smoke test in test.yml).
+ci-smoke/

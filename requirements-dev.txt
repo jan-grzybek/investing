@@ -1,2 +1,12 @@
+# Developer / CI extras layered on top of the pinned runtime ``requirements.txt``.
+# Dev tooling is intentionally NOT version-pinned here; lint and test infra
+# evolves on its own cadence and a stale pin will silently mask new diagnostics.
+# Reproducibility of the *production build* is what ``requirements.txt`` locks.
 -r requirements.txt
 pytest>=8
+pytest-cov>=5
+ruff>=0.6
+mypy>=1.10
+beautifulsoup4>=4.12
+pre-commit>=3.7
+pip-tools>=7

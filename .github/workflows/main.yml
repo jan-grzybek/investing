@@ -76,14 +76,15 @@ jobs:
       - name: Install deps
         run: pip install -r requirements.txt
 
-      - name: Prepare credentials
-        shell: bash
-        env:
-          GSHEET_CREDS: ${{ secrets.GSHEET_CREDS }}
-        run: echo "${GSHEET_CREDS}" > /tmp/gsheet_creds.json
-
       - name: Generate new webpage
         env:
+          # Service-account JSON passed directly to ``pull_data`` via the
+          # environment; ``update.py::_gspread_client`` reads it with
+          # ``gspread.service_account_from_dict(json.loads(...))`` so the
+          # secret never lands on the runner's filesystem and there's no
+          # ``/tmp/gsheet_creds.json`` left behind that a later debug step
+          # could `cat` into job logs.
+          GSHEET_CREDS: ${{ secrets.GSHEET_CREDS }}
           GSHEET_ID: ${{ secrets.GSHEET_ID }}
         # ``update.py`` runs ``main()`` through a leak-safe wrapper
         # (``_run_main_safely``) that silences both ``sys.stderr`` and

@@ -305,7 +305,7 @@ def render(out_dir: Path) -> Path:
     # build the URL with the matching extension. Same fallback to
     # ``courage.png`` as production when no logo is on file.
     extension_map = _build_logo_extension_map()
-    Webpage._get_logo_url = _make_stub_logo_url(extension_map)
+    Webpage._get_logo_url = _make_stub_logo_url(extension_map)  # type: ignore[method-assign]
 
     cwd = Path.cwd()
     try:

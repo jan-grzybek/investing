@@ -1,9 +1,14 @@
 """Shared pytest fixtures and import-path setup for the test suite.
 
-`update.py` lives at the repository root, so we prepend the project root
-to ``sys.path`` before any test imports it. We also reset the module-level
-``exchange_rate`` singleton between tests so that cached state from one
-test never leaks into another.
+``update.py`` lives at the repository root, so we prepend the project
+root to ``sys.path`` before any test imports it.
+
+The module no longer carries a mutable ``exchange_rate`` singleton -- FX
+is threaded through the API as an explicit ``fx`` parameter on
+``Holding``/``get_holdings``/``summarize``/``get_benchmarks``. Tests
+pass the :func:`stub_exchange_rate` callable directly to whichever
+constructor they're exercising; no module-level patching is needed and
+no autouse cleanup fixture is required to keep tests isolated.
 """
 from __future__ import annotations
 
@@ -22,27 +27,20 @@ if str(PROJECT_ROOT) not in sys.path:
 import update  # noqa: E402  (import after sys.path mutation)
 
 
-@pytest.fixture(autouse=True)
-def _reset_exchange_rate_cache():
-    """Ensure the global ExchangeRate cache is empty for every test."""
-    update.exchange_rate._rates = {}
-    update.exchange_rate._history = {}
-    yield
-    update.exchange_rate._rates = {}
-    update.exchange_rate._history = {}
-
-
 @pytest.fixture
-def stub_exchange_rate(monkeypatch):
-    """Replace the global exchange rate with one that always returns 1.0.
+def stub_exchange_rate():
+    """A stub fx callable that always returns ``1.0``.
 
-    Many tests use USD-denominated tickers; pinning the rate to 1.0 makes
-    expected values trivial to reason about, regardless of currency.
+    Many tests use USD-denominated tickers; pinning the rate to 1.0
+    makes expected values trivial to reason about regardless of
+    currency. Pass the returned callable to ``Holding(fx=...)``,
+    ``get_holdings(..., fx=...)``, ``summarize(..., fx=...)``, or
+    ``get_benchmarks(..., fx=...)`` -- there is no module-level
+    state to patch.
     """
     def _rate(currency, date=None):  # noqa: ARG001
         return 1.0
 
-    monkeypatch.setattr(update, "exchange_rate", _rate)
     return _rate
 
 
@@ -101,7 +99,21 @@ def patch_yf_ticker(monkeypatch):
 
 @pytest.fixture
 def freeze_today(monkeypatch):
-    """Pin ``datetime.today()`` / ``datetime.now()`` inside update.py."""
+    """Pin ``datetime.today()`` / ``datetime.now()`` across the package.
+
+    The page generator was split into ``investing/<module>.py`` files;
+    each module that calls ``datetime.today()`` or ``datetime.now()``
+    holds its own import-bound name, so patching just one of them (the
+    historical ``update.datetime``) leaves the others on the real
+    clock and breaks any cross-module test. Walking the package and
+    swapping ``datetime`` on every module that exports it keeps the
+    "freeze the world" semantic the suite previously had under the
+    monolithic layout.
+    """
+    import investing.holdings as _holdings
+    import investing.performance as _performance
+    import investing.webpage as _webpage
+
     def _freeze(when: datetime):
         class _FrozenDateTime(datetime):
             @classmethod
@@ -112,7 +124,8 @@ def freeze_today(monkeypatch):
             def now(cls, tz=None):  # noqa: ARG002
                 return when
 
-        monkeypatch.setattr(update, "datetime", _FrozenDateTime)
+        for mod in (update, _holdings, _performance, _webpage):
+            monkeypatch.setattr(mod, "datetime", _FrozenDateTime)
         return when
 
     return _freeze

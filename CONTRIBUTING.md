@@ -1,0 +1,73 @@
+# Contributing
+
+## Project layout
+
+The page generator lives in the [`investing/`](investing/) package; the
+historical `update.py` file is now a backwards-compatibility shim that
+re-exports everything for the test suite and the production
+entrypoint.
+
+| Module | Responsibility |
+| --- | --- |
+| `investing/paths.py` | Repo paths + the `_read_asset` helper. |
+| `investing/log.py` | Module-level logger. |
+| `investing/formatting.py` | Date / percentage / duration / hash helpers. |
+| `investing/fx.py` | `ExchangeRate` + the `fx` callable threaded through the API. |
+| `investing/trades.py` | `Trade` records and burst aggregation. |
+| `investing/holdings.py` | `Holding` (positions, periods, dividends, TSR / CAGR). |
+| `investing/sheets.py` | Google Sheets ingestion + row schema validators. |
+| `investing/performance.py` | TWR / allocations / top-10 / benchmarks. |
+| `investing/assets.py` | Loads `assets/page.css` + `assets/*.js` at import time. |
+| `investing/webpage.py` | `Webpage` HTML renderer. |
+| `investing/cli.py` | `main()` -- wires the data pipeline + renderer. |
+| `investing/safe_run.py` | Leak-safe wrapper around `main`. |
+
+CSS and JS payloads live as real files under [`assets/`](assets/) so
+editors can lint and format them.
+
+## Development workflow
+
+1. Install editable dev deps: `pip install -r requirements-dev.txt`
+2. Install pre-commit hooks: `pre-commit install`
+3. Run the suite: `pytest`
+4. Render synthetic preview locally: `python preview.py --out preview/`
+
+The CI matrix runs against Python 3.12, 3.13 and 3.14, with branch
+coverage reported via `pytest-cov`. The production deployment workflow
+uses 3.13.
+
+## Dependencies
+
+`requirements.in` is the human-edited source of truth. The pinned
+lockfile `requirements.txt` is regenerated with
+`pip-compile requirements.in`. Dependabot opens weekly PRs against the
+lockfile so version bumps land as reviewable diffs.
+
+## Commits
+
+This repo follows [Conventional Commits](https://www.conventionalcommits.org/)
+so `git log --oneline` reads as a release-grade changelog:
+
+```
+feat(webpage): add tooltip to return-chart hover
+fix(sheets): validate row shape before extracting fields
+refactor(fx): thread ExchangeRate through holdings/summarize/benchmarks
+chore(deps): bump pinned requirements
+docs: explain assets/ directory layout
+test(webpage): split monolithic test_webpage.py into 3 focused files
+```
+
+Common type prefixes: `feat`, `fix`, `refactor`, `chore`, `docs`,
+`test`, `ci`, `style`. Use a scope when it disambiguates (the module
+you touched works well). Keep the subject under ~72 characters.
+
+## Style
+
+- `ruff` + `mypy` run via pre-commit. Configuration lives in
+  [`pyproject.toml`](pyproject.toml).
+- New top-level functions / classes need a docstring that explains
+  *why* the function exists, not just *what* it does. Inline `#`
+  comments around non-obvious branches are encouraged; obvious
+  narration comments are not.
+- Logging goes through the module-level `logger`
+  (`investing.log.logger`); never `print()` from non-test code.

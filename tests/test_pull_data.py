@@ -179,8 +179,49 @@ class TestPullData:
             cash=[],
         )
         patch_gspread(sh)
-        with pytest.raises(AssertionError):
+        # The new :class:`SheetParseError` (a ``ValueError`` subclass)
+        # replaces the legacy ``assert False`` -- ``pytest.raises``
+        # against ``ValueError`` keeps the test resilient to the
+        # original failure-mode contract being upgraded from
+        # ``AssertionError`` to a structured error type with row /
+        # column context.
+        with pytest.raises(update.SheetParseError) as excinfo:
             pull_data()
+        # The error must point at the offending sheet location so an
+        # operator editing the source Google Sheet can find the bad
+        # row without having to instrument the script.
+        assert excinfo.value.worksheet == "Equities"
+        assert excinfo.value.row == 3
+        assert "HOLD" in str(excinfo.value)
+
+    def test_short_row_raises_with_location(self, patch_gspread):
+        # Rows missing the include flag (or any other required column)
+        # should produce a precise error rather than an opaque
+        # IndexError. ``Cash & Cash Equivalents`` has 5 columns; a
+        # 4-column row trips the shape check.
+        sh = _build_spreadsheet(
+            equities=[],
+            returns=[],
+            cash=[["", "", "USD", "100.0"]],
+        )
+        patch_gspread(sh)
+        with pytest.raises(update.SheetParseError) as excinfo:
+            pull_data()
+        assert excinfo.value.worksheet == "Cash & Cash Equivalents"
+        assert excinfo.value.row == 3
+        assert "5" in str(excinfo.value)
+
+    def test_invalid_number_raises_with_location(self, patch_gspread):
+        sh = _build_spreadsheet(
+            equities=[_equity_row("01-01-2024", "AAPL", "ten", "1.0", "BUY")],
+            returns=[],
+            cash=[],
+        )
+        patch_gspread(sh)
+        with pytest.raises(update.SheetParseError) as excinfo:
+            pull_data()
+        assert excinfo.value.worksheet == "Equities"
+        assert excinfo.value.field == "quantity"
 
     def test_empty_sheets_return_empty_collections(self, patch_gspread):
         sh = _build_spreadsheet(equities=[], returns=[], cash=[])

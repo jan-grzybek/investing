@@ -94,7 +94,7 @@ class TestSplitsAndDividendsBootstrap:
 class TestBuy:
     def test_first_buy_opens_a_position_and_period(self, install_ticker, stub_exchange_rate):
         install_ticker(_make_ticker(price=100.0))
-        holding = Holding("TST")
+        holding = Holding("TST", fx=stub_exchange_rate)
         holding.buy(Trade(datetime(2024, 1, 1), "TST", 10, 50.0, "BUY"))
 
         assert len(holding._positions) == 1
@@ -106,7 +106,7 @@ class TestBuy:
 
     def test_same_day_buy_aggregates_quantity(self, install_ticker, stub_exchange_rate):
         install_ticker(_make_ticker(price=100.0))
-        holding = Holding("TST")
+        holding = Holding("TST", fx=stub_exchange_rate)
         holding.buy(Trade(datetime(2024, 1, 1), "TST", 10, 50.0, "BUY"))
         holding.buy(Trade(datetime(2024, 1, 1), "TST", 5, 60.0, "BUY"))
 
@@ -122,7 +122,7 @@ class TestBuy:
             price=100.0,
             splits={_date_key(datetime(2024, 2, 1)): 4.0},
         ))
-        holding = Holding("TST")
+        holding = Holding("TST", fx=stub_exchange_rate)
         holding.buy(Trade(datetime(2024, 1, 1), "TST", 10, 50.0, "BUY"))
         holding.buy(Trade(datetime(2024, 3, 1), "TST", 5, 25.0, "BUY"))
 
@@ -132,7 +132,7 @@ class TestBuy:
 class TestSell:
     def test_partial_sell_keeps_period_open(self, install_ticker, stub_exchange_rate):
         install_ticker(_make_ticker(price=100.0))
-        holding = Holding("TST")
+        holding = Holding("TST", fx=stub_exchange_rate)
         holding.buy(Trade(datetime(2024, 1, 1), "TST", 10, 50.0, "BUY"))
         holding.sell(Trade(datetime(2024, 6, 1), "TST", 4, 60.0, "SELL"))
 
@@ -144,7 +144,7 @@ class TestSell:
 
     def test_full_sell_closes_the_period(self, install_ticker, stub_exchange_rate):
         install_ticker(_make_ticker(price=100.0))
-        holding = Holding("TST")
+        holding = Holding("TST", fx=stub_exchange_rate)
         holding.buy(Trade(datetime(2024, 1, 1), "TST", 10, 50.0, "BUY"))
         holding.sell(Trade(datetime(2024, 6, 1), "TST", 10, 60.0, "SELL"))
 
@@ -153,7 +153,7 @@ class TestSell:
 
     def test_rebuy_after_full_sell_starts_new_period(self, install_ticker, stub_exchange_rate):
         install_ticker(_make_ticker(price=100.0))
-        holding = Holding("TST")
+        holding = Holding("TST", fx=stub_exchange_rate)
         holding.buy(Trade(datetime(2024, 1, 1), "TST", 10, 50.0, "BUY"))
         holding.sell(Trade(datetime(2024, 6, 1), "TST", 10, 60.0, "SELL"))
         holding.buy(Trade(datetime(2024, 9, 1), "TST", 7, 55.0, "BUY"))
@@ -178,7 +178,7 @@ class TestAddDividends:
             price=100.0,
             dividends={_date_key(datetime(2024, 6, 1)): 1.00},
         ))
-        holding = Holding("TST")
+        holding = Holding("TST", fx=stub_exchange_rate)
         holding.buy(Trade(datetime(2024, 1, 1), "TST", 10, 50.0, "BUY"))
 
         outflows = holding._add_dividends()
@@ -194,7 +194,7 @@ class TestAddDividends:
             price=100.0,
             dividends={_date_key(datetime(2023, 6, 1)): 1.00},
         ))
-        holding = Holding("TST")
+        holding = Holding("TST", fx=stub_exchange_rate)
         holding.buy(Trade(datetime(2024, 1, 1), "TST", 10, 50.0, "BUY"))
 
         outflows = holding._add_dividends()
@@ -212,7 +212,7 @@ class TestSummary:
             exchange="NMS",
             long_name="Test Co.",
         ))
-        holding = Holding("TST")
+        holding = Holding("TST", fx=stub_exchange_rate)
         holding.buy(Trade(datetime(2024, 1, 1), "TST", 10, 100.0, "BUY"))
 
         summary = holding.summary()
@@ -235,7 +235,7 @@ class TestSummary:
     ):
         freeze_today(datetime(2025, 1, 1))
         install_ticker(_make_ticker(price=999.0))  # current price shouldn't matter
-        holding = Holding("TST")
+        holding = Holding("TST", fx=stub_exchange_rate)
         holding.buy(Trade(datetime(2024, 1, 1), "TST", 10, 100.0, "BUY"))
         holding.sell(Trade(datetime(2025, 1, 1), "TST", 10, 150.0, "SELL"))
 
@@ -253,7 +253,7 @@ class TestSummary:
     ):
         freeze_today(datetime(2025, 6, 1))
         install_ticker(_make_ticker(price=120.0))
-        holding = Holding("TST")
+        holding = Holding("TST", fx=stub_exchange_rate)
         # Two distinct ownership windows.
         holding.buy(Trade(datetime(2023, 1, 1), "TST", 10, 100.0, "BUY"))
         holding.sell(Trade(datetime(2023, 7, 1), "TST", 10, 110.0, "SELL"))
@@ -270,7 +270,7 @@ class TestSummary:
         # expected CAGR from first principles.
         freeze_today(datetime(2026, 1, 1))  # 2 years after purchase
         install_ticker(_make_ticker(price=144.0))
-        holding = Holding("TST")
+        holding = Holding("TST", fx=stub_exchange_rate)
         holding.buy(Trade(datetime(2024, 1, 1), "TST", 1, 100.0, "BUY"))
 
         summary = holding.summary()

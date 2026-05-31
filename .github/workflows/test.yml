@@ -21,8 +21,16 @@ jobs:
   pytest:
     runs-on: ubuntu-latest
     strategy:
+      # Don't short-circuit one Python version's failure into the others;
+      # we want to see every supported runtime's report on the same PR.
+      fail-fast: false
       matrix:
-        python-version: ['3.13']
+        # The production workflow pins itself to 3.13 (matches the
+        # GitHub-hosted runner default at the time of writing); the
+        # extra rows here keep us honest that the codebase still works
+        # on the version pinned in ``pyproject.toml`` (3.12) and on
+        # the next stable release Cursor will deploy.
+        python-version: ['3.12', '3.13', '3.14']
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -47,5 +55,50 @@ jobs:
       - name: Install deps
         run: pip install -r requirements-dev.txt
 
-      - name: Run pytest
-        run: python -m pytest -v
+      - name: Run pytest with coverage
+        # ``--cov`` enables the coverage plugin from ``pytest-cov``;
+        # the config in ``pyproject.toml`` selects ``update`` /
+        # ``preview`` / the ``investing`` package as the source set
+        # and turns on branch coverage so the report flags untested
+        # ``if`` / ``elif`` branches in addition to unexecuted lines.
+        run: python -m pytest -v --cov=investing --cov=update --cov=preview --cov-report=term-missing --cov-report=xml
+
+      - name: HTML smoke parse
+        # Render the page from synthetic fixtures and parse the result
+        # with an HTML parser to confirm it's well-formed. Catches
+        # regressions like an unclosed tag in a template branch that
+        # the unit tests' string-level assertions miss.
+        run: |
+          python preview.py --out ci-smoke
+          python -c "
+          from html.parser import HTMLParser
+          import sys
+          class Strict(HTMLParser):
+              def __init__(self):
+                  super().__init__(convert_charrefs=True)
+                  self.errors = []
+              def error(self, msg):
+                  self.errors.append(msg)
+          html = open('ci-smoke/index.html', encoding='utf-8').read()
+          parser = Strict()
+          parser.feed(html)
+          parser.close()
+          if parser.errors:
+              print('\n'.join(parser.errors))
+              sys.exit(1)
+          assert '<!DOCTYPE html>' in html, 'missing doctype'
+          assert '</html>' in html, 'missing closing tag'
+          print(f'OK -- {len(html)} bytes parsed')
+          "
+
+      - name: Upload coverage report
+        # Only one matrix row needs to upload (avoid 3x duplicate
+        # artefacts); pick the version production runs on. ``if`` runs
+        # even when prior steps fail so a partial report is still
+        # available for inspection.
+        if: matrix.python-version == '3.13' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          if-no-files-found: ignore

@@ -32,8 +32,21 @@ def _mk_ticker(symbol, *, price, currency="USD"):
 
 
 @pytest.fixture
+def stub_fx():
+    """A stub fx callable that always returns 1.0."""
+    def _rate(currency, date=None):  # noqa: ARG001
+        return 1.0
+    return _rate
+
+
+@pytest.fixture
 def stub_world(monkeypatch):
-    """Mock Yahoo + requests + exchange-rate for full-pipeline tests."""
+    """Mock Yahoo + requests for full-pipeline tests.
+
+    FX is injected via the ``fx`` parameter on ``get_holdings`` / etc.;
+    use the :func:`stub_fx` fixture alongside this one when the test
+    constructs holdings.
+    """
     tickers = {
         "AAA": _mk_ticker("AAA", price=150.0),
         "BBB": _mk_ticker("BBB", price=80.0),
@@ -42,12 +55,11 @@ def stub_world(monkeypatch):
     resp = MagicMock()
     resp.status_code = 404  # forces fall-through to "courage.png"
     monkeypatch.setattr(update.requests, "head", lambda url: resp)  # noqa: ARG005
-    monkeypatch.setattr(update, "exchange_rate", lambda c, date=None: 1.0)  # noqa: ARG005
     return tickers
 
 
 class TestGetHoldings:
-    def test_splits_open_vs_closed_positions(self, stub_world, freeze_today):
+    def test_splits_open_vs_closed_positions(self, stub_world, stub_fx, freeze_today):
         freeze_today(datetime(2025, 1, 1))
         # AAA: bought and still holding -> current.
         # BBB: fully sold -> historical.
@@ -74,14 +86,14 @@ class TestGetHoldings:
                 "action": "SELL",
             },
         ]
-        result = get_holdings(transactions)
+        result = get_holdings(transactions, fx=stub_fx)
 
         assert {h["ticker"] for h in result["current"]} == {"NMS:AAA"}
         assert {h["ticker"] for h in result["historical"]} == {"NMS:BBB"}
         # current_value_usd for AAA = 10 * 150
         assert result["current"][0]["current_value_usd"] == pytest.approx(1500.0)
 
-    def test_current_sorted_by_latest_buy_descending(self, stub_world, freeze_today):
+    def test_current_sorted_by_latest_buy_descending(self, stub_world, stub_fx, freeze_today):
         freeze_today(datetime(2025, 1, 1))
         transactions = [
             {
@@ -99,14 +111,14 @@ class TestGetHoldings:
                 "action": "BUY",
             },
         ]
-        result = get_holdings(transactions)
+        result = get_holdings(transactions, fx=stub_fx)
         # BBB bought later -> appears first.
         assert [h["ticker"] for h in result["current"]] == ["NMS:BBB", "NMS:AAA"]
 
 
 class TestGenerateWebpage:
     def test_full_render_writes_index_html(
-        self, stub_world, chdir_tmp, freeze_today, monkeypatch
+        self, stub_world, stub_fx, chdir_tmp, freeze_today, monkeypatch
     ):
         freeze_today(datetime(2025, 6, 1))
 
@@ -120,7 +132,7 @@ class TestGenerateWebpage:
                 "action": "BUY",
             },
         ]
-        holdings = get_holdings(transactions)
+        holdings = get_holdings(transactions, fx=stub_fx)
         # Mimic what summarize() does — generate_webpage assumes weights filled.
         holdings["current"][0]["current_weight%"] = 100.0
 

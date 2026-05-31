@@ -339,13 +339,13 @@ def _trade(date, qty, price, action):
 
 class TestHoldingCategorisesTrades:
     def test_first_buy_is_open(self, stub_exchange_rate, fake_apple):
-        h = Holding("AAPL")
+        h = Holding("AAPL", fx=stub_exchange_rate)
         h.buy(_trade(datetime(2024, 1, 1), 10, 100.0, "BUY"))
         assert len(h._trade_events) == 1
         assert h._trade_events[0]["category"] == "OPEN"
 
     def test_second_buy_is_increase(self, stub_exchange_rate, fake_apple):
-        h = Holding("AAPL")
+        h = Holding("AAPL", fx=stub_exchange_rate)
         h.buy(_trade(datetime(2024, 1, 1), 10, 100.0, "BUY"))
         h.buy(_trade(datetime(2024, 2, 1), 5, 110.0, "BUY"))
         assert [e["category"] for e in h._trade_events] == [
@@ -353,13 +353,13 @@ class TestHoldingCategorisesTrades:
         ]
 
     def test_partial_sell_is_decrease(self, stub_exchange_rate, fake_apple):
-        h = Holding("AAPL")
+        h = Holding("AAPL", fx=stub_exchange_rate)
         h.buy(_trade(datetime(2024, 1, 1), 10, 100.0, "BUY"))
         h.sell(_trade(datetime(2024, 3, 1), 4, 120.0, "SELL"))
         assert h._trade_events[-1]["category"] == "DECREASE"
 
     def test_full_sell_is_close(self, stub_exchange_rate, fake_apple):
-        h = Holding("AAPL")
+        h = Holding("AAPL", fx=stub_exchange_rate)
         h.buy(_trade(datetime(2024, 1, 1), 10, 100.0, "BUY"))
         h.sell(_trade(datetime(2024, 3, 1), 10, 120.0, "SELL"))
         assert h._trade_events[-1]["category"] == "CLOSE"
@@ -370,7 +370,7 @@ class TestHoldingCategorisesTrades:
         # OPEN trades have no prior position; the pre_quantity field
         # must be 0 so the combiner short-circuits and emits
         # ``delta_pct=None`` (rather than dividing by zero).
-        h = Holding("AAPL")
+        h = Holding("AAPL", fx=stub_exchange_rate)
         h.buy(_trade(datetime(2024, 1, 1), 10, 100.0, "BUY"))
         assert h._trade_events[0]["pre_quantity"] == 0
 
@@ -381,7 +381,7 @@ class TestHoldingCategorisesTrades:
         # reflect the holding right before the new trade (10 here),
         # not the post-trade total. That's the denominator the
         # combiner needs for the "+X%" readout.
-        h = Holding("AAPL")
+        h = Holding("AAPL", fx=stub_exchange_rate)
         h.buy(_trade(datetime(2024, 1, 1), 10, 100.0, "BUY"))
         h.buy(_trade(datetime(2024, 2, 1), 5,  110.0, "BUY"))
         assert h._trade_events[-1]["pre_quantity"] == 10
@@ -391,7 +391,7 @@ class TestHoldingCategorisesTrades:
     ):
         # A partial SELL exposes the holding right before the sell so
         # "X% decrease" is denominated against what we were holding.
-        h = Holding("AAPL")
+        h = Holding("AAPL", fx=stub_exchange_rate)
         h.buy(_trade(datetime(2024, 1, 1), 10, 100.0, "BUY"))
         h.sell(_trade(datetime(2024, 3, 1), 4, 120.0, "SELL"))
         assert h._trade_events[-1]["pre_quantity"] == 10
@@ -403,7 +403,7 @@ class TestHoldingCategorisesTrades:
         # an "Increase". The page's category column distinguishes
         # entries from add-ons; collapsing them would lie about the
         # nature of the action.
-        h = Holding("AAPL")
+        h = Holding("AAPL", fx=stub_exchange_rate)
         h.buy(_trade(datetime(2024, 1, 1), 10, 100.0, "BUY"))
         h.sell(_trade(datetime(2024, 2, 1), 10, 110.0, "SELL"))
         h.buy(_trade(datetime(2024, 3, 1), 5, 120.0, "BUY"))
@@ -415,7 +415,7 @@ class TestHoldingTradeEventsDecoration:
     def test_attaches_ticker_name_currency(
         self, stub_exchange_rate, fake_apple,
     ):
-        h = Holding("AAPL")
+        h = Holding("AAPL", fx=stub_exchange_rate)
         h.buy(_trade(datetime(2024, 1, 1), 10, 100.0, "BUY"))
         events = h.trade_events()
         assert len(events) == 1
@@ -437,7 +437,7 @@ class TestHoldingTradeEventsDecoration:
         # even ones from years before "today". The reader can still
         # focus on recent activity via the rendered table's
         # sortable date column.
-        h = Holding("AAPL")
+        h = Holding("AAPL", fx=stub_exchange_rate)
         h.buy(_trade(datetime(2018, 1, 1), 10, 90.0, "BUY"))
         h.sell(_trade(datetime(2018, 6, 1), 10, 100.0, "SELL"))
         h.buy(_trade(datetime(2025, 1, 1), 5, 150.0, "BUY"))
@@ -457,7 +457,7 @@ class TestHoldingTradeEventsDecoration:
         # Per-ticker combining flows through ``trade_events``: two
         # BUYs nine days apart should surface as a single OPENING row
         # with a volume-weighted price.
-        h = Holding("AAPL")
+        h = Holding("AAPL", fx=stub_exchange_rate)
         h.buy(_trade(datetime(2024, 6, 1),  2, 100.0, "BUY"))
         h.buy(_trade(datetime(2024, 6, 10), 8, 110.0, "BUY"))
         events = h.trade_events()
@@ -476,7 +476,7 @@ class TestHoldingTradeEventsDecoration:
         # rolling window from the OPEN). The INCREASE row
         # should expose ``delta_pct = 100`` so the badge renders as
         # "Increased by 100%".
-        h = Holding("AAPL")
+        h = Holding("AAPL", fx=stub_exchange_rate)
         h.buy(_trade(datetime(2024, 1, 1),  1000, 100.0, "BUY"))
         h.buy(_trade(datetime(2024, 6, 1),  1000, 110.0, "BUY"))
         events = h.trade_events()
@@ -524,7 +524,7 @@ class TestGetHoldingsTradesKey:
             {"date": "01-08-2024", "ticker": "AAA",
              "quantity": 10, "price_per_share": 120.0, "action": "SELL"},
         ]
-        holdings = get_holdings(transactions)
+        holdings = get_holdings(transactions, fx=stub_exchange_rate)
         trades = holdings["trades"]
         assert len(trades) == 3
         # Newest end_date first.
@@ -537,5 +537,5 @@ class TestGetHoldingsTradesKey:
     def test_returns_empty_trades_list_for_empty_transactions(
         self, stub_exchange_rate,
     ):
-        holdings = get_holdings([])
+        holdings = get_holdings([], fx=stub_exchange_rate)
         assert holdings["trades"] == []

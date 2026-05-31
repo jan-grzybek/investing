@@ -1,0 +1,13 @@
+# Direct runtime dependencies for update.py / preview.py.
+# Source of truth for human edits. The companion ``requirements.txt``
+# next to this file holds the fully-pinned transitive lock (regenerated
+# via ``pip-compile requirements.in`` whenever this list changes); CI
+# installs from the lock for reproducibility, while developers can edit
+# this file to add / remove direct deps.
+gspread
+yfinance
+requests
+python-dateutil
+Pillow
+cairosvg
+scipy

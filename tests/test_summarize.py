@@ -25,15 +25,20 @@ def _holding(ticker, value, name=None):
 
 
 @pytest.fixture
-def fx_one_to_one(monkeypatch):
-    """Pin every FX rate to 1.0 so cash amounts equal USD amounts."""
-    monkeypatch.setattr(update, "exchange_rate", lambda currency, date=None: 1.0)  # noqa: ARG005
+def fx_one_to_one():
+    """A stub fx callable that pins every rate to 1.0.
+
+    Returned to the test which passes it as ``summarize(..., fx=fx_one_to_one)``.
+    """
+    def _rate(currency, date=None):  # noqa: ARG001
+        return 1.0
+    return _rate
 
 
 class TestSummarize:
     def test_empty_portfolio(self, fx_one_to_one):
         holdings = {"current": [], "historical": []}
-        total = summarize(holdings, cash=[])
+        total = summarize(holdings, cash=[], fx=fx_one_to_one)
 
         assert total == 0.0
         assert holdings["allocation%"] is None
@@ -44,7 +49,7 @@ class TestSummarize:
             "current": [_holding("AAA", 400.0), _holding("BBB", 600.0)],
             "historical": [],
         }
-        total = summarize(holdings, cash=[])
+        total = summarize(holdings, cash=[], fx=fx_one_to_one)
 
         assert total == pytest.approx(1000.0)
         assert holdings["allocation%"] == {
@@ -57,7 +62,11 @@ class TestSummarize:
 
     def test_cash_only_portfolio(self, fx_one_to_one):
         holdings = {"current": [], "historical": []}
-        total = summarize(holdings, cash=[{"currency_code": "USD", "amount": 500.0}])
+        total = summarize(
+            holdings,
+            cash=[{"currency_code": "USD", "amount": 500.0}],
+            fx=fx_one_to_one,
+        )
 
         assert total == pytest.approx(500.0)
         assert holdings["allocation%"] == {
@@ -66,10 +75,12 @@ class TestSummarize:
         }
         assert holdings["top_10"] is None  # no equities
 
-    def test_mixed_allocation_uses_fx_conversion(self, monkeypatch):
+    def test_mixed_allocation_uses_fx_conversion(self):
         # EUR cash is worth 1.10 USD per unit.
         rates = {"USD": 1.0, "EUR": 1.10}
-        monkeypatch.setattr(update, "exchange_rate", lambda c, date=None: rates[c])  # noqa: ARG005
+
+        def fx(currency, date=None):  # noqa: ARG001
+            return rates[currency]
 
         holdings = {"current": [_holding("AAA", 100.0)], "historical": []}
         total = summarize(
@@ -78,6 +89,7 @@ class TestSummarize:
                 {"currency_code": "USD", "amount": 50.0},
                 {"currency_code": "EUR", "amount": 100.0},  # = 110 USD
             ],
+            fx=fx,
         )
 
         assert total == pytest.approx(100 + 50 + 110)
@@ -100,7 +112,7 @@ class TestSummarize:
             ],
             "historical": [],
         }
-        summarize(holdings, cash=[])
+        summarize(holdings, cash=[], fx=fx_one_to_one)
 
         weights = {h["ticker"]: h["current_weight%"] for h in holdings["current"]}
         assert weights == {"AAA": 25.0, "BBB": 75.0}
@@ -110,7 +122,7 @@ class TestSummarize:
             "current": [_holding(f"T{i}", 10.0) for i in range(11)],
             "historical": [],
         }
-        summarize(holdings, cash=[])
+        summarize(holdings, cash=[], fx=fx_one_to_one)
 
         assert "Other equities" not in holdings["top_10"]
         assert len(holdings["top_10"]) == 11
@@ -120,7 +132,7 @@ class TestSummarize:
             "current": [_holding(f"T{i:02d}", float(100 - i)) for i in range(12)],
             "historical": [],
         }
-        summarize(holdings, cash=[])
+        summarize(holdings, cash=[], fx=fx_one_to_one)
 
         assert "Other equities" in holdings["top_10"]
         assert len(holdings["top_10"]) == 11  # 10 named + bucket
@@ -136,7 +148,7 @@ class TestSummarize:
             ],
             "historical": [],
         }
-        summarize(holdings, cash=[])
+        summarize(holdings, cash=[], fx=fx_one_to_one)
 
         keys = list(holdings["top_10"].keys())
         assert keys == ["BIG", "MID", "SMALL"]
@@ -149,7 +161,7 @@ class TestSummarize:
             "current": [_holding("AAA", 100.0)],
             "historical": [historical],
         }
-        total = summarize(holdings, cash=[])
+        total = summarize(holdings, cash=[], fx=fx_one_to_one)
 
         assert total == pytest.approx(100.0)
         assert holdings["current"][0]["current_weight%"] == pytest.approx(100.0)
