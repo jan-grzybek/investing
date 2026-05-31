@@ -191,7 +191,7 @@ def combine_and_sort(transactions):
 # single deliberate action, not four separate trades.
 
 TRADE_WINDOW_DAYS = 90
-TRADES_YEARS_BACK = 5
+TRADES_YEARS_BACK = 1
 
 # Reading these as a buy-vs-sell action partitions the four categories
 # along the only axis that matters for grouping (same-action trades go
@@ -488,15 +488,20 @@ class Holding:
 
         Bursts older than ``years_back`` (measured against the burst's
         most recent event) are dropped so the page focuses on recent
-        activity. Each kept row is decorated with the identifying
-        ``ticker`` / ``name`` / ``currency`` so the renderer can
-        produce a self-contained card without holding a reference to
-        the originating ``Holding``."""
+        activity. The filter is intentionally lenient at the boundary:
+        a multi-fill burst that started outside the window but whose
+        last fill landed inside it survives whole, so a rolling-quarter
+        accumulation that finished in the retention window reads as a
+        single recent action rather than being chopped in half. Each
+        kept row is decorated with the identifying ``ticker`` / ``name``
+        / ``currency`` so the renderer can produce a self-contained
+        card without holding a reference to the originating
+        ``Holding``."""
         today = today or datetime.today()
         # Use the calendar-aware ``years`` accessor (via ``timedelta``
         # times the average year length) rather than ``replace(year=...)``,
         # which would fail on Feb 29 -- the cutoff doesn't need to be
-        # exact to the day for a 5-year retention window.
+        # exact to the day for the retention window.
         cutoff = today - timedelta(days=DAYS_YEAR * years_back)
         combined = _combine_trade_events(
             self._trade_events, window_days=window_days,
@@ -2201,11 +2206,18 @@ class Webpage:
             # long-term-investor framing of the page (a fund-letter
             # cadence rather than a high-frequency trade log) and is
             # the natural human reading of the 90-day numerical
-            # ``TRADE_WINDOW_DAYS`` constant. Keeping the subtitle
-            # short avoids cluttering the cards themselves.
+            # ``TRADE_WINDOW_DAYS`` constant. The horizon phrase
+            # collapses the ``N == 1`` case to a bare "Last year"
+            # because "Last 1 years" reads as a string-formatting bug.
+            # Keeping the subtitle short avoids cluttering the cards
+            # themselves.
+            if TRADES_YEARS_BACK == 1:
+                horizon = "Last year."
+            else:
+                horizon = f"Last {TRADES_YEARS_BACK} years."
             parts.append(
                 '<p class="section__intro">'
-                f'Last {TRADES_YEARS_BACK} years. Trades within a '
+                f'{horizon} Trades within a '
                 'rolling quarter are combined into a single entry at '
                 'their volume-weighted average per-share price.'
                 '</p>'

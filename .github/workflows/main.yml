@@ -18,6 +18,11 @@ on:
     # ~15 minutes during peak load, which is well below the
     # 1-hour granularity here.
     - cron: "0 7-21 * * 1-5"
+    # Once daily on weekends (Sat-Sun) at 12:00 UTC, when all major
+    # exchanges are closed. Keeps the deployed page from going stale
+    # over the weekend (e.g. refreshing the date header and any
+    # time-sensitive copy) without burning hourly CI minutes.
+    - cron: "0 12 * * 6,0"
   workflow_dispatch: {}
 
 permissions:
@@ -78,7 +83,7 @@ jobs:
         run: python update.py
 
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: .
 
@@ -90,4 +95,4 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

@@ -434,19 +434,58 @@ class TestHoldingTradeEventsDecoration:
     def test_drops_events_older_than_years_back(
         self, stub_exchange_rate, fake_apple, freeze_today,
     ):
-        # The default 5-year window means anything ending more than
-        # ~5 years before "today" is excluded. Pin today and stage
+        # The default trailing-year window means anything ending more
+        # than ~1 year before "today" is excluded. Pin today and stage
         # one ancient event + one recent event; only the recent one
         # should come through.
-        freeze_today(datetime(2025, 1, 1))
+        freeze_today(datetime(2025, 6, 1))
         h = Holding("AAPL")
         h.buy(_trade(datetime(2018, 1, 1), 10, 90.0, "BUY"))   # too old
         h.sell(_trade(datetime(2018, 6, 1), 10, 100.0, "SELL"))  # too old
-        h.buy(_trade(datetime(2024, 1, 1), 5, 150.0, "BUY"))   # kept
+        h.buy(_trade(datetime(2025, 1, 1), 5, 150.0, "BUY"))   # kept
         events = h.trade_events()
         assert len(events) == 1
-        assert events[0]["start_date"] == datetime(2024, 1, 1)
+        assert events[0]["start_date"] == datetime(2025, 1, 1)
         assert events[0]["category"] == "OPEN"
+
+    def test_burst_straddling_cutoff_is_kept_whole(
+        self, stub_exchange_rate, fake_apple, freeze_today,
+    ):
+        # Inclusivity rule: a rolling-quarter burst whose first fill
+        # falls outside the trailing-year window but whose last fill
+        # lands inside it should survive whole -- the reader cares
+        # about "did the position accumulate around this time?", and
+        # chopping the first fill off would either misrepresent the
+        # burst's start date or split one deliberate accumulation
+        # into two unrelated-looking entries. With ``years_back=1``
+        # the cutoff sits ~365 days before "today"; staging the first
+        # BUY a couple of weeks before that and the next BUY a couple
+        # of weeks after exercises both ends of the rule in one shot.
+        freeze_today(datetime(2025, 6, 15))
+        h = Holding("AAPL")
+        h.buy(_trade(datetime(2024, 6, 1),   3, 100.0, "BUY"))  # pre-cutoff
+        h.buy(_trade(datetime(2024, 7, 5),   7, 110.0, "BUY"))  # post-cutoff
+        events = h.trade_events()
+        assert len(events) == 1
+        ev = events[0]
+        # Burst boundaries reflect the raw fills -- the pre-cutoff
+        # start survives precisely because the filter looks at
+        # ``end_date``, not ``start_date``.
+        assert ev["start_date"] == datetime(2024, 6, 1)
+        assert ev["end_date"] == datetime(2024, 7, 5)
+        assert ev["category"] == "OPEN"
+
+    def test_burst_entirely_outside_cutoff_is_dropped(
+        self, stub_exchange_rate, fake_apple, freeze_today,
+    ):
+        # Mirror image of the straddle case: when both fills of a
+        # burst sit before the trailing-year cutoff, the whole burst
+        # falls out so the section stays focused on recent activity.
+        freeze_today(datetime(2025, 6, 15))
+        h = Holding("AAPL")
+        h.buy(_trade(datetime(2023, 1, 1),  3, 100.0, "BUY"))
+        h.buy(_trade(datetime(2023, 2, 1),  7, 110.0, "BUY"))
+        assert h.trade_events() == []
 
     def test_combines_within_holding(
         self, stub_exchange_rate, fake_apple, freeze_today,

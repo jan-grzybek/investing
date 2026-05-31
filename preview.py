@@ -126,17 +126,25 @@ def _build_dataset() -> dict:
         "periods": [{"start": start, "end": None}],
         "history": _ease_history(start, end, 1.417),
     }]
+    # ``period_start`` dates on the current-holdings rows mirror the
+    # OPEN trade dates in ``_build_trade_events`` wherever the two
+    # cross-reference each other, so a developer eyeballing the
+    # preview sees a coherent timeline across the "Current holdings"
+    # and "Recent trades" sections rather than two unrelated
+    # synthetic data sets that happen to share tickers. Tickers that
+    # have no corresponding OPEN trade in the log (ADBE, AMAT, SPGI,
+    # META, UNH) keep their own plausible "owned since" dates.
     current = [
-        _holding("NMS:NVDA",   "NVIDIA Corporation",        217.4, 64.2, 21.4, datetime(2023, 8, 14)),
-        _holding("NMS:GOOGL",  "Alphabet Inc.",              41.2, 18.6, 13.7, datetime(2024, 2, 1)),
+        _holding("NMS:NVDA",   "NVIDIA Corporation",        217.4, 64.2, 21.4, datetime(2024, 8, 14)),
+        _holding("NMS:GOOGL",  "Alphabet Inc.",              41.2, 18.6, 13.7, datetime(2025, 9, 1)),
         _holding("NMS:META",   "Meta Platforms, Inc.",      156.8, 47.2, 11.5, datetime(2023, 1, 12)),
         _holding("NMS:ADBE",   "Adobe Inc.",                 28.4, 12.7,  9.1, datetime(2023, 4, 5)),
         _holding("NMS:AMAT",   "Applied Materials, Inc.",    62.3, 22.4,  7.9, datetime(2023, 11, 9)),
-        _holding("NMS:LRCX",   "Lam Research Corporation",   74.6, 26.8,  6.4, datetime(2024, 1, 8)),
+        _holding("NMS:LRCX",   "Lam Research Corporation",   74.6, 26.8,  6.4, datetime(2025, 5, 15)),
         _holding("NYQ:SPGI",   "S&P Global Inc.",            34.1, 14.2,  6.0, datetime(2023, 9, 18)),
         _holding("NYQ:UNH",    "UnitedHealth Group Inc.",   -11.8, -5.1,  4.7, datetime(2024, 3, 17)),
-        _holding("NYQ:CRM",    "Salesforce, Inc.",           18.7,  9.4,  4.1, datetime(2024, 5, 22)),
-        _holding("DUS:SSU.DU", "SAP SE",                     46.9, 19.1,  3.5, datetime(2024, 7, 1)),
+        _holding("NYQ:CRM",    "Salesforce, Inc.",           18.7,  9.4,  4.1, datetime(2026, 1, 15)),
+        _holding("DUS:SSU.DU", "SAP SE",                     46.9, 19.1,  3.5, datetime(2026, 4, 1)),
     ]
     historical = [
         {
@@ -144,7 +152,7 @@ def _build_dataset() -> dict:
             "name": "Baidu, Inc.",
             "tsr%": -22.4, "cagr%": -14.6,
             "is_current": False, "current_weight%": None, "current_value_usd": 0.0,
-            "periods": [{"start": datetime(2022, 11, 4), "end": datetime(2024, 4, 12)}],
+            "periods": [{"start": datetime(2022, 11, 4), "end": datetime(2025, 11, 20)}],
         },
         {
             "ticker": "NMS:FRSH",
@@ -157,7 +165,7 @@ def _build_dataset() -> dict:
             # ownership window ends up on top of the stack.
             "periods": [
                 {"start": datetime(2022, 8, 5), "end": datetime(2023, 6, 9)},
-                {"start": datetime(2024, 1, 22), "end": datetime(2024, 11, 30)},
+                {"start": datetime(2025, 7, 22), "end": datetime(2025, 12, 30)},
             ],
         },
     ]
@@ -213,54 +221,68 @@ def _build_trade_events(today: datetime) -> list[dict]:
     Each entry mimics one of the four real categories
     (``OPEN`` / ``INCREASE`` / ``DECREASE`` / ``CLOSE``) and includes
     a couple of multi-day bursts so the "rolling-month combined"
-    rendering is exercised. The list is intentionally a mix of
-    tickers that also appear in ``current``/``historical`` so the
-    logos resolve and the cross-section linking feels coherent. The
-    ``delta_pct`` values on INCREASE / DECREASE rows are made up but
-    plausible so the badge text demonstrates the magnitude readout
-    in the rendered preview."""
+    rendering is exercised. The LRCX burst is deliberately staged to
+    straddle the trailing-year cutoff (first fill ~two weeks before,
+    last fill inside the window) so the preview exercises the
+    inclusivity rule: bursts whose most recent event lands in the
+    window survive whole. The NVDA burst from two years back is left
+    in as the "should be filtered out" control case. The list is
+    intentionally a mix of tickers that also appear in
+    ``current``/``historical`` so the logos resolve and the
+    cross-section linking feels coherent. The ``delta_pct`` values on
+    INCREASE / DECREASE rows are made up but plausible so the badge
+    text demonstrates the magnitude readout in the rendered preview."""
     events = [
         _trade("NMS:NVDA",   "NVIDIA Corporation",
                "USD", "INCREASE", 921.40,
-               datetime(2025, 1, 14),
+               datetime(2026, 5, 14),
                delta_pct=32.0),
-        _trade("NYQ:CRM",    "Salesforce, Inc.",
-               "USD", "OPEN",     247.85,
-               datetime(2024, 5, 22), datetime(2024, 6, 11)),
-        _trade("NMS:BIDU",   "Baidu, Inc.",
-               "USD", "CLOSE",     98.30,
-               datetime(2024, 4, 12)),
         _trade("DUS:SSU.DU", "SAP SE",
                "EUR", "OPEN",     181.25,
-               datetime(2024, 7, 1)),
-        _trade("NYQ:UNH",    "UnitedHealth Group Inc.",
-               "USD", "INCREASE", 472.10,
-               datetime(2024, 3, 17), datetime(2024, 4, 9),
-               delta_pct=100.0),
+               datetime(2026, 4, 1)),
         _trade("NMS:META",   "Meta Platforms, Inc.",
                "USD", "DECREASE", 504.60,
-               datetime(2024, 2, 23),
+               datetime(2026, 3, 8),
                delta_pct=25.0),
+        _trade("NYQ:CRM",    "Salesforce, Inc.",
+               "USD", "OPEN",     247.85,
+               datetime(2026, 1, 15), datetime(2026, 2, 12)),
         _trade("NMS:FRSH",   "Freshworks Inc.",
                "USD", "CLOSE",     15.85,
-               datetime(2024, 11, 30)),
-        _trade("NMS:FRSH",   "Freshworks Inc.",
-               "USD", "OPEN",      13.40,
-               datetime(2024, 1, 22)),
-        _trade("NMS:LRCX",   "Lam Research Corporation",
-               "USD", "OPEN",     742.30,
-               datetime(2024, 1, 8)),
+               datetime(2025, 12, 30)),
+        _trade("NMS:BIDU",   "Baidu, Inc.",
+               "USD", "CLOSE",     98.30,
+               datetime(2025, 11, 20)),
+        _trade("NYQ:UNH",    "UnitedHealth Group Inc.",
+               "USD", "INCREASE", 472.10,
+               datetime(2025, 10, 17), datetime(2025, 11, 9),
+               delta_pct=100.0),
         _trade("NMS:GOOGL",  "Alphabet Inc.",
                "USD", "OPEN",     142.65,
-               datetime(2024, 2, 1)),
+               datetime(2025, 9, 1)),
+        _trade("NMS:FRSH",   "Freshworks Inc.",
+               "USD", "OPEN",      13.40,
+               datetime(2025, 7, 22)),
+        # First fill is ~two weeks before the trailing-year cutoff,
+        # last fill is inside it -- demonstrates the "rolling-quarter
+        # burst whose last event landed in the window survives whole"
+        # inclusivity rule.
+        _trade("NMS:LRCX",   "Lam Research Corporation",
+               "USD", "OPEN",     742.30,
+               datetime(2025, 5, 15), datetime(2025, 6, 10)),
+        # Entirely outside the trailing-year window -- the safety
+        # filter below should drop it. Kept in as a control case so
+        # a developer eyeballing the preview can verify the bound.
         _trade("NMS:NVDA",   "NVIDIA Corporation",
                "USD", "OPEN",     458.20,
-               datetime(2023, 8, 14), datetime(2023, 9, 5)),
+               datetime(2024, 8, 14), datetime(2024, 9, 5)),
     ]
-    # Filter against the preview's effective ``today`` so a stale
-    # repo clone (or a future tweak of the synthetic dates) still
-    # produces a list bounded to the last 5 years.
-    cutoff = today - timedelta(days=int(365.2425 * 5))
+    # Mirror the production retention horizon so the preview reflects
+    # exactly what the live page would show. Filtering on ``end_date``
+    # (not ``start_date``) keeps the inclusivity rule consistent with
+    # ``Holding.trade_events``: a burst whose first fill is older than
+    # the cutoff but whose last fill is inside the window stays.
+    cutoff = today - timedelta(days=int(update.DAYS_YEAR * update.TRADES_YEARS_BACK))
     events = [e for e in events if e["end_date"] >= cutoff]
     return sorted(events, key=lambda e: (e["end_date"], e["start_date"]),
                   reverse=True)

@@ -884,7 +884,7 @@ class TestSaveTradesSection:
         # Section anchor + heading + methodology subtitle are present.
         assert 'id="trades"' in out
         assert "Recent trades" in out
-        assert "Last 5 years" in out
+        assert "Last year" in out
         assert "rolling quarter" in out
         # Nav picks up the new section once trades are present.
         assert 'href="#trades"' in out
