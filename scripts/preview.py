@@ -17,6 +17,7 @@ All artifacts (``index.html``, ``og-image.png``, ``sitemap.xml``,
 ``robots.txt``) are gitignored so they will not pollute the repo
 even if you point ``--out`` at the current directory.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -24,6 +25,7 @@ import os
 import shutil
 import sys
 import webbrowser
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -61,7 +63,9 @@ def _build_logo_extension_map() -> dict[str, str]:
     return mapping
 
 
-def _make_stub_logo_url(extension_map: dict[str, str]):
+def _make_stub_logo_url(
+    extension_map: dict[str, str],
+) -> Callable[[object, str], str]:
     """Build a stub for ``Webpage._get_logo_url`` that mirrors the
     production fallback chain without ever hitting the network.
 
@@ -70,7 +74,7 @@ def _make_stub_logo_url(extension_map: dict[str, str]):
     match. We do the same shape of lookup against the repo's local
     ``logos/`` directory, which is what GitHub Pages serves anyway."""
 
-    def _stub(_self, ticker: str) -> str:
+    def _stub(_self: object, ticker: str) -> str:
         ext = extension_map.get(ticker)
         if ext is None:
             return COURAGE_LOGO
@@ -80,8 +84,9 @@ def _make_stub_logo_url(extension_map: dict[str, str]):
     return _stub
 
 
-def _ease_history(start: datetime, end: datetime, end_value: float,
-                  *, step_days: int = 14) -> list[tuple[datetime, float]]:
+def _ease_history(
+    start: datetime, end: datetime, end_value: float, *, step_days: int = 14
+) -> list[tuple[datetime, float]]:
     """Generate a smooth (cubic ease-in-out) cumulative-return curve.
 
     Mirrors the shape of a calm uptrend over the requested period so
@@ -99,8 +104,9 @@ def _ease_history(start: datetime, end: datetime, end_value: float,
     return points
 
 
-def _holding(ticker: str, name: str, tsr: float, cagr: float,
-             weight: float, period_start: datetime) -> dict:
+def _holding(
+    ticker: str, name: str, tsr: float, cagr: float, weight: float, period_start: datetime
+) -> dict:
     return {
         "ticker": ticker,
         "name": name,
@@ -128,14 +134,16 @@ def _build_dataset() -> dict:
         "twr%": 48.4,
         "cagr%": 10.5,
     }
-    benchmarks = [{
-        "ticker": "LSE:VUAA.L",
-        "name": "Vanguard S&P 500 UCITS ETF",
-        "tsr%": 41.7,
-        "cagr%": 9.2,
-        "periods": [{"start": start, "end": None}],
-        "history": _ease_history(start, end, 1.417),
-    }]
+    benchmarks = [
+        {
+            "ticker": "LSE:VUAA.L",
+            "name": "Vanguard S&P 500 UCITS ETF",
+            "tsr%": 41.7,
+            "cagr%": 9.2,
+            "periods": [{"start": start, "end": None}],
+            "history": _ease_history(start, end, 1.417),
+        }
+    ]
     # ``period_start`` dates on the current-holdings rows mirror the
     # OPEN trade dates in ``_build_trade_events`` wherever the two
     # cross-reference each other, so a developer eyeballing the
@@ -145,30 +153,36 @@ def _build_dataset() -> dict:
     # have no corresponding OPEN trade in the log (ADBE, AMAT, SPGI,
     # META, UNH) keep their own plausible "owned since" dates.
     current = [
-        _holding("NMS:NVDA",   "NVIDIA Corporation",        217.4, 64.2, 21.4, datetime(2024, 8, 14)),
-        _holding("NMS:GOOGL",  "Alphabet Inc.",              41.2, 18.6, 13.7, datetime(2025, 9, 1)),
-        _holding("NMS:META",   "Meta Platforms, Inc.",      156.8, 47.2, 11.5, datetime(2023, 1, 12)),
-        _holding("NMS:ADBE",   "Adobe Inc.",                 28.4, 12.7,  9.1, datetime(2023, 4, 5)),
-        _holding("NMS:AMAT",   "Applied Materials, Inc.",    62.3, 22.4,  7.9, datetime(2023, 11, 9)),
-        _holding("NMS:LRCX",   "Lam Research Corporation",   74.6, 26.8,  6.4, datetime(2025, 5, 15)),
-        _holding("NYQ:SPGI",   "S&P Global Inc.",            34.1, 14.2,  6.0, datetime(2023, 9, 18)),
-        _holding("NYQ:UNH",    "UnitedHealth Group Inc.",   -11.8, -5.1,  4.7, datetime(2024, 3, 17)),
-        _holding("NYQ:CRM",    "Salesforce, Inc.",           18.7,  9.4,  4.1, datetime(2026, 1, 15)),
-        _holding("DUS:SSU.DU", "SAP SE",                     46.9, 19.1,  3.5, datetime(2026, 4, 1)),
+        _holding("NMS:NVDA", "NVIDIA Corporation", 217.4, 64.2, 21.4, datetime(2024, 8, 14)),
+        _holding("NMS:GOOGL", "Alphabet Inc.", 41.2, 18.6, 13.7, datetime(2025, 9, 1)),
+        _holding("NMS:META", "Meta Platforms, Inc.", 156.8, 47.2, 11.5, datetime(2023, 1, 12)),
+        _holding("NMS:ADBE", "Adobe Inc.", 28.4, 12.7, 9.1, datetime(2023, 4, 5)),
+        _holding("NMS:AMAT", "Applied Materials, Inc.", 62.3, 22.4, 7.9, datetime(2023, 11, 9)),
+        _holding("NMS:LRCX", "Lam Research Corporation", 74.6, 26.8, 6.4, datetime(2025, 5, 15)),
+        _holding("NYQ:SPGI", "S&P Global Inc.", 34.1, 14.2, 6.0, datetime(2023, 9, 18)),
+        _holding("NYQ:UNH", "UnitedHealth Group Inc.", -11.8, -5.1, 4.7, datetime(2024, 3, 17)),
+        _holding("NYQ:CRM", "Salesforce, Inc.", 18.7, 9.4, 4.1, datetime(2026, 1, 15)),
+        _holding("DUS:SSU.DU", "SAP SE", 46.9, 19.1, 3.5, datetime(2026, 4, 1)),
     ]
     historical = [
         {
             "ticker": "NMS:BIDU",
             "name": "Baidu, Inc.",
-            "tsr%": -22.4, "cagr%": -14.6,
-            "is_current": False, "current_weight%": None, "current_value_usd": 0.0,
+            "tsr%": -22.4,
+            "cagr%": -14.6,
+            "is_current": False,
+            "current_weight%": None,
+            "current_value_usd": 0.0,
             "periods": [{"start": datetime(2022, 11, 4), "end": datetime(2025, 11, 20)}],
         },
         {
             "ticker": "NMS:FRSH",
             "name": "Freshworks Inc.",
-            "tsr%": 31.8, "cagr%": 13.7,
-            "is_current": False, "current_weight%": None, "current_value_usd": 0.0,
+            "tsr%": 31.8,
+            "cagr%": 13.7,
+            "is_current": False,
+            "current_weight%": None,
+            "current_value_usd": 0.0,
             # Listed in chronological order on purpose -- the renderer
             # in ``Webpage._build_card`` re-sorts to newest-first so
             # whichever order we hand it over in, the most recent
@@ -246,60 +260,75 @@ def _build_trade_events(today: datetime) -> list[dict]:
     """
     del today  # kept for backward compatibility with callers
     events = [
-        _trade("NMS:NVDA",   "NVIDIA Corporation",
-               "USD", "INCREASE", 921.40,
-               datetime(2026, 5, 14),
-               delta_pct=32.0),
-        _trade("DUS:SSU.DU", "SAP SE",
-               "EUR", "OPEN",     181.25,
-               datetime(2026, 4, 1)),
-        _trade("NMS:META",   "Meta Platforms, Inc.",
-               "USD", "DECREASE", 504.60,
-               datetime(2026, 3, 8),
-               delta_pct=25.0),
-        _trade("NYQ:CRM",    "Salesforce, Inc.",
-               "USD", "OPEN",     247.85,
-               datetime(2026, 1, 15), datetime(2026, 2, 12)),
-        _trade("NMS:FRSH",   "Freshworks Inc.",
-               "USD", "CLOSE",     15.85,
-               datetime(2025, 12, 30)),
-        _trade("NMS:BIDU",   "Baidu, Inc.",
-               "USD", "CLOSE",     98.30,
-               datetime(2025, 11, 20)),
-        _trade("NYQ:UNH",    "UnitedHealth Group Inc.",
-               "USD", "INCREASE", 472.10,
-               datetime(2025, 10, 17), datetime(2025, 11, 9),
-               delta_pct=100.0),
-        _trade("NMS:GOOGL",  "Alphabet Inc.",
-               "USD", "OPEN",     142.65,
-               datetime(2025, 9, 1)),
-        _trade("NMS:FRSH",   "Freshworks Inc.",
-               "USD", "OPEN",      13.40,
-               datetime(2025, 7, 22)),
-        _trade("NMS:LRCX",   "Lam Research Corporation",
-               "USD", "OPEN",     742.30,
-               datetime(2025, 5, 15), datetime(2025, 6, 10)),
+        _trade(
+            "NMS:NVDA",
+            "NVIDIA Corporation",
+            "USD",
+            "INCREASE",
+            921.40,
+            datetime(2026, 5, 14),
+            delta_pct=32.0,
+        ),
+        _trade("DUS:SSU.DU", "SAP SE", "EUR", "OPEN", 181.25, datetime(2026, 4, 1)),
+        _trade(
+            "NMS:META",
+            "Meta Platforms, Inc.",
+            "USD",
+            "DECREASE",
+            504.60,
+            datetime(2026, 3, 8),
+            delta_pct=25.0,
+        ),
+        _trade(
+            "NYQ:CRM",
+            "Salesforce, Inc.",
+            "USD",
+            "OPEN",
+            247.85,
+            datetime(2026, 1, 15),
+            datetime(2026, 2, 12),
+        ),
+        _trade("NMS:FRSH", "Freshworks Inc.", "USD", "CLOSE", 15.85, datetime(2025, 12, 30)),
+        _trade("NMS:BIDU", "Baidu, Inc.", "USD", "CLOSE", 98.30, datetime(2025, 11, 20)),
+        _trade(
+            "NYQ:UNH",
+            "UnitedHealth Group Inc.",
+            "USD",
+            "INCREASE",
+            472.10,
+            datetime(2025, 10, 17),
+            datetime(2025, 11, 9),
+            delta_pct=100.0,
+        ),
+        _trade("NMS:GOOGL", "Alphabet Inc.", "USD", "OPEN", 142.65, datetime(2025, 9, 1)),
+        _trade("NMS:FRSH", "Freshworks Inc.", "USD", "OPEN", 13.40, datetime(2025, 7, 22)),
+        _trade(
+            "NMS:LRCX",
+            "Lam Research Corporation",
+            "USD",
+            "OPEN",
+            742.30,
+            datetime(2025, 5, 15),
+            datetime(2025, 6, 10),
+        ),
         # Older entries are deliberately kept in: the production
         # section no longer trims on age so the preview should show
         # the full multi-year ownership history.
-        _trade("NMS:NVDA",   "NVIDIA Corporation",
-               "USD", "OPEN",     458.20,
-               datetime(2024, 8, 14), datetime(2024, 9, 5)),
-        _trade("NMS:META",   "Meta Platforms, Inc.",
-               "USD", "OPEN",     185.00,
-               datetime(2023, 1, 12)),
-        _trade("NMS:BIDU",   "Baidu, Inc.",
-               "USD", "OPEN",     128.50,
-               datetime(2022, 11, 4)),
-        _trade("NMS:FRSH",   "Freshworks Inc.",
-               "USD", "OPEN",      18.20,
-               datetime(2022, 8, 5)),
-        _trade("NMS:FRSH",   "Freshworks Inc.",
-               "USD", "CLOSE",     12.60,
-               datetime(2023, 6, 9)),
+        _trade(
+            "NMS:NVDA",
+            "NVIDIA Corporation",
+            "USD",
+            "OPEN",
+            458.20,
+            datetime(2024, 8, 14),
+            datetime(2024, 9, 5),
+        ),
+        _trade("NMS:META", "Meta Platforms, Inc.", "USD", "OPEN", 185.00, datetime(2023, 1, 12)),
+        _trade("NMS:BIDU", "Baidu, Inc.", "USD", "OPEN", 128.50, datetime(2022, 11, 4)),
+        _trade("NMS:FRSH", "Freshworks Inc.", "USD", "OPEN", 18.20, datetime(2022, 8, 5)),
+        _trade("NMS:FRSH", "Freshworks Inc.", "USD", "CLOSE", 12.60, datetime(2023, 6, 9)),
     ]
-    return sorted(events, key=lambda e: (e["end_date"], e["start_date"]),
-                  reverse=True)
+    return sorted(events, key=lambda e: (e["end_date"], e["start_date"]), reverse=True)
 
 
 def render(out_dir: Path) -> Path:
@@ -349,11 +378,14 @@ def main() -> int:
         ),
     )
     parser.add_argument(
-        "--open", dest="open_browser", action="store_true",
+        "--open",
+        dest="open_browser",
+        action="store_true",
         help="Open the rendered index.html in the default browser.",
     )
     parser.add_argument(
-        "--clean", action="store_true",
+        "--clean",
+        action="store_true",
         help="Wipe the output directory before rendering.",
     )
     args = parser.parse_args()

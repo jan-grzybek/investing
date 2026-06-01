@@ -3,6 +3,7 @@
 We replace ``yf.Ticker`` with a stub so the tests are fully offline and
 deterministic.
 """
+
 from __future__ import annotations
 
 from datetime import date, datetime
@@ -33,6 +34,7 @@ def _stub_ticker(monkeypatch, mapping):
 
     ``mapping`` is keyed by the FX symbol used by yfinance (e.g. "EURUSD=X").
     """
+
     def _factory(symbol):
         if symbol not in mapping:
             raise AssertionError(f"Unexpected FX ticker requested: {symbol!r}")
@@ -79,11 +81,15 @@ class TestHistorical:
         assert fx("USD", datetime(2024, 6, 1)) == 1.0
 
     def test_bisect_picks_the_latest_entry_on_or_before_date(self, monkeypatch):
-        fx = self._build_fx(monkeypatch, "EUR", [
-            ("2024-01-01 00:00:00", 1.10),
-            ("2024-02-01 00:00:00", 1.20),
-            ("2024-03-01 00:00:00", 1.30),
-        ])
+        fx = self._build_fx(
+            monkeypatch,
+            "EUR",
+            [
+                ("2024-01-01 00:00:00", 1.10),
+                ("2024-02-01 00:00:00", 1.20),
+                ("2024-03-01 00:00:00", 1.30),
+            ],
+        )
 
         # Date right on a sample.
         assert fx("EUR", datetime(2024, 2, 1)) == pytest.approx(1.20)
@@ -93,27 +99,39 @@ class TestHistorical:
         assert fx("EUR", datetime(2024, 6, 1)) == pytest.approx(1.30)
 
     def test_date_before_first_sample_uses_first_sample(self, monkeypatch):
-        fx = self._build_fx(monkeypatch, "EUR", [
-            ("2024-01-01 00:00:00", 1.10),
-            ("2024-02-01 00:00:00", 1.20),
-        ])
+        fx = self._build_fx(
+            monkeypatch,
+            "EUR",
+            [
+                ("2024-01-01 00:00:00", 1.10),
+                ("2024-02-01 00:00:00", 1.20),
+            ],
+        )
 
         # idx becomes -1 then clamped to 0.
         assert fx("EUR", datetime(2023, 12, 31)) == pytest.approx(1.10)
 
     def test_accepts_date_objects_not_just_datetimes(self, monkeypatch):
-        fx = self._build_fx(monkeypatch, "EUR", [
-            ("2024-01-01 00:00:00", 1.10),
-        ])
+        fx = self._build_fx(
+            monkeypatch,
+            "EUR",
+            [
+                ("2024-01-01 00:00:00", 1.10),
+            ],
+        )
 
         assert fx("EUR", date(2024, 5, 1)) == pytest.approx(1.10)
 
     def test_nan_close_values_are_skipped(self, monkeypatch):
-        fx = self._build_fx(monkeypatch, "EUR", [
-            ("2024-01-01 00:00:00", 1.10),
-            ("2024-01-02 00:00:00", float("nan")),
-            ("2024-01-03 00:00:00", 1.30),
-        ])
+        fx = self._build_fx(
+            monkeypatch,
+            "EUR",
+            [
+                ("2024-01-01 00:00:00", 1.10),
+                ("2024-01-02 00:00:00", float("nan")),
+                ("2024-01-03 00:00:00", 1.30),
+            ],
+        )
 
         # The Jan-2 NaN row must be dropped, so a query for that day should
         # fall back to the Jan-1 value.
@@ -122,9 +140,11 @@ class TestHistorical:
 
     def test_history_is_cached(self, monkeypatch):
         ticker = MagicMock()
-        ticker.history.return_value = _hist_for([
-            ("2024-01-01 00:00:00", 1.10),
-        ])
+        ticker.history.return_value = _hist_for(
+            [
+                ("2024-01-01 00:00:00", 1.10),
+            ]
+        )
         _stub_ticker(monkeypatch, {"EURUSD=X": ticker})
 
         fx = ExchangeRate()
@@ -147,15 +167,20 @@ class TestHistorical:
             assert fx("EUR", datetime(2024, 6, 1)) == pytest.approx(1.42)
 
         empty_warnings = [
-            rec for rec in caplog.records
+            rec
+            for rec in caplog.records
             if rec.levelname == "WARNING" and "FX history for EUR/USD is empty" in rec.message
         ]
         assert len(empty_warnings) == 1
 
     def test_gbp_minor_unit_is_scaled_for_historical(self, monkeypatch):
-        fx = self._build_fx(monkeypatch, "GBp", [
-            ("2024-01-01 00:00:00", 125.0),
-        ])
+        fx = self._build_fx(
+            monkeypatch,
+            "GBp",
+            [
+                ("2024-01-01 00:00:00", 125.0),
+            ],
+        )
 
         assert fx("GBp", datetime(2024, 5, 1)) == pytest.approx(1.25)
 
@@ -165,9 +190,11 @@ class TestCallable:
         current = MagicMock()
         current.info = {"regularMarketPrice": 1.0}
         historical = MagicMock()
-        historical.history.return_value = _hist_for([
-            ("2024-01-01 00:00:00", 2.0),
-        ])
+        historical.history.return_value = _hist_for(
+            [
+                ("2024-01-01 00:00:00", 2.0),
+            ]
+        )
         # Same FX symbol; both code paths use the same ticker instance.
         ticker = MagicMock()
         ticker.info = current.info

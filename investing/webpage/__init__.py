@@ -14,6 +14,7 @@ The public surface is intentionally identical to the old module:
 imports of ``Webpage`` / ``generate_webpage`` from
 ``investing.webpage`` keep working unchanged.
 """
+
 from __future__ import annotations
 
 from ._page import Webpage, generate_webpage

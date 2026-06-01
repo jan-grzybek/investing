@@ -3,6 +3,7 @@ test files. Split out of the historical monolithic ``test_webpage.py``
 so each topical test module can import the same helpers without
 duplicating them.
 """
+
 from __future__ import annotations
 
 import math
@@ -101,5 +102,3 @@ def _trade_event(
         "end_date": end,
         "delta_pct": delta_pct,
     }
-
-

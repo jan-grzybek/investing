@@ -2,26 +2,28 @@ name: Update and deploy webpage
 
 on:
   schedule:
-    # Hourly during the union of regular trading hours of the major
-    # US (NYSE / NASDAQ) and European (LSE / Euronext / Xetra)
-    # exchanges, on weekdays. GitHub Actions cron schedules are
-    # always UTC with no DST awareness, so the window covers both
-    # halves of the year:
+    # Refresh every two hours during the union of regular trading
+    # hours of the major US (NYSE / NASDAQ) and European (LSE /
+    # Euronext / Xetra) exchanges, on weekdays. GitHub Actions cron
+    # schedules are always UTC with no DST awareness, so the window
+    # covers both halves of the year:
     #   - LSE / Euronext / Xetra: 07:00-15:30 UTC (summer DST) or
     #     08:00-16:30 UTC (winter), Mon-Fri.
     #   - NYSE / NASDAQ: 13:30-20:00 UTC (summer) or 14:30-21:00
     #     UTC (winter), Mon-Fri.
-    # Union: 07:00-21:00 UTC -> hours 7..21 inclusive (15 runs per
-    # weekday). Exchange holidays still trigger a run; the page
-    # generation is idempotent, so a no-op redeploy on those days
-    # is harmless. Note GitHub may delay scheduled runs by up to
-    # ~15 minutes during peak load, which is well below the
-    # 1-hour granularity here.
-    - cron: "0 7-21 * * 1-5"
+    # Union: 07:00-21:00 UTC -> 7,9,11,13,15,17,19,21 (8 runs per
+    # weekday). The previous hourly cadence (15 runs/day) refreshed
+    # the live tape faster than market participants can act on it
+    # given the ~5-15 minute delay in scheduled job dispatch and
+    # spent the spare compute regenerating an OG image whose
+    # inputs change at most a few times per day. Exchange holidays
+    # still trigger a run; the page generation is idempotent, so a
+    # no-op redeploy on those days is harmless.
+    - cron: "0 7-21/2 * * 1-5"
     # Once daily on weekends (Sat-Sun) at 12:00 UTC, when all major
     # exchanges are closed. Keeps the deployed page from going stale
     # over the weekend (e.g. refreshing the date header and any
-    # time-sensitive copy) without burning hourly CI minutes.
+    # time-sensitive copy) without burning CI minutes.
     - cron: "0 12 * * 6,0"
   # Run after a push to ``main`` lands, but only once the ``Tests``
   # workflow (``test.yml``) has finished successfully. Using

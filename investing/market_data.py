@@ -19,6 +19,7 @@ exceptions, custom ``yfinance.exceptions.YF*`` types, ``KeyError``
 deep inside the parser, etc., and the catch-all keeps that
 churn contained here rather than in every call site.
 """
+
 from __future__ import annotations
 
 import os
@@ -90,7 +91,7 @@ def _call_with_retry[T](
             last_exc = exc
             remaining = effective_attempts - attempt - 1
             if remaining > 0:
-                delay = base_delay * (2 ** attempt)
+                delay = base_delay * (2**attempt)
                 # Identifier-only log line: ``description`` is a
                 # static call-site label, not a runtime value.
                 logger.warning(

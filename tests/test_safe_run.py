@@ -19,6 +19,7 @@ These tests pin both halves of that contract: that the suppression
 happens, and that what *is* emitted on failure contains the breadcrumbs
 needed to debug without any of the carriers that normally leak values.
 """
+
 from __future__ import annotations
 
 import os
@@ -81,9 +82,7 @@ class TestCleanRun:
         assert exit_code is None
         assert captured.err == ""
 
-    def test_python_stderr_writes_during_main_are_suppressed(
-        self, monkeypatch, capfd
-    ):
+    def test_python_stderr_writes_during_main_are_suppressed(self, monkeypatch, capfd):
         def fake_main():
             sys.stderr.write(_LIBRARY_NOISE + "\n")
             sys.stderr.write(_LEAK_CANARY + "\n")
@@ -95,11 +94,10 @@ class TestCleanRun:
         assert _LEAK_CANARY not in captured.err
         assert captured.err == ""
 
-    def test_native_fd2_writes_during_main_are_suppressed(
-        self, monkeypatch, capfd
-    ):
+    def test_native_fd2_writes_during_main_are_suppressed(self, monkeypatch, capfd):
         """A C extension that writes straight to fd 2 (bypassing the
         Python ``sys.stderr`` wrapper) must also be silenced."""
+
         def fake_main():
             os.write(2, (_LIBRARY_NOISE + "\n").encode())
 
@@ -107,6 +105,64 @@ class TestCleanRun:
 
         assert exit_code is None
         assert _LIBRARY_NOISE not in captured.err
+
+    def test_python_stdout_writes_during_main_are_suppressed(self, monkeypatch, capfd):
+        """Stray ``print()`` calls from transitive deps must not reach
+        the public job log -- stdout gets the same redaction as
+        stderr now."""
+
+        def fake_main():
+            print(_LIBRARY_NOISE)
+            print(_LEAK_CANARY)
+
+        exit_code, captured = _run_safely_capturing(monkeypatch, fake_main, capfd)
+
+        assert exit_code is None
+        assert _LIBRARY_NOISE not in captured.out
+        assert _LEAK_CANARY not in captured.out
+        assert captured.out == ""
+
+    def test_native_fd1_writes_during_main_are_suppressed(self, monkeypatch, capfd):
+        """And the same defence against C extensions writing straight
+        to fd 1, mirroring the fd-2 contract."""
+
+        def fake_main():
+            os.write(1, (_LIBRARY_NOISE + "\n").encode())
+
+        exit_code, captured = _run_safely_capturing(monkeypatch, fake_main, capfd)
+
+        assert exit_code is None
+        assert _LIBRARY_NOISE not in captured.out
+
+    def test_emit_summary_during_main_reaches_real_stdout(self, monkeypatch, capfd):
+        """``investing.cli._print_summary`` writes its curated line via
+        :func:`safe_run.emit_summary`; that helper must bypass the
+        StringIO mask installed by ``_run_main_safely`` and land on
+        the real stdout."""
+        marker = "BUILD-OK-MARKER-42"
+
+        def fake_main():
+            _safe_run.emit_summary(marker + "\n")
+
+        exit_code, captured = _run_safely_capturing(monkeypatch, fake_main, capfd)
+
+        assert exit_code is None
+        assert marker in captured.out
+
+    def test_stdout_is_restored_after_a_clean_run(self, monkeypatch, capfd):
+        sentinel = "POST_RUN_STDOUT_SENTINEL"
+
+        def fake_main():
+            print("hidden")  # vanishes into the captured StringIO
+
+        exit_code, _ = _run_safely_capturing(monkeypatch, fake_main, capfd)
+        assert exit_code is None
+        print(sentinel)
+        os.write(1, b"POST_RUN_FD1_SENTINEL\n")
+        after = capfd.readouterr()
+
+        assert sentinel in after.out
+        assert "POST_RUN_FD1_SENTINEL" in after.out
 
     def test_stderr_is_restored_after_a_clean_run(self, monkeypatch, capfd):
         sentinel = "POST_RUN_VISIBLE_SENTINEL"
@@ -153,11 +209,10 @@ class TestFailingRun:
 
         assert "investing failed: _BoomError" in captured.err
 
-    def test_summary_does_not_contain_exception_message(
-        self, monkeypatch, capfd
-    ):
+    def test_summary_does_not_contain_exception_message(self, monkeypatch, capfd):
         """The single biggest leak vector: ``str(exc)`` routinely
         contains the value that caused the failure."""
+
         def fake_main():
             raise _BoomError(_LEAK_CANARY)
 
@@ -165,10 +220,9 @@ class TestFailingRun:
 
         assert _LEAK_CANARY not in captured.err
 
-    def test_summary_does_not_contain_exception_notes(
-        self, monkeypatch, capfd
-    ):
+    def test_summary_does_not_contain_exception_notes(self, monkeypatch, capfd):
         """PEP 678 ``__notes__`` can carry runtime values too."""
+
         def fake_main():
             exc = _BoomError("benign-class-name")
             exc.add_note(_LEAK_CANARY)
@@ -178,11 +232,10 @@ class TestFailingRun:
 
         assert _LEAK_CANARY not in captured.err
 
-    def test_summary_does_not_leak_stderr_written_before_failure(
-        self, monkeypatch, capfd
-    ):
+    def test_summary_does_not_leak_stderr_written_before_failure(self, monkeypatch, capfd):
         """Library noise echoed before the exception is raised must
         stay buried even when we surface a failure summary."""
+
         def fake_main():
             sys.stderr.write(_LIBRARY_NOISE + "\n")
             os.write(2, (_LIBRARY_NOISE + "-fd\n").encode())
@@ -192,9 +245,7 @@ class TestFailingRun:
 
         assert _LIBRARY_NOISE not in captured.err
 
-    def test_summary_lists_traceback_frames_with_source_lines(
-        self, monkeypatch, capfd
-    ):
+    def test_summary_lists_traceback_frames_with_source_lines(self, monkeypatch, capfd):
         def fake_main():
             raise _BoomError("benign")
 
@@ -211,6 +262,7 @@ class TestFailingRun:
         """When ``raise X from Y`` is used the underlying cause is
         often what really failed; the summary must surface it (by
         class only, never its message)."""
+
         def fake_main():
             try:
                 raise ValueError(_LEAK_CANARY)
@@ -243,19 +295,16 @@ class TestFailingRun:
         assert "caused by: KeyError" in captured.err
         assert runtime_secret not in captured.err
 
-    def test_self_referential_cause_chain_terminates(
-        self, monkeypatch, capfd
-    ):
+    def test_self_referential_cause_chain_terminates(self, monkeypatch, capfd):
         """``raise X from X`` would loop forever without the ``seen``
         guard inside ``_print_sanitized_failure``."""
+
         def fake_main():
             exc = _BoomError("loop")
             exc.__cause__ = exc
             raise exc
 
-        exit_code, captured = _run_safely_capturing(
-            monkeypatch, fake_main, capfd
-        )
+        exit_code, captured = _run_safely_capturing(monkeypatch, fake_main, capfd)
 
         assert exit_code == 1
         # Only the top-level entry should appear; the cycle must be
@@ -263,9 +312,7 @@ class TestFailingRun:
         assert captured.err.count("investing failed: _BoomError") == 1
         assert "caused by:" not in captured.err
 
-    def test_systemexit_nonzero_is_treated_as_failure(
-        self, monkeypatch, capfd
-    ):
+    def test_systemexit_nonzero_is_treated_as_failure(self, monkeypatch, capfd):
         def fake_main():
             raise SystemExit(2)
 
@@ -274,9 +321,7 @@ class TestFailingRun:
         assert exit_code == 1
         assert "investing failed: SystemExit" in captured.err
 
-    def test_keyboard_interrupt_is_treated_as_failure(
-        self, monkeypatch, capfd
-    ):
+    def test_keyboard_interrupt_is_treated_as_failure(self, monkeypatch, capfd):
         def fake_main():
             raise KeyboardInterrupt()
 

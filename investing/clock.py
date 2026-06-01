@@ -13,6 +13,7 @@ entrypoint that reads the clock. Production code never passes it
 fixture still works) but tests can plumb an explicit closure rather
 than reach for a cross-module monkeypatch.
 """
+
 from __future__ import annotations
 
 from collections.abc import Callable

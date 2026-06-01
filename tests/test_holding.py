@@ -3,6 +3,7 @@
 These tests stub ``yf.Ticker`` so no network is hit, and pin the exchange
 rate at 1.0 so we only have to reason about share counts and prices.
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -81,11 +82,15 @@ class TestSplitsAndDividendsBootstrap:
     def test_splits_are_accumulated_in_reverse(self, install_ticker):
         # Three splits: 2:1, then 3:1, then 5:1. The earliest split is
         # multiplied by all subsequent splits (2 * 3 * 5 = 30).
-        ticker = install_ticker(_make_ticker(splits={
-            _date_key(datetime(2020, 1, 1)): 2.0,
-            _date_key(datetime(2021, 1, 1)): 3.0,
-            _date_key(datetime(2022, 1, 1)): 5.0,
-        }))
+        ticker = install_ticker(
+            _make_ticker(
+                splits={
+                    _date_key(datetime(2020, 1, 1)): 2.0,
+                    _date_key(datetime(2021, 1, 1)): 3.0,
+                    _date_key(datetime(2022, 1, 1)): 5.0,
+                }
+            )
+        )
         holding = Holding("TST")
 
         assert ticker.get_info.called
@@ -99,13 +104,15 @@ class TestSplitsAndDividendsBootstrap:
         # tracks ``quantity`` in the same current frame, so storing
         # dividends verbatim means the per-share value and the share
         # count agree without any retroactive multiplication step.
-        install_ticker(_make_ticker(
-            splits={_date_key(datetime(2022, 1, 1)): 2.0},
-            dividends={
-                _date_key(datetime(2021, 6, 1)): 1.00,
-                _date_key(datetime(2023, 6, 1)): 1.00,
-            },
-        ))
+        install_ticker(
+            _make_ticker(
+                splits={_date_key(datetime(2022, 1, 1)): 2.0},
+                dividends={
+                    _date_key(datetime(2021, 6, 1)): 1.00,
+                    _date_key(datetime(2023, 6, 1)): 1.00,
+                },
+            )
+        )
         holding = Holding("TST")
 
         by_date = {d["date"]: d["dividend"] for d in holding._dividends}
@@ -122,9 +129,7 @@ class TestBuy:
         assert len(holding._positions) == 1
         assert holding._positions[-1]["quantity"] == 10
         assert holding._periods == [{"start": datetime(2024, 1, 1), "end": None}]
-        assert holding._inflows == [
-            {"date": datetime(2024, 1, 1), "value": 10 * 50.0}
-        ]
+        assert holding._inflows == [{"date": datetime(2024, 1, 1), "value": 10 * 50.0}]
 
     def test_same_day_buy_aggregates_quantity(self, install_ticker, stub_exchange_rate):
         install_ticker(_make_ticker(price=100.0))
@@ -140,10 +145,12 @@ class TestBuy:
     def test_buy_after_split_scales_existing_quantity(self, install_ticker, stub_exchange_rate):
         # 4:1 split between Jan and Mar. 10 shares held -> 40 shares before
         # the next buy of 5 -> position becomes 45.
-        install_ticker(_make_ticker(
-            price=100.0,
-            splits={_date_key(datetime(2024, 2, 1)): 4.0},
-        ))
+        install_ticker(
+            _make_ticker(
+                price=100.0,
+                splits={_date_key(datetime(2024, 2, 1)): 4.0},
+            )
+        )
         holding = Holding("TST", fx=stub_exchange_rate)
         holding.buy(Trade(datetime(2024, 1, 1), "TST", 10, 50.0, "BUY"))
         holding.buy(Trade(datetime(2024, 3, 1), "TST", 5, 25.0, "BUY"))
@@ -160,9 +167,7 @@ class TestSell:
 
         assert holding._positions[-1]["quantity"] == 6
         assert holding._periods[-1]["end"] is None
-        assert holding._outflows == [
-            {"date": datetime(2024, 6, 1), "value": 4 * 60.0}
-        ]
+        assert holding._outflows == [{"date": datetime(2024, 6, 1), "value": 4 * 60.0}]
 
     def test_full_sell_closes_the_period(self, install_ticker, stub_exchange_rate):
         install_ticker(_make_ticker(price=100.0))
@@ -205,14 +210,16 @@ class TestSummaryDividends:
         # No price movement -- only contribution to TSR is the
         # after-tax dividend yield: 5.00 USD * (1 - 0.15) / 100.
         freeze_today(datetime(2025, 1, 1))
-        install_ticker(_make_ticker(
-            price=100.0,
-            dividends={_date_key(datetime(2024, 6, 1)): 5.00},
-            history={
-                datetime(2024, 1, 1): 100.0,
-                datetime(2024, 6, 1): 100.0,
-            },
-        ))
+        install_ticker(
+            _make_ticker(
+                price=100.0,
+                dividends={_date_key(datetime(2024, 6, 1)): 5.00},
+                history={
+                    datetime(2024, 1, 1): 100.0,
+                    datetime(2024, 6, 1): 100.0,
+                },
+            )
+        )
         holding = Holding("TST", fx=stub_exchange_rate)
         holding.buy(Trade(datetime(2024, 1, 1), "TST", 10, 100.0, "BUY"))
 
@@ -227,14 +234,16 @@ class TestSummaryDividends:
         # Holder didn't own shares on the dividend date, so the
         # cash never reached them. With no other movement, TSR is 0%.
         freeze_today(datetime(2025, 1, 1))
-        install_ticker(_make_ticker(
-            price=100.0,
-            dividends={_date_key(datetime(2023, 6, 1)): 5.00},
-            history={
-                datetime(2023, 6, 1): 100.0,
-                datetime(2024, 1, 1): 100.0,
-            },
-        ))
+        install_ticker(
+            _make_ticker(
+                price=100.0,
+                dividends={_date_key(datetime(2023, 6, 1)): 5.00},
+                history={
+                    datetime(2023, 6, 1): 100.0,
+                    datetime(2024, 1, 1): 100.0,
+                },
+            )
+        )
         holding = Holding("TST", fx=stub_exchange_rate)
         holding.buy(Trade(datetime(2024, 1, 1), "TST", 10, 100.0, "BUY"))
 
@@ -248,15 +257,17 @@ class TestSummaryDividends:
         # never landed in the holder's account and must not leak into
         # the chained TWR.
         freeze_today(datetime(2025, 1, 1))
-        install_ticker(_make_ticker(
-            price=100.0,
-            dividends={_date_key(datetime(2024, 6, 1)): 5.00},
-            history={
-                datetime(2024, 1, 1): 100.0,
-                datetime(2024, 3, 1): 100.0,
-                datetime(2024, 6, 1): 100.0,
-            },
-        ))
+        install_ticker(
+            _make_ticker(
+                price=100.0,
+                dividends={_date_key(datetime(2024, 6, 1)): 5.00},
+                history={
+                    datetime(2024, 1, 1): 100.0,
+                    datetime(2024, 3, 1): 100.0,
+                    datetime(2024, 6, 1): 100.0,
+                },
+            )
+        )
         holding = Holding("TST", fx=stub_exchange_rate)
         holding.buy(Trade(datetime(2024, 1, 1), "TST", 10, 100.0, "BUY"))
         holding.sell(Trade(datetime(2024, 3, 1), "TST", 10, 100.0, "SELL"))
@@ -286,12 +297,14 @@ class TestSummary:
         self, install_ticker, stub_exchange_rate, freeze_today
     ):
         freeze_today(datetime(2025, 1, 1))
-        install_ticker(_make_ticker(
-            price=200.0,
-            symbol="TST",
-            exchange="NMS",
-            long_name="Test Co.",
-        ))
+        install_ticker(
+            _make_ticker(
+                price=200.0,
+                symbol="TST",
+                exchange="NMS",
+                long_name="Test Co.",
+            )
+        )
         holding = Holding("TST", fx=stub_exchange_rate)
         holding.buy(Trade(datetime(2024, 1, 1), "TST", 10, 100.0, "BUY"))
 
@@ -341,10 +354,12 @@ class TestSummary:
         # the open period would multiply 100 (pre-split count) by
         # $50 (post-split price) and report a phantom -50% loss.
         freeze_today(datetime(2025, 1, 1))
-        install_ticker(_make_ticker(
-            price=50.0,
-            splits={_date_key(datetime(2024, 6, 1)): 2.0},
-        ))
+        install_ticker(
+            _make_ticker(
+                price=50.0,
+                splits={_date_key(datetime(2024, 6, 1)): 2.0},
+            )
+        )
         holding = Holding("TST", fx=stub_exchange_rate)
         holding.buy(Trade(datetime(2024, 1, 1), "TST", 100, 100.0, "BUY"))
 

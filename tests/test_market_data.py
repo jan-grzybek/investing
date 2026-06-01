@@ -5,6 +5,7 @@ yfinance read in the production pipeline. The tests exercise its
 shape (success path, failure path, attempt budget, chained
 exception) without touching the network.
 """
+
 from __future__ import annotations
 
 import pytest

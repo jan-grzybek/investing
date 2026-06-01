@@ -6,6 +6,7 @@ to an inline script / style payload must update a hash here, so the
 "what is allowed to execute on the page" surface lives in one
 self-contained module.
 """
+
 from __future__ import annotations
 
 import json
@@ -33,11 +34,11 @@ class SiteMeta:
     positional arguments.
     """
 
-    title: str          # Long-form site title (used in <h1>, og:site_name, JSON-LD ``name``).
-    seo_title: str      # SERP-friendly short title (used in <title> + Twitter / OG title meta).
-    description: str    # ~155-char meta description (description meta + Twitter / OG).
-    url: str            # Canonical site URL.
-    social_image: str   # Absolute URL of the rendered OG image.
+    title: str  # Long-form site title (used in <h1>, og:site_name, JSON-LD ``name``).
+    seo_title: str  # SERP-friendly short title (used in <title> + Twitter / OG title meta).
+    description: str  # ~155-char meta description (description meta + Twitter / OG).
+    url: str  # Canonical site URL.
+    social_image: str  # Absolute URL of the rendered OG image.
 
 
 def build_jsonld(meta: SiteMeta) -> SafeHtml:
@@ -64,9 +65,7 @@ def build_jsonld(meta: SiteMeta) -> SafeHtml:
             "url": meta.url,
         },
     }
-    return SafeHtml(
-        json.dumps(payload, ensure_ascii=False).replace("</", "<\\/")
-    )
+    return SafeHtml(json.dumps(payload, ensure_ascii=False).replace("</", "<\\/"))
 
 
 def build_csp(jsonld: SafeHtml) -> SafeHtml:
@@ -127,10 +126,10 @@ def build_head(meta: SiteMeta) -> SafeHtml:
     jsonld_str = build_jsonld(meta)
     csp = build_csp(jsonld_str)
     return SafeHtml(
-        '<head>\n'
+        "<head>\n"
         '<meta charset="UTF-8">\n'
         '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n'
-        f'<title>{title}</title>\n'
+        f"<title>{title}</title>\n"
         f'<meta name="description" content="{desc}">\n'
         '<meta name="author" content="Jan Grzybek">\n'
         '<meta name="robots" content="index,follow,max-image-preview:large">\n'
@@ -160,11 +159,11 @@ def build_head(meta: SiteMeta) -> SafeHtml:
         f'<meta name="twitter:image" content="{image}">\n'
         f'<meta name="twitter:image:alt" content="{title}">\n'
         f'<script type="application/ld+json">{jsonld_str}</script>\n'
-        f'<script>{_HASH_CLEAR_SCRIPT}</script>\n'
-        f'<script>{_NAV_SCROLL_SCRIPT}</script>\n'
-        f'<script>{_RETURN_CHART_SCRIPT}</script>\n'
-        f'<script>{_TRADES_SORT_SCRIPT}</script>\n'
-        f'<script>{_HOLDINGS_SORT_SCRIPT}</script>\n'
-        f'<style>{_PAGE_STYLES}</style>\n'
-        '</head>'
+        f"<script>{_HASH_CLEAR_SCRIPT}</script>\n"
+        f"<script>{_NAV_SCROLL_SCRIPT}</script>\n"
+        f"<script>{_RETURN_CHART_SCRIPT}</script>\n"
+        f"<script>{_TRADES_SORT_SCRIPT}</script>\n"
+        f"<script>{_HOLDINGS_SORT_SCRIPT}</script>\n"
+        f"<style>{_PAGE_STYLES}</style>\n"
+        "</head>"
     )

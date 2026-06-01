@@ -14,6 +14,7 @@ columns are sortable" and "where do INCREASE/DECREASE rows fall
 in dict-order"; the matching :data:`_TRADES_SORT_SCRIPT` reads
 the same ``data-sort-*`` attributes.
 """
+
 from __future__ import annotations
 
 import html
@@ -29,16 +30,12 @@ from .anchors import strip_exchange
 # OPEN -> INCREASE -> DECREASE -> CLOSE, ascending -- so an
 # ascending sweep flows through the position's lifecycle.
 TRADE_DETAIL_SORT_INDEX: dict[str, int] = {
-    category: index
-    for index, category in enumerate(
-        ("OPEN", "INCREASE", "DECREASE", "CLOSE")
-    )
+    category: index for index, category in enumerate(("OPEN", "INCREASE", "DECREASE", "CLOSE"))
 }
 
 
 TRADE_ACTION_SORT_INDEX: dict[str, int] = {
-    category: 0 if category in _BUY_CATEGORIES else 1
-    for category in _TRADE_ACTION_DISPLAY
+    category: 0 if category in _BUY_CATEGORIES else 1 for category in _TRADE_ACTION_DISPLAY
 }
 
 
@@ -48,11 +45,11 @@ TRADE_ACTION_SORT_INDEX: dict[str, int] = {
 # ``label`` is the displayed text; ``modifier`` is the BEM
 # modifier added to the ``<th>``.
 SORTABLE_COLUMNS: tuple[tuple[str, str, str], ...] = (
-    ("ticker", "Ticker",  "trades__col--ticker"),
-    ("name",   "Company", "trades__col--name"),
-    ("action", "Action",  "trades__col--action"),
+    ("ticker", "Ticker", "trades__col--ticker"),
+    ("name", "Company", "trades__col--name"),
+    ("action", "Action", "trades__col--action"),
     ("detail", "Details", "trades__col--detail"),
-    ("date",   "Date",    "trades__col--date"),
+    ("date", "Date", "trades__col--date"),
 )
 
 
@@ -114,9 +111,8 @@ def build_row(event: dict) -> str:
     # treatment plus a sign-driven colour cue.
     if category in ("INCREASE", "DECREASE"):
         detail_modifier = "pct"
-        detail_class = (
-            "trades__detail trades__detail--pct "
-            + ("value--positive" if category == "INCREASE" else "value--negative")
+        detail_class = "trades__detail trades__detail--pct " + (
+            "value--positive" if category == "INCREASE" else "value--negative"
         )
     else:
         detail_modifier = "label"
@@ -129,9 +125,7 @@ def build_row(event: dict) -> str:
     # by date stays fine-grained even though the visible label
     # is coarse.
     period_html = _fmt_quarter_range(start, end)
-    price_html = html.escape(
-        f"{event['price']:,.2f} {event['currency']}"
-    )
+    price_html = html.escape(f"{event['price']:,.2f} {event['currency']}")
     symbol = strip_exchange(event["ticker"])
     name = event["name"]
     sort_date = end.strftime("%Y-%m-%d")
@@ -150,16 +144,16 @@ def build_row(event: dict) -> str:
         f'<td class="trades__cell trades__cell--name">{html.escape(name)}</td>'
         '<td class="trades__cell trades__cell--action">'
         f'<span class="trade__badge trade__badge--{action_modifier}">'
-        f'{html.escape(action_label)}</span>'
-        '</td>'
+        f"{html.escape(action_label)}</span>"
+        "</td>"
         '<td class="trades__cell trades__cell--detail">'
         f'<span class="{detail_class}" '
         f'data-detail-kind="{detail_modifier}">'
-        f'{html.escape(detail_label)}</span>'
-        '</td>'
+        f"{html.escape(detail_label)}</span>"
+        "</td>"
         f'<td class="trades__cell trades__cell--date">{period_html}</td>'
         f'<td class="trades__cell trades__cell--price">{price_html}</td>'
-        '</tr>'
+        "</tr>"
     )
 
 
@@ -180,27 +174,25 @@ def build_table(rows: list[str]) -> str:
             f'<th class="trades__col {modifier}" scope="col" '
             f'data-sort-key="{key}" aria-sort="none">'
             f'<button type="button" class="trades__sort">'
-            f'{html.escape(label)}'
+            f"{html.escape(label)}"
             '<span class="trades__sort-indicator" aria-hidden="true"></span>'
-            '</button></th>'
+            "</button></th>"
         )
     # Price column is not sortable -- mixing currencies in a
     # numeric sort would imply a meaningful ordering across
     # USD / EUR / GBp etc. that doesn't exist without an FX
     # conversion.
-    headers.append(
-        '<th class="trades__col trades__col--price" scope="col">Price</th>'
-    )
-    thead = f'<thead><tr>{"".join(headers)}</tr></thead>'
-    tbody = f'<tbody>{"".join(rows)}</tbody>'
+    headers.append('<th class="trades__col trades__col--price" scope="col">Price</th>')
+    thead = f"<thead><tr>{''.join(headers)}</tr></thead>"
+    tbody = f"<tbody>{''.join(rows)}</tbody>"
     table_html = (
         '<div class="trades__wrap">'
         '<table class="trades" '
         'data-sort-default="date" '
         'data-sort-default-dir="desc">'
-        f'{thead}{tbody}'
-        '</table>'
-        '</div>'
+        f"{thead}{tbody}"
+        "</table>"
+        "</div>"
     )
     toggle_html = ""
     total = len(rows)
@@ -208,6 +200,6 @@ def build_table(rows: list[str]) -> str:
         toggle_html = (
             '<button type="button" class="trades__toggle" '
             f'data-total="{total}" aria-expanded="false">'
-            f'Show all {total} trades</button>'
+            f"Show all {total} trades</button>"
         )
     return table_html + toggle_html

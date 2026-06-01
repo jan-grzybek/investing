@@ -38,7 +38,22 @@ dev = [
   "pre-commit>=3.7",
   "rjsmin>=1.2",
   "csscompressor>=0.9",
+  # ``pip-compile`` regenerates the pinned lock files from this
+  # ``pyproject.toml`` itself (no separate ``requirements.in``); the
+  # CONTRIBUTING guide documents the one-liner.
+  "pip-tools>=7",
+  # Typeshed packages so mypy can resolve ``dateutil`` / ``requests``
+  # annotations cleanly. Previously declared inline in the pre-commit
+  # mypy hook; lifted here so the dev environment, CI and the
+  # ``language: system`` pre-commit hook all see the same stubs.
+  "types-python-dateutil",
+  "types-requests",
 ]
+
+[project.urls]
+Homepage = "https://jan-grzybek.github.io/investing/"
+Source = "https://github.com/jan-grzybek/investing"
+Issues = "https://github.com/jan-grzybek/investing/issues"
 
 [tool.setuptools]
 # The page generator lives in ``investing/``; ``python -m investing``
@@ -90,18 +105,26 @@ extend-exclude = [
 # bugbear, comprehensions. Tightening can come once the codebase has been
 # through a first formatting pass.
 select = ["E", "F", "I", "UP", "B", "C4", "SIM", "RUF"]
-# Long literal lines inside the HTML / SVG builders are existing prose;
-# allow them for now so the lint baseline is clean. The CSS / JS payloads
-# have already moved out into assets/ where they're handled by their own
-# tooling.
+# The ignore list is deliberately small: each entry corresponds to a
+# rule that currently fires in the codebase and that we've chosen to
+# accept rather than rewrite around. Audited regularly -- previous
+# entries (E741, B008, SIM117, RUF012) were dropped once it became
+# clear the patterns they guarded against no longer existed.
 ignore = [
+  # HTML / SVG / JSON-LD prose builders carry intentionally long
+  # string literals; reflowing them would obscure the rendered
+  # output.
   "E501",   # line too long
-  "E741",   # ambiguous variable name
-  "B008",   # function call in default argument (used intentionally for ExchangeRate)
+  # ``holdings.py``'s TSR / XIRR branch reads more clearly as an
+  # ``if`` block than a ternary because the comment immediately
+  # above explains the two cases as a pair of branches.
   "SIM108", # ternary simplification (sometimes harms readability)
-  "SIM117", # combine nested with-statements
+  # ``performance.py``'s top-10 bucket construction concatenates a
+  # sliced list with the synthetic ``Other equities`` tuple; the
+  # PEP 448 unpacking form (``[*ranked[:10], (...)]``) reads less
+  # well than the explicit concatenation when the ``+`` is the
+  # whole point of the expression.
   "RUF005", # iterable unpacking vs concatenation (legacy style)
-  "RUF012", # mutable class attribute defaults
 ]
 
 [tool.ruff.lint.per-file-ignores]
@@ -124,11 +147,44 @@ warn_redundant_casts = true
 warn_unused_ignores = true
 no_implicit_optional = true
 check_untyped_defs = true
-# Strict mode is the goal, but the existing codebase is largely untyped.
-# Start permissive and tighten over time.
+# Permissive by default for the partially-typed modules
+# (``investing.holdings``, ``investing.performance``,
+# ``investing.webpage._page``, ...) that still carry untyped
+# helpers from before the codebase grew its TypedDicts. The
+# override block below ratchets ``disallow_untyped_defs`` on for
+# every fully-typed module so a regression -- a freshly added
+# untyped helper inside one of them -- fails the build.
 disallow_untyped_defs = false
 ignore_missing_imports = true
 
+# Modules that are fully annotated today. New code added here MUST
+# carry signatures; mypy will fail the build otherwise. To onboard a
+# module, type its public surface end-to-end, then move its name into
+# the list below. The remaining ``investing.*`` modules
+# (holdings, performance, sheets, webpage._page, webpage.og_image,
+# formatting, fx, pchip) stay permissive until their internal helpers
+# get the same treatment.
 [[tool.mypy.overrides]]
-module = ["investing.*"]
-disallow_untyped_defs = false
+module = [
+  "investing.errors",
+  "investing.log",
+  "investing.paths",
+  "investing.types",
+  "investing.safehtml",
+  "investing.clock",
+  "investing.assets",
+  "investing.market_data",
+  "investing.safe_run",
+  "investing.cli",
+  "investing.logos",
+  "investing.trades",
+  "investing.webpage",
+  "investing.webpage.anchors",
+  "investing.webpage.sitemap",
+  "investing.webpage.head",
+  "investing.webpage.bars",
+  "investing.webpage.holdings_view",
+  "investing.webpage.trades_view",
+  "investing.webpage.return_chart",
+]
+disallow_untyped_defs = true

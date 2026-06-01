@@ -1,0 +1,52 @@
+# EditorConfig is awesome: https://EditorConfig.org
+#
+# The project layout already pins formatting via ``ruff format`` for
+# Python and via the readable CSS sources under ``assets/src/css``;
+# this file gives editors (VS Code, JetBrains, vim, Sublime, etc.) the
+# same defaults so anyone editing without ruff installed still saves
+# a file that matches the project's conventions.
+#
+# The settings below mirror what ``pre-commit-hooks/mixed-line-ending``
+# and ``trailing-whitespace`` would otherwise normalise on commit -- so
+# the editor catches the same drift earlier in the loop.
+
+root = true
+
+[*]
+end_of_line = lf
+charset = utf-8
+trim_trailing_whitespace = true
+insert_final_newline = true
+indent_style = space
+indent_size = 4
+
+# Markdown trailing-whitespace can encode a hard line break, so don't
+# let the editor strip it for those files.
+[*.md]
+trim_trailing_whitespace = false
+
+# YAML / TOML / JSON / CSS / JS / HTML conventionally indent with 2
+# spaces; matching the existing repo files keeps diff noise out.
+[*.{yml,yaml,toml,json,css,js,html,xml}]
+indent_size = 2
+
+# Asset minifier output is byte-exact (the served CSP hashes assume
+# the same bytes that pre-commit currently has on disk). The editor
+# must not rewrite line endings, trailing whitespace, or final
+# newlines for these files or the deployed page's CSP breaks.
+[assets/page.css]
+trim_trailing_whitespace = false
+insert_final_newline = unset
+
+[assets/*.js]
+trim_trailing_whitespace = false
+insert_final_newline = unset
+
+[assets/*.svg]
+trim_trailing_whitespace = false
+insert_final_newline = unset
+
+# Logos are binary / hand-crafted SVG; leave them alone.
+[logos/**]
+trim_trailing_whitespace = false
+insert_final_newline = unset

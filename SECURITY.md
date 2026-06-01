@@ -20,12 +20,20 @@ world-readable** and act as a side channel for both classes of data.
 ## Mitigations in place
 
 * `investing.safe_run._run_main_safely` wraps `main()` so that
-  `sys.stderr` and the underlying file descriptor are both fully
-  redirected to `/dev/null` for the duration of the build. This
-  silences not only Python output but also any output from C
-  extensions that bypass the Python `stderr` wrapper (NumPy / Pandas
-  warnings, `gspread` HTTP error bodies, `yfinance` rate-limit
-  notices, etc.) that could echo offending values back into the logs.
+  **both** `sys.stderr` / fd 2 **and** `sys.stdout` / fd 1 are fully
+  redirected for the duration of the build. The stderr path silences
+  output from C extensions that bypass the Python wrappers (NumPy /
+  Pandas warnings, `gspread` HTTP error bodies, `yfinance`
+  rate-limit notices, etc.). The stdout path defends against a
+  transitive dependency emitting nominal values via `print()` (debug
+  modes in `httpx`, `tqdm`-style progress lines, etc.) -- those land
+  in a discarded in-memory buffer rather than the public job log.
+* The curated `Build OK: ...` summary line routes through
+  `investing.safe_run.emit_summary`, which writes to the stashed
+  real stdout while the redaction is active. The line is composed
+  exclusively of quantities the rendered page also publishes (TWR /
+  CAGR percentages, holding counts) so the job log gets a positive
+  build signal without surfacing privacy-sensitive values.
 * On failure, the wrapper restores `stderr` and prints a
   *hand-formatted* traceback that is deliberately built from public
   identifiers only: exception class, per-frame `filename:lineno`,
@@ -34,12 +42,17 @@ world-readable** and act as a side channel for both classes of data.
   which runtime values surface.
 * All progress / diagnostic output in the pipeline goes through
   `investing.log.logger`; the package contains no `print()` calls in
-  non-test code. Do not reintroduce them.
+  non-test code (other than the curated summary above). Do not
+  reintroduce them.
 * `_gspread_client` accepts the service-account JSON inline via the
   `GSHEET_CREDS` environment variable so the secret never lands on
   the runner's filesystem.
 * The deploy workflow uses the least-privilege token scope (`contents:
   read`, `pages: write`, `id-token: write`).
+* `.github/workflows/security.yml` runs `pip-audit` against both
+  lockfiles (OSV.dev advisory feed, `--strict` so known CVEs fail
+  the build) and a CodeQL Python scan (`security-and-quality` query
+  set) on every push, PR, and weekly cron sweep.
 
 ## Reporting a vulnerability
 
@@ -54,8 +67,12 @@ and rewrite history if needed.
 If you touch `investing/safe_run.py`, the workflow files, or anything
 that runs around `main()`, please verify:
 
-* No new `print()` calls (use `investing.log.logger`).
-* No new redirections that swap stderr back to a tty path.
+* No new `print()` calls reaching `sys.stdout` directly (use
+  `investing.log.logger` for diagnostics; route the curated build
+  signal through `safe_run.emit_summary`). The leak-safe wrapper
+  now redirects stdout too, but a future redaction that misses one
+  of the streams would silently re-open the leak.
+* No new redirections that swap stderr / stdout back to a tty path.
 * No code paths that re-raise with the offending value embedded in
   the message (e.g. `raise ValueError(f"bad row: {row!r}")`). Use the
   `SheetParseError` pattern in `investing/sheets.py` instead -- it

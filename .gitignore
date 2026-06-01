@@ -16,6 +16,10 @@ index.html
 sitemap.xml
 robots.txt
 og-image.png
+# Content-addressable cache sidecar that ``investing.webpage.og_image``
+# writes next to the PNG so the next run can short-circuit when the
+# headline numbers haven't changed.
+og-image.png.sha256
 # Local debug renders produced by ``scripts/preview.py``.
 preview/
 # CI smoke-parse output (HTML smoke test in test.yml).

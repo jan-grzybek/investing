@@ -17,6 +17,7 @@ This module exists separately from the page renderer so the HTTP
 plumbing (session reuse, retries, timeouts) lives in one place rather
 than scattered through whatever module happens to need a logo URL.
 """
+
 from __future__ import annotations
 
 import os
@@ -122,9 +123,7 @@ class LogoCache:
         # no longer falls through to the courage fallback.
         if self._local_dir is not None:
             for extension in LOGO_EXTENSIONS:
-                if os.path.exists(
-                    os.path.join(self._local_dir, f"{ticker}{extension}")
-                ):
+                if os.path.exists(os.path.join(self._local_dir, f"{ticker}{extension}")):
                     url = LOGOS_ADDRESS + encoded + extension
                     self._cache[ticker] = url
                     return url

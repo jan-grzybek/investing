@@ -7,6 +7,7 @@ positive build signal in the GitHub Actions log -- and on the
 negative contract (no holding identifiers, no cash, no FX
 values, etc.).
 """
+
 from __future__ import annotations
 
 from datetime import datetime

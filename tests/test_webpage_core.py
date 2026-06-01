@@ -1,5 +1,6 @@
 """Webpage construction, logo URL resolution, anchor helpers,
 the allocation chart, and the sticky site header."""
+
 from __future__ import annotations
 
 import math
@@ -43,6 +44,8 @@ class TestInit:
         assert w.historical == []
         assert w.allocation_pct is None
         assert w.top_10 is None
+
+
 class TestGetLogoUrl:
     def test_returns_first_extension_that_responds_200(self):
         session, calls = _make_session_stub(ok_extensions=(".png",))
@@ -91,6 +94,8 @@ class TestGetLogoUrl:
         assert url == LOGOS_ADDRESS + "NMS%3AX.png"
         # .svg raised; .png returned 200; we never reached .jpg.
         assert [c.rsplit(".", 1)[1] for c in calls] == ["svg", "png"]
+
+
 class TestHoldingAnchor:
     def test_strips_punctuation_to_a_dash_form(self):
         # Tickers carry exchange prefixes and dotted suffixes
@@ -111,12 +116,16 @@ class TestHoldingAnchor:
         # call this independently; their results have to agree.
         same = [Webpage._holding_anchor("NMS:AAA") for _ in range(3)]
         assert same == ["holding-NMS-AAA"] * 3
+
+
 class TestAddAllocations:
     def test_stores_values_for_save(self):
         w = Webpage()
         w.add_allocations({"Equities": 95.4}, {"NMS:AAA": 50.0})
         assert w.allocation_pct == {"Equities": 95.4}
         assert w.top_10 == {"NMS:AAA": 50.0}
+
+
 class TestBuildSiteHeader:
     def test_renders_title_and_links_to_existing_sections(self, stub_logo_lookup):
         w = Webpage()
@@ -124,7 +133,9 @@ class TestBuildSiteHeader:
         w.add_holding(_holding(is_current=True))
         w.add_holding(
             _holding(
-                ticker="NMS:OLD", is_current=False, weight=None,
+                ticker="NMS:OLD",
+                is_current=False,
+                weight=None,
                 periods=[{"start": datetime(2022, 1, 1), "end": datetime(2023, 1, 1)}],
             )
         )

@@ -13,18 +13,31 @@ class can focus on per-section HTML and the OG-specific Pillow
 plumbing (font search, logo rasterisation, halo composition)
 lives on its own. The ``render`` entrypoint is the only public
 function; everything else here is implementation detail.
+
+The rendered PNG is also content-addressable: every successful
+:func:`render` writes an ``og-image.png.sha256`` sidecar with a
+SHA-256 of the inputs that produced it. A subsequent call with the
+same inputs short-circuits without re-running Pillow, which keeps
+the hourly schedule cheap when only the live market tape moved (the
+chart / holding numbers are inline HTML, not pixel input to the OG
+composition).
 """
+
 from __future__ import annotations
 
+import hashlib
 import io
+import json
 import os
 from collections.abc import Iterable
-from datetime import datetime
+from datetime import date, datetime
+from pathlib import Path
 
 from dateutil.relativedelta import relativedelta
 
 from ..formatting import _fmt_date, _fmt_pct, _format_duration
-from ..paths import _REPO_LOGOS_DIR, LOGO_EXTENSIONS
+from ..log import logger
+from ..paths import _REPO_LOGOS_DIR, LOGO_EXTENSIONS, SITE_DISPLAY
 
 # Tickers in ``top_10`` keys that are not real holdings (e.g. the
 # synthetic "Other equities" bucket added when there are >11 current
@@ -58,6 +71,7 @@ _FONT_CANDIDATES: dict[str, tuple[tuple[str, int], ...]] = {
 def load_font(weight: str, size: int):
     """Pick the first installed candidate for the requested weight/size."""
     from PIL import ImageFont
+
     for path, idx in _FONT_CANDIDATES.get(weight, ()):
         if os.path.exists(path):
             try:
@@ -103,10 +117,7 @@ def load_logo_for_og(ticker: str, max_w: int, max_h: int):
     """
     from PIL import Image
 
-    candidates = [
-        os.path.join(_REPO_LOGOS_DIR, f"{ticker}{ext}")
-        for ext in LOGO_EXTENSIONS
-    ]
+    candidates = [os.path.join(_REPO_LOGOS_DIR, f"{ticker}{ext}") for ext in LOGO_EXTENSIONS]
     candidates.append(os.path.join(_REPO_LOGOS_DIR, "courage.png"))
 
     for path in candidates:
@@ -198,7 +209,9 @@ def draw_top_holdings_strip(
     # glow with grey on white backgrounds.
     card_layer = Image.new("RGBA", canvas.size, (255, 255, 255, 0))
     ImageDraw.Draw(card_layer).rounded_rectangle(
-        card_rect, radius=24, fill=(255, 255, 255, 225),
+        card_rect,
+        radius=24,
+        fill=(255, 255, 255, 225),
     )
     glow_layer = card_layer.filter(ImageFilter.GaussianBlur(radius=6))
     canvas.alpha_composite(glow_layer)
@@ -223,12 +236,106 @@ def _benchmark_label(benchmark: dict | None, display_names: dict[str, str]) -> s
     if benchmark is None:
         return None
     ticker = benchmark.get("ticker", "")
-    return (
-        display_names.get(ticker)
-        or benchmark.get("name")
-        or ticker
-        or "Benchmark"
-    )
+    return display_names.get(ticker) or benchmark.get("name") or ticker or "Benchmark"
+
+
+OUTPUT_PATH = "og-image.png"
+_HASH_SIDECAR_PATH = OUTPUT_PATH + ".sha256"
+
+
+def _input_digest(
+    *,
+    total_return: dict,
+    benchmarks: list[dict],
+    top_10: dict | None,
+    benchmark_display_names: dict[str, str],
+    now: datetime,
+) -> str:
+    """Return a stable SHA-256 over the OG image's pixel inputs.
+
+    Only the quantities that the composition actually reads should
+    feed the hash: the headline CAGR (JG + benchmark), the benchmark
+    display label, the top-10 ticker list (drives the logo strip),
+    and the ``start_date`` / ``now`` pair (drives the "Since X" foot
+    caption + duration). The full ``history`` list is deliberately
+    excluded -- it doesn't reach the canvas, so a daily TWR re-fix
+    that doesn't change anything in the headline shouldn't force a
+    rerender.
+
+    ``now`` is rounded to the calendar day: the foot caption renders
+    a date-precision duration ("3 years, 4 months"), so two runs on
+    the same day with identical numerical inputs would otherwise hash
+    differently and re-render needlessly.
+    """
+    bench = benchmarks[0] if benchmarks else None
+    payload = {
+        "cagr": _round(total_return.get("cagr%")),
+        "bench_cagr": _round(bench.get("cagr%") if bench else None),
+        "bench_label": _benchmark_label(bench, benchmark_display_names),
+        "tickers": top_holdings_for_og(top_10, limit=10),
+        "start_date": _iso_day(
+            total_return.get("start_date")
+            or (total_return.get("history", [None])[0][0] if total_return.get("history") else None)
+        ),
+        "today": _iso_day(now),
+    }
+    encoded = json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _round(value: float | None) -> float | None:
+    """Quantise a percentage to one decimal place so micro-jitter in
+    the source numbers (e.g. a ``regularMarketPrice`` tick that nudges
+    CAGR by 0.001 pp) doesn't invalidate the rendered cache.
+
+    The composition itself rounds to one decimal at format time
+    (see ``_fmt_pct``); aligning the cache key with what's actually
+    drawn avoids cache misses that would not change any drawn pixel.
+    """
+    if value is None:
+        return None
+    return round(float(value), 1)
+
+
+def _iso_day(value) -> str | None:
+    """Render a ``datetime`` / ``date`` as ISO ``YYYY-MM-DD`` text."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    return str(value)
+
+
+def _read_sidecar() -> str | None:
+    """Read the digest of the OG image on disk, if any.
+
+    Missing file / unreadable / wrong size all return ``None`` so the
+    caller treats the cache as cold and re-renders.
+    """
+    try:
+        text = Path(_HASH_SIDECAR_PATH).read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    return text if len(text) == 64 else None
+
+
+def _write_sidecar(digest: str) -> None:
+    """Persist ``digest`` next to the rendered PNG.
+
+    Best-effort: a write failure is logged but never propagated, so
+    the page build doesn't abort because the cache key couldn't be
+    saved. The worst case is one extra rerender next run.
+    """
+    try:
+        Path(_HASH_SIDECAR_PATH).write_text(digest + "\n", encoding="utf-8")
+    except OSError as exc:
+        # ``str(exc)`` would land on the safe-run-redacted stderr in
+        # CI; logger.debug routes the same content through the
+        # logger which is silenced under leak-safe wrapping. Local
+        # runs surface it at DEBUG.
+        logger.debug("og-image sidecar write failed: %s", exc)
 
 
 def render(
@@ -248,10 +355,27 @@ def render(
     fine without a regenerated OG image; the static fallback
     referenced by the page's ``SOCIAL_IMAGE`` constant keeps
     working until the next successful regeneration.
+
+    Short-circuits on content-addressable caching: if the PNG on
+    disk was produced from the same set of headline numbers (see
+    :func:`_input_digest`), the redraw is skipped entirely. The
+    hourly CI cadence runs even when only intraday quotes moved,
+    and the OG composition doesn't surface intraday moves -- the
+    skip path keeps that wasted Pillow work out of the schedule.
     """
     try:
         from PIL import Image, ImageDraw  # noqa: F401  (used below)
     except ImportError:
+        return
+    digest = _input_digest(
+        total_return=total_return,
+        benchmarks=benchmarks,
+        top_10=top_10,
+        benchmark_display_names=benchmark_display_names,
+        now=now,
+    )
+    if os.path.isfile(OUTPUT_PATH) and _read_sidecar() == digest:
+        logger.info("og-image: cache hit, skipping render")
         return
     try:
         _render_unsafe(
@@ -266,6 +390,7 @@ def render(
         # OG image couldn't be drawn (e.g. on a system with no
         # truetype fonts at all).
         return
+    _write_sidecar(digest)
 
 
 def _render_unsafe(
@@ -303,10 +428,7 @@ def _render_unsafe(
     cagr_delta = (cagr - bench_cagr) if bench_cagr is not None else None
     bench_label = _benchmark_label(bench, benchmark_display_names)
     history = list(total_return.get("history") or [])
-    start_date = (
-        total_return.get("start_date")
-        or (history[0][0] if history else now)
-    )
+    start_date = total_return.get("start_date") or (history[0][0] if history else now)
     duration = _format_duration(relativedelta(now, start_date))
 
     f_name = load_font("bold", 96)
@@ -324,8 +446,12 @@ def _render_unsafe(
     # small eyebrow to the dominant identity element so the
     # share preview is recognisable from the name first.
     draw.text(
-        (pad_l, 36), "Jan Grzybek", font=f_name, fill=FG,
-        stroke_width=STROKE_BIG, stroke_fill=HALO,
+        (pad_l, 36),
+        "Jan Grzybek",
+        font=f_name,
+        fill=FG,
+        stroke_width=STROKE_BIG,
+        stroke_fill=HALO,
     )
     # Accent rule under the name doubles as a visual anchor for
     # the rest of the layout.
@@ -351,13 +477,17 @@ def _render_unsafe(
     draw.text((pad_l, cap_y), label, font=f_caption, fill=MUTED)
     label_w = int(draw.textlength(label, font=f_caption))
     draw.text(
-        (pad_l + label_w, cap_y), label_emph,
-        font=f_caption_b, fill=MUTED,
+        (pad_l + label_w, cap_y),
+        label_emph,
+        font=f_caption_b,
+        fill=MUTED,
     )
     emph_w = int(draw.textlength(label_emph, font=f_caption_b))
     draw.text(
-        (pad_l + label_w + emph_w, cap_y), label_tail,
-        font=f_caption, fill=MUTED,
+        (pad_l + label_w + emph_w, cap_y),
+        label_tail,
+        font=f_caption,
+        fill=MUTED,
     )
 
     # Logo strip: top-10 current holdings by weight.
@@ -370,10 +500,7 @@ def _render_unsafe(
         h=90,
     )
 
-    foot = (
-        f"Since {_fmt_date(start_date)}  \u00b7  {duration}  \u00b7  "
-        "jan-grzybek.github.io/investing"
-    )
+    foot = f"Since {_fmt_date(start_date)}  \u00b7  {duration}  \u00b7  {SITE_DISPLAY}"
     draw.text((pad_l, H - 40), foot, font=f_foot, fill=MUTED)
 
-    img.save("og-image.png", optimize=True)
+    img.save(OUTPUT_PATH, optimize=True)

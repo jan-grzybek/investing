@@ -6,6 +6,7 @@ The other rollup helpers in ``performance.py`` (``get_holdings``,
 ``calc_twr``, ``summarize``) are covered by their own dedicated
 modules (``test_holding.py``, ``test_calc_twr.py``, ``test_summarize.py``).
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -80,6 +81,7 @@ def install_ticker(monkeypatch):
     """Patch ``yf.Ticker`` so :class:`Holding` (and therefore
     :class:`Benchmark`, which composes a ``Holding``) wires up to
     the mock instead of hitting Yahoo."""
+
     def _install(ticker_mock):
         monkeypatch.setattr(
             _holdings.yf,
@@ -92,43 +94,47 @@ def install_ticker(monkeypatch):
 
 
 class TestBenchmarkStartBasisPrice:
-    def test_uses_adjusted_close_on_first_trading_day(
-        self, install_ticker, stub_exchange_rate
-    ):
+    def test_uses_adjusted_close_on_first_trading_day(self, install_ticker, stub_exchange_rate):
         # Open=150, Adj Close=152 on the start day. The basis used
         # for both the chart curve's denominator and the synthetic
         # 1-share trade must be the Adj Close (152), not the Open.
-        install_ticker(_make_benchmark_ticker(
-            price=200.0,
-            history={
-                datetime(2024, 1, 2): (150.0, 152.0),
-                datetime(2024, 6, 3): (180.0, 180.0),
-                datetime(2024, 12, 31): (190.0, 190.0),
-            },
-        ))
+        install_ticker(
+            _make_benchmark_ticker(
+                price=200.0,
+                history={
+                    datetime(2024, 1, 2): (150.0, 152.0),
+                    datetime(2024, 6, 3): (180.0, 180.0),
+                    datetime(2024, 12, 31): (190.0, 190.0),
+                },
+            )
+        )
         benchmark = Benchmark(
-            "VUAA.L", datetime(2024, 1, 1), fx=stub_exchange_rate,
+            "VUAA.L",
+            datetime(2024, 1, 1),
+            fx=stub_exchange_rate,
         )
         assert benchmark.start_basis_price == pytest.approx(152.0)
 
-    def test_basis_is_split_adjusted_on_the_start_day(
-        self, install_ticker, stub_exchange_rate
-    ):
+    def test_basis_is_split_adjusted_on_the_start_day(self, install_ticker, stub_exchange_rate):
         # If the response's Adj Close column already back-adjusts the
         # start-day close for a later split (Yahoo's contract under
         # ``auto_adjust=False``), the basis must reflect that
         # adjustment, not the raw Open which Yahoo leaves unscaled.
-        install_ticker(_make_benchmark_ticker(
-            price=200.0,
-            # On 2024-01-02 the raw open was 300 but the close was
-            # already-back-adjusted to 150 for a future 2:1 split.
-            history={
-                datetime(2024, 1, 2): (300.0, 150.0),
-                datetime(2024, 12, 31): (160.0, 160.0),
-            },
-        ))
+        install_ticker(
+            _make_benchmark_ticker(
+                price=200.0,
+                # On 2024-01-02 the raw open was 300 but the close was
+                # already-back-adjusted to 150 for a future 2:1 split.
+                history={
+                    datetime(2024, 1, 2): (300.0, 150.0),
+                    datetime(2024, 12, 31): (160.0, 160.0),
+                },
+            )
+        )
         benchmark = Benchmark(
-            "VUAA.L", datetime(2024, 1, 1), fx=stub_exchange_rate,
+            "VUAA.L",
+            datetime(2024, 1, 1),
+            fx=stub_exchange_rate,
         )
         # The basis is the back-adjusted close (150) -- comparing
         # today's 160 against it yields the post-split total return.
@@ -146,16 +152,20 @@ class TestCumulativeReturnSeries:
         # ``regularMarketPrice / Adj Close[Jan 2]`` (= 200/152)
         # so the chart's right edge matches the TSR's
         # ``regularMarketPrice`` numerator.
-        install_ticker(_make_benchmark_ticker(
-            price=200.0,
-            history={
-                datetime(2024, 1, 2): (150.0, 152.0),
-                datetime(2024, 6, 3): (180.0, 180.0),
-                datetime(2024, 12, 31): (190.0, 190.0),
-            },
-        ))
+        install_ticker(
+            _make_benchmark_ticker(
+                price=200.0,
+                history={
+                    datetime(2024, 1, 2): (150.0, 152.0),
+                    datetime(2024, 6, 3): (180.0, 180.0),
+                    datetime(2024, 12, 31): (190.0, 190.0),
+                },
+            )
+        )
         benchmark = Benchmark(
-            "VUAA.L", datetime(2024, 1, 1), fx=stub_exchange_rate,
+            "VUAA.L",
+            datetime(2024, 1, 1),
+            fx=stub_exchange_rate,
         )
         ref_history = [
             (datetime(2024, 1, 2), 1.0),
@@ -176,15 +186,19 @@ class TestCumulativeReturnSeries:
         # the Yahoo response's Adj Close lags by the time between
         # the two ``yfinance`` round-trips -- so the override still
         # kicks in to keep the chart and the TSR in lockstep.
-        install_ticker(_make_benchmark_ticker(
-            price=195.0,
-            history={
-                datetime(2024, 1, 2): (150.0, 152.0),
-                datetime(2024, 12, 31): (190.0, 190.0),  # stale close
-            },
-        ))
+        install_ticker(
+            _make_benchmark_ticker(
+                price=195.0,
+                history={
+                    datetime(2024, 1, 2): (150.0, 152.0),
+                    datetime(2024, 12, 31): (190.0, 190.0),  # stale close
+                },
+            )
+        )
         benchmark = Benchmark(
-            "VUAA.L", datetime(2024, 1, 1), fx=stub_exchange_rate,
+            "VUAA.L",
+            datetime(2024, 1, 1),
+            fx=stub_exchange_rate,
         )
         ref_history = [
             (datetime(2024, 1, 2), 1.0),
@@ -200,16 +214,20 @@ class TestCumulativeReturnSeries:
         # sample reads its value from the adjusted-close array so
         # the curve's shape between the endpoints is the actual
         # benchmark trajectory.
-        install_ticker(_make_benchmark_ticker(
-            price=999.0,
-            history={
-                datetime(2024, 1, 2): (150.0, 152.0),
-                datetime(2024, 6, 3): (180.0, 180.0),
-                datetime(2024, 12, 31): (190.0, 190.0),
-            },
-        ))
+        install_ticker(
+            _make_benchmark_ticker(
+                price=999.0,
+                history={
+                    datetime(2024, 1, 2): (150.0, 152.0),
+                    datetime(2024, 6, 3): (180.0, 180.0),
+                    datetime(2024, 12, 31): (190.0, 190.0),
+                },
+            )
+        )
         benchmark = Benchmark(
-            "VUAA.L", datetime(2024, 1, 1), fx=stub_exchange_rate,
+            "VUAA.L",
+            datetime(2024, 1, 1),
+            fx=stub_exchange_rate,
         )
         ref_history = [
             (datetime(2024, 1, 2), 1.0),
@@ -232,9 +250,7 @@ class TestCumulativeReturnSeriesTimezoneHandling:
     UTC-shifted one -- or every BST trading day silently maps to the
     next session's adj close."""
 
-    def test_bst_ref_date_resolves_to_same_days_adj_close(
-        self, install_ticker, stub_exchange_rate
-    ):
+    def test_bst_ref_date_resolves_to_same_days_adj_close(self, install_ticker, stub_exchange_rate):
         # Yahoo returns LSE bars as ``YYYY-MM-DD 00:00:00+01:00``
         # during BST. The naive ``.to_numpy().astype("datetime64[D]")``
         # collapses each timestamp to its UTC date, which subtracts an
@@ -244,29 +260,33 @@ class TestCumulativeReturnSeriesTimezoneHandling:
         # the curve by a session's move). The fix re-localises to
         # naive before the date conversion so the lookup picks the
         # actual Mar 31 row.
-        install_ticker(_make_benchmark_ticker(
-            price=999.0,
-            history={
-                # Winter (UTC+0): conversion is a no-op even without
-                # the fix -- included to anchor the start basis.
-                datetime(2026, 1, 2): (131.64, 131.64),
-                # BST (UTC+1): exactly the regression case from the
-                # production page. Without the fix, ref Mar 31 picks
-                # up Apr 1's close (127.04) and the chart reads
-                # ``-3.49%`` instead of the correct ``-5.85%``.
-                datetime(2026, 3, 31): (123.94, 123.94),
-                datetime(2026, 4, 1): (127.04, 127.04),
-                # Anchor the right edge of the Yahoo history past
-                # the last ref date so the resampler's last-sample
-                # ``regularMarketPrice`` override stays inactive and
-                # we can assert directly on the adj-close-derived
-                # value the bug would otherwise produce.
-                datetime(2026, 4, 30): (130.00, 130.00),
-            },
-            index_tz="Europe/London",
-        ))
+        install_ticker(
+            _make_benchmark_ticker(
+                price=999.0,
+                history={
+                    # Winter (UTC+0): conversion is a no-op even without
+                    # the fix -- included to anchor the start basis.
+                    datetime(2026, 1, 2): (131.64, 131.64),
+                    # BST (UTC+1): exactly the regression case from the
+                    # production page. Without the fix, ref Mar 31 picks
+                    # up Apr 1's close (127.04) and the chart reads
+                    # ``-3.49%`` instead of the correct ``-5.85%``.
+                    datetime(2026, 3, 31): (123.94, 123.94),
+                    datetime(2026, 4, 1): (127.04, 127.04),
+                    # Anchor the right edge of the Yahoo history past
+                    # the last ref date so the resampler's last-sample
+                    # ``regularMarketPrice`` override stays inactive and
+                    # we can assert directly on the adj-close-derived
+                    # value the bug would otherwise produce.
+                    datetime(2026, 4, 30): (130.00, 130.00),
+                },
+                index_tz="Europe/London",
+            )
+        )
         benchmark = Benchmark(
-            "VUAA.L", datetime(2026, 1, 1), fx=stub_exchange_rate,
+            "VUAA.L",
+            datetime(2026, 1, 1),
+            fx=stub_exchange_rate,
         )
         ref_history = [
             (datetime(2026, 1, 1), 1.0),
@@ -277,9 +297,7 @@ class TestCumulativeReturnSeriesTimezoneHandling:
         # And NOT the next-session number the bug produced.
         assert series[1][1] != pytest.approx(127.04 / 131.64)
 
-    def test_winter_ref_date_unchanged_by_tz_handling(
-        self, install_ticker, stub_exchange_rate
-    ):
+    def test_winter_ref_date_unchanged_by_tz_handling(self, install_ticker, stub_exchange_rate):
         # Sanity check: outside DST the conversion is already a
         # no-op (UTC+0 == local), so the resampler must produce the
         # same value before and after the fix. Guards against an
@@ -290,18 +308,22 @@ class TestCumulativeReturnSeriesTimezoneHandling:
         # right-edge override (which would otherwise pin the last
         # sample to ``regularMarketPrice / start_basis``) stays
         # inactive and we can assert the adj-close-derived value.
-        install_ticker(_make_benchmark_ticker(
-            price=200.0,
-            history={
-                datetime(2026, 1, 2): (131.64, 131.64),
-                datetime(2026, 1, 12): (135.00, 135.00),
-                datetime(2026, 1, 18): (134.66, 134.66),
-                datetime(2026, 2, 2): (137.00, 137.00),
-            },
-            index_tz="Europe/London",
-        ))
+        install_ticker(
+            _make_benchmark_ticker(
+                price=200.0,
+                history={
+                    datetime(2026, 1, 2): (131.64, 131.64),
+                    datetime(2026, 1, 12): (135.00, 135.00),
+                    datetime(2026, 1, 18): (134.66, 134.66),
+                    datetime(2026, 2, 2): (137.00, 137.00),
+                },
+                index_tz="Europe/London",
+            )
+        )
         benchmark = Benchmark(
-            "VUAA.L", datetime(2026, 1, 1), fx=stub_exchange_rate,
+            "VUAA.L",
+            datetime(2026, 1, 1),
+            fx=stub_exchange_rate,
         )
         ref_history = [
             (datetime(2026, 1, 1), 1.0),
@@ -312,26 +334,28 @@ class TestCumulativeReturnSeriesTimezoneHandling:
         assert series[1][1] == pytest.approx(135.00 / 131.64)
         assert series[2][1] == pytest.approx(134.66 / 131.64)
 
-    def test_naive_index_still_supported(
-        self, install_ticker, stub_exchange_rate
-    ):
+    def test_naive_index_still_supported(self, install_ticker, stub_exchange_rate):
         # Tests have always synthesised a tz-naive ``DatetimeIndex``
         # because that's the natural default from
         # ``pd.DatetimeIndex(naive_datetimes)``. The fix must leave
         # that path untouched (no exception, same numbers) so the
         # broader test suite doesn't have to be rewritten around
         # the new contract.
-        install_ticker(_make_benchmark_ticker(
-            price=200.0,
-            history={
-                datetime(2024, 1, 2): (150.0, 152.0),
-                datetime(2024, 6, 3): (180.0, 180.0),
-                datetime(2024, 12, 31): (190.0, 190.0),
-            },
-            # index_tz=None by default -> naive DatetimeIndex
-        ))
+        install_ticker(
+            _make_benchmark_ticker(
+                price=200.0,
+                history={
+                    datetime(2024, 1, 2): (150.0, 152.0),
+                    datetime(2024, 6, 3): (180.0, 180.0),
+                    datetime(2024, 12, 31): (190.0, 190.0),
+                },
+                # index_tz=None by default -> naive DatetimeIndex
+            )
+        )
         benchmark = Benchmark(
-            "VUAA.L", datetime(2024, 1, 1), fx=stub_exchange_rate,
+            "VUAA.L",
+            datetime(2024, 1, 1),
+            fx=stub_exchange_rate,
         )
         ref_history = [
             (datetime(2024, 1, 2), 1.0),
@@ -353,16 +377,20 @@ class TestSummaryChartAgreement:
         # below. Both should land on
         # ``regularMarketPrice / Adj Close[start_day]``.
         freeze_today(datetime(2025, 1, 5))
-        install_ticker(_make_benchmark_ticker(
-            price=200.0,
-            history={
-                datetime(2024, 1, 2): (150.0, 152.0),
-                datetime(2024, 6, 3): (180.0, 180.0),
-                datetime(2024, 12, 31): (190.0, 190.0),
-            },
-        ))
+        install_ticker(
+            _make_benchmark_ticker(
+                price=200.0,
+                history={
+                    datetime(2024, 1, 2): (150.0, 152.0),
+                    datetime(2024, 6, 3): (180.0, 180.0),
+                    datetime(2024, 12, 31): (190.0, 190.0),
+                },
+            )
+        )
         benchmark = Benchmark(
-            "VUAA.L", datetime(2024, 1, 1), fx=stub_exchange_rate,
+            "VUAA.L",
+            datetime(2024, 1, 1),
+            fx=stub_exchange_rate,
         )
         ref_history = [
             (datetime(2024, 1, 2), 1.0),
@@ -400,17 +428,21 @@ class TestSummaryChartAgreement:
         # edge agree at the split-adjusted value, not the raw
         # pre-split number.
         freeze_today(datetime(2025, 1, 5))
-        install_ticker(_make_benchmark_ticker(
-            price=110.0,
-            splits={_date_key(datetime(2024, 6, 3)): 2.0},
-            history={
-                datetime(2024, 1, 2): (300.0, 152.0),
-                datetime(2024, 6, 3): (160.0, 160.0),
-                datetime(2024, 12, 31): (100.0, 100.0),
-            },
-        ))
+        install_ticker(
+            _make_benchmark_ticker(
+                price=110.0,
+                splits={_date_key(datetime(2024, 6, 3)): 2.0},
+                history={
+                    datetime(2024, 1, 2): (300.0, 152.0),
+                    datetime(2024, 6, 3): (160.0, 160.0),
+                    datetime(2024, 12, 31): (100.0, 100.0),
+                },
+            )
+        )
         benchmark = Benchmark(
-            "VUAA.L", datetime(2024, 1, 1), fx=stub_exchange_rate,
+            "VUAA.L",
+            datetime(2024, 1, 1),
+            fx=stub_exchange_rate,
         )
         ref_history = [
             (datetime(2024, 1, 2), 1.0),

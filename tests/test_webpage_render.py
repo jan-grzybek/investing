@@ -1,5 +1,6 @@
 """Bar / chart rendering primitives, embedded JS payloads,
 pointer interaction styles, and the end-to-end ``save()`` flow."""
+
 from __future__ import annotations
 
 import math
@@ -45,9 +46,9 @@ class TestRenderBars:
         out = Webpage._render_bars([("Equities", 95.4)], "allocation")
         # Title -> percentage -> bar (so percentages sit between the
         # title and the visual bar).
-        label_idx = out.index('bars__label')
-        value_idx = out.index('bars__value')
-        track_idx = out.index('bars__track')
+        label_idx = out.index("bars__label")
+        value_idx = out.index("bars__value")
+        track_idx = out.index("bars__track")
         assert label_idx < value_idx < track_idx
 
     def test_variant_class_is_applied(self):
@@ -56,9 +57,7 @@ class TestRenderBars:
         assert "bars--allocation" not in out
 
     def test_preserves_input_order(self):
-        out = Webpage._render_bars(
-            [("Z", 1.0), ("A", 2.0), ("M", 3.0)], "equities"
-        )
+        out = Webpage._render_bars([("Z", 1.0), ("A", 2.0), ("M", 3.0)], "equities")
         # Labels appear in the input order, not sorted.
         assert out.index("Z") < out.index("A") < out.index("M")
 
@@ -84,7 +83,9 @@ class TestRenderBars:
         # All-zero values fall back to the 100% denominator so the bars
         # render as empty rather than dividing by zero.
         out = Webpage._render_bars(
-            [("AAA", 0.0), ("BBB", 0.0)], "equities", scale_to_max=True,
+            [("AAA", 0.0), ("BBB", 0.0)],
+            "equities",
+            scale_to_max=True,
         )
         assert "width: 0.00%" in out
 
@@ -109,7 +110,9 @@ class TestRenderBars:
         # No ``anchors`` argument at all -> every row renders as a
         # plain ``<div class="bars__row">`` (the legacy shape).
         out = Webpage._render_bars(
-            [("A", 50.0), ("B", 25.0)], "equities", scale_to_max=True,
+            [("A", 50.0), ("B", 25.0)],
+            "equities",
+            scale_to_max=True,
         )
         assert "bars__row--link" not in out
         assert "<a " not in out
@@ -120,7 +123,8 @@ class TestRenderBars:
         # silently ignored -- the caller doesn't have to filter down
         # to "real" tickers before passing the map.
         out = Webpage._render_bars(
-            [("A", 50.0)], "equities",
+            [("A", 50.0)],
+            "equities",
             anchors={"A": "holding-A", "MISSING": "holding-MISSING"},
         )
         assert 'href="#holding-A"' in out
@@ -131,12 +135,13 @@ class TestRenderBars:
         # path must hold on the linked rows too, so the visual layout
         # is identical regardless of whether a row is clickable.
         out = Webpage._render_bars(
-            [("Equities", 95.4)], "allocation",
+            [("Equities", 95.4)],
+            "allocation",
             anchors={"Equities": "equities"},
         )
-        label_idx = out.index('bars__label')
-        value_idx = out.index('bars__value')
-        track_idx = out.index('bars__track')
+        label_idx = out.index("bars__label")
+        value_idx = out.index("bars__value")
+        track_idx = out.index("bars__track")
         assert label_idx < value_idx < track_idx
 
     def test_anchor_id_is_html_escaped(self):
@@ -145,16 +150,17 @@ class TestRenderBars:
         # but cheap-to-guard regression) could break out of the
         # ``href`` and into surrounding markup.
         out = Webpage._render_bars(
-            [("A", 50.0)], "equities",
+            [("A", 50.0)],
+            "equities",
             anchors={"A": 'evil"<script>'},
         )
-        assert '<script>' not in out
+        assert "<script>" not in out
         assert "&lt;script&gt;" in out or "&quot;" in out
+
+
 class TestRenderReturnChart:
     def test_returns_empty_when_history_too_short(self):
-        out = Webpage._render_return_chart(
-            {"history": [(datetime(2024, 1, 1), 1.0)]}, []
-        )
+        out = Webpage._render_return_chart({"history": [(datetime(2024, 1, 1), 1.0)]}, [])
         assert out == ""
 
     def test_renders_jg_line_and_reference_line(self):
@@ -179,9 +185,10 @@ class TestRenderReturnChart:
             (datetime(2024, 1, 1), 1.0),
             (datetime(2024, 6, 1), 1.1),
         ]
-        benchmark = {"ticker": "LSE:VUAA.L",
-                     "history": [(datetime(2024, 1, 1), 1.0),
-                                 (datetime(2024, 6, 1), 1.05)]}
+        benchmark = {
+            "ticker": "LSE:VUAA.L",
+            "history": [(datetime(2024, 1, 1), 1.0), (datetime(2024, 6, 1), 1.05)],
+        }
         out = Webpage._render_return_chart({"history": history}, [benchmark])
         assert "return-chart__line--bench" in out
         assert "S&amp;P 500" in out
@@ -193,10 +200,14 @@ class TestRenderReturnChart:
             (datetime(2024, 6, 1), 1.1),
             (datetime(2024, 12, 1), 1.2),
         ]
-        benchmark = {"ticker": "LSE:VUAA.L",
-                     "history": [(datetime(2024, 1, 1), 1.0),
-                                 (datetime(2024, 6, 1), 1.02),
-                                 (datetime(2024, 12, 1), 1.05)]}
+        benchmark = {
+            "ticker": "LSE:VUAA.L",
+            "history": [
+                (datetime(2024, 1, 1), 1.0),
+                (datetime(2024, 6, 1), 1.02),
+                (datetime(2024, 12, 1), 1.05),
+            ],
+        }
         out = Webpage._render_return_chart({"history": history}, [benchmark])
         # The delta overlay sits inside its own positioning wrapper and
         # exposes bar+label as separate elements so CSS can keep the
@@ -219,10 +230,14 @@ class TestRenderReturnChart:
             (datetime(2024, 6, 1), 0.95),
             (datetime(2024, 12, 1), 0.92),
         ]
-        benchmark = {"ticker": "LSE:VUAA.L",
-                     "history": [(datetime(2024, 1, 1), 1.0),
-                                 (datetime(2024, 6, 1), 1.02),
-                                 (datetime(2024, 12, 1), 1.05)]}
+        benchmark = {
+            "ticker": "LSE:VUAA.L",
+            "history": [
+                (datetime(2024, 1, 1), 1.0),
+                (datetime(2024, 6, 1), 1.02),
+                (datetime(2024, 12, 1), 1.05),
+            ],
+        }
         out = Webpage._render_return_chart({"history": history}, [benchmark])
         assert "-13.0 pp" in out
         assert "return-chart__delta-label value--negative" in out
@@ -245,13 +260,13 @@ class TestRenderReturnChart:
         benchmark = {
             "ticker": "LSE:VUAA.L",
             "tsr%": 5.7,
-            "history": [(datetime(2024, 1, 1), 1.0),
-                        (datetime(2024, 6, 1), 1.02),
-                        (datetime(2024, 12, 1), 1.05)],
+            "history": [
+                (datetime(2024, 1, 1), 1.0),
+                (datetime(2024, 6, 1), 1.02),
+                (datetime(2024, 12, 1), 1.05),
+            ],
         }
-        out = Webpage._render_return_chart(
-            {"history": history, "twr%": 18.4}, [benchmark]
-        )
+        out = Webpage._render_return_chart({"history": history, "twr%": 18.4}, [benchmark])
         assert "+12.7 pp" in out
         # And explicitly: the history-derived value must NOT appear
         # as the chart label. (``+15.0 pp`` could in theory show up
@@ -268,20 +283,19 @@ class TestRenderReturnChart:
         out = Webpage._render_return_chart({"history": history}, [])
         # Caption anchors the period via the start date and follows it
         # with the elapsed window so the reader gets both at a glance.
-        caption = out.split('return-chart__caption', 1)[1].split("</div>", 1)[0]
+        caption = out.split("return-chart__caption", 1)[1].split("</div>", 1)[0]
         # Date is wrapped in a machine-readable <time> element. The
         # "Since X" caption reads as prose, so this one specific
         # spot uses the long-form ``%b %-d, %Y`` from
         # ``_fmt_date_long`` rather than the page-wide DD/MM/YYYY
         # convention. ISO ``datetime`` attribute stays in W3C
         # YYYY-MM-DD.
-        assert (
-            '<time datetime="2024-01-01">Jan 1, 2024</time>'
-            in caption
-        )
+        assert '<time datetime="2024-01-01">Jan 1, 2024</time>' in caption
         assert "4 months" in caption
         # The old "range X-Yx" caption format is gone.
         assert "range" not in caption
+
+
 class TestReturnChartScrubber:
     """The pointer-driven scrubber overlay and its data contract.
 
@@ -297,6 +311,7 @@ class TestReturnChartScrubber:
     def _parse_chart_attr(out):
         import html as _html
         import json as _json
+
         # The ``data-chart`` attribute on the figure is a double-quoted
         # HTML-escaped JSON blob. Extract and decode it.
         marker = 'data-chart="'
@@ -351,10 +366,14 @@ class TestReturnChartScrubber:
             (datetime(2024, 6, 1), 1.1),
             (datetime(2024, 12, 1), 1.2),
         ]
-        benchmark = {"ticker": "LSE:VUAA.L",
-                     "history": [(datetime(2024, 1, 1), 1.0),
-                                 (datetime(2024, 6, 1), 1.02),
-                                 (datetime(2024, 12, 1), 1.05)]}
+        benchmark = {
+            "ticker": "LSE:VUAA.L",
+            "history": [
+                (datetime(2024, 1, 1), 1.0),
+                (datetime(2024, 6, 1), 1.02),
+                (datetime(2024, 12, 1), 1.05),
+            ],
+        }
         out = Webpage._render_return_chart({"history": history}, [benchmark])
         data = self._parse_chart_attr(out)
         # Right-margin reserve matches the delta overlay width so the
@@ -390,14 +409,16 @@ class TestReturnChartScrubber:
             (datetime(2024, 6, 1), 1.1),
             (datetime(2024, 12, 1), 1.2),
         ]
-        benchmark = {"ticker": "LSE:VUAA.L",
-                     "tsr%": 5.7,  # intentionally inconsistent with history[-1]
-                     "history": [(datetime(2024, 1, 1), 1.0),
-                                 (datetime(2024, 6, 1), 1.02),
-                                 (datetime(2024, 12, 1), 1.05)]}
-        out = Webpage._render_return_chart(
-            {"history": history, "twr%": 18.4}, [benchmark]
-        )
+        benchmark = {
+            "ticker": "LSE:VUAA.L",
+            "tsr%": 5.7,  # intentionally inconsistent with history[-1]
+            "history": [
+                (datetime(2024, 1, 1), 1.0),
+                (datetime(2024, 6, 1), 1.02),
+                (datetime(2024, 12, 1), 1.05),
+            ],
+        }
+        out = Webpage._render_return_chart({"history": history, "twr%": 18.4}, [benchmark])
         data = self._parse_chart_attr(out)
         jg, bench = data["series"]
         # Even though ``tsr%`` / ``twr%`` are present and disagree
@@ -432,9 +453,10 @@ class TestReturnChartScrubber:
             (datetime(2024, 1, 1), 1.0),
             (datetime(2024, 12, 1), 1.2),
         ]
-        benchmark = {"ticker": "LSE:VUAA.L",
-                     "history": [(datetime(2024, 1, 1), 1.0),
-                                 (datetime(2024, 12, 1), 1.05)]}
+        benchmark = {
+            "ticker": "LSE:VUAA.L",
+            "history": [(datetime(2024, 1, 1), 1.0), (datetime(2024, 12, 1), 1.05)],
+        }
         out = Webpage._render_return_chart({"history": history}, [benchmark])
         # The raw ``&`` in "S&P 500" must NOT appear unescaped inside
         # the attribute, and double quotes used by JSON must be
@@ -475,8 +497,8 @@ class TestReturnChartScrubber:
         assert 'aria-hidden="true"' in out
         # No benchmark -> no local outperformance caliper or pp row
         # (the moving caliper has no second curve to anchor against).
-        assert 'return-chart__hover-delta-bar' not in out
-        assert 'return-chart__tooltip-delta' not in out
+        assert "return-chart__hover-delta-bar" not in out
+        assert "return-chart__tooltip-delta" not in out
 
     def test_hover_delta_elements_render_when_benchmark_present(self):
         # With a benchmark there's a second curve to compare against,
@@ -488,10 +510,14 @@ class TestReturnChartScrubber:
             (datetime(2024, 6, 1), 1.1),
             (datetime(2024, 12, 1), 1.2),
         ]
-        benchmark = {"ticker": "LSE:VUAA.L",
-                     "history": [(datetime(2024, 1, 1), 1.0),
-                                 (datetime(2024, 6, 1), 1.02),
-                                 (datetime(2024, 12, 1), 1.05)]}
+        benchmark = {
+            "ticker": "LSE:VUAA.L",
+            "history": [
+                (datetime(2024, 1, 1), 1.0),
+                (datetime(2024, 6, 1), 1.02),
+                (datetime(2024, 12, 1), 1.05),
+            ],
+        }
         out = Webpage._render_return_chart({"history": history}, [benchmark])
         assert 'class="return-chart__hover-delta-bar"' in out
         assert 'class="return-chart__tooltip-delta"' in out
@@ -504,10 +530,10 @@ class TestReturnChartScrubber:
 
     def test_short_history_omits_chart_and_data(self):
         # Single-sample history -> no chart, no scrubber data.
-        out = Webpage._render_return_chart(
-            {"history": [(datetime(2024, 1, 1), 1.0)]}, []
-        )
+        out = Webpage._render_return_chart({"history": [(datetime(2024, 1, 1), 1.0)]}, [])
         assert out == ""
+
+
 class TestReturnChartScript:
     """The inline ``_RETURN_CHART_SCRIPT`` payload + its CSP wiring."""
 
@@ -548,6 +574,8 @@ class TestReturnChartScript:
         # Uses the same ``--delta-color`` custom property the static
         # caliper consumes so green/red mapping stays uniform.
         assert "--delta-color" in script
+
+
 class TestNavScrollScript:
     """The inline ``_NAV_SCROLL_SCRIPT`` payload + the smooth-scroll
     contract that drives clicks on every in-page anchor."""
@@ -669,13 +697,18 @@ class TestNavScrollScript:
         blur_idx = script.index("a.blur")
         slide_idx = script.index("slide(el,dur)")
         assert blur_idx < slide_idx
+
+
 class TestInteractionStyles:
     """CSS gating around interactive states (marquee pause + linked
     rows). Verified against the saved page so we exercise the same
     inline stylesheet a browser would render."""
 
     def test_marquee_pauses_only_on_real_pointer_hover(
-        self, stub_logo_lookup, chdir_tmp, freeze_today,
+        self,
+        stub_logo_lookup,
+        chdir_tmp,
+        freeze_today,
     ):
         # The pause-on-hover rule lives inside ``@media (hover:
         # hover)`` so a tap on a touch device (which historically
@@ -691,23 +724,36 @@ class TestInteractionStyles:
         w.save()
         out = (chdir_tmp / "index.html").read_text()
 
+        from tests._css_helpers import (
+            at_rule_bodies,
+            blocks_for,
+            has_declaration,
+            normalize,
+        )
+
         # The pause rule is wrapped in a hover-capable media query.
-        assert (
-            "@media (hover: hover) {\n"
-            "  .ticker:hover .ticker__track { animation-play-state: paused; }\n"
-            "}"
-        ) in out
+        # Multiple ``@media (hover: hover)`` blocks exist (one per
+        # topic); union them before searching.
+        hover_bodies = at_rule_bodies(out, "@media (hover: hover)")
+        assert hover_bodies, "@media (hover: hover) missing"
+        pause_rules: list[str] = []
+        for hb in hover_bodies:
+            pause_rules.extend(blocks_for(hb, ".ticker:hover .ticker__track"))
+        assert pause_rules, "pause rule missing inside @media (hover: hover)"
+        assert any(has_declaration(b, "animation-play-state", "paused") for b in pause_rules)
         # And the focus-within variant that used to keep the bar
         # parked after a click is gone.
-        assert ".ticker:focus-within" not in out
+        assert ".ticker:focus-within" not in normalize(out)
         # Regression guard: the unconditional ``.ticker:hover``
-        # rule (the previous shape) is absent.
-        assert (
-            ".ticker:hover .ticker__track,\n.ticker:focus-within"
-        ) not in out
+        # rule grouped with ``:focus-within`` (the previous shape)
+        # is absent.
+        assert ".ticker:hover .ticker__track,.ticker:focus-within" not in normalize(out)
 
     def test_marquee_link_hover_is_gated_to_pointer_devices(
-        self, stub_logo_lookup, chdir_tmp, freeze_today,
+        self,
+        stub_logo_lookup,
+        chdir_tmp,
+        freeze_today,
     ):
         # Same touch-device caveat as the strip itself: the
         # logo-lift hover effect lives behind ``@media (hover:
@@ -721,15 +767,33 @@ class TestInteractionStyles:
         w.save()
         out = (chdir_tmp / "index.html").read_text()
 
-        assert ".ticker__link:focus-visible .ticker__logo { opacity: 1; }" in out
-        assert (
-            "@media (hover: hover) {\n"
-            "  .ticker__link:hover .ticker__logo { opacity: 1; }\n"
-            "}"
-        ) in out
+        from tests._css_helpers import (
+            at_rule_bodies,
+            blocks_for,
+            has_declaration,
+        )
+
+        focus_bodies = blocks_for(out, ".ticker__link:focus-visible .ticker__logo")
+        assert focus_bodies, "focus-visible logo brighten rule missing"
+        assert any(has_declaration(b, "opacity", "1") for b in focus_bodies)
+
+        # The stylesheet declares ``@media (hover: hover)`` several times
+        # (one block per topic), so union the bodies before probing.
+        hover_bodies = at_rule_bodies(out, "@media (hover: hover)")
+        assert hover_bodies, "@media (hover: hover) missing"
+        hover_logo_rules: list[str] = []
+        for hb in hover_bodies:
+            hover_logo_rules.extend(
+                blocks_for(hb, ".ticker__link:hover .ticker__logo"),
+            )
+        assert hover_logo_rules, "hover logo brighten missing inside @media (hover: hover)"
+        assert any(has_declaration(b, "opacity", "1") for b in hover_logo_rules)
 
     def test_no_css_smooth_scroll_layered_on_top_of_js_animation(
-        self, stub_logo_lookup, chdir_tmp, freeze_today,
+        self,
+        stub_logo_lookup,
+        chdir_tmp,
+        freeze_today,
     ):
         # The previous shape of the page shipped
         # ``html:focus-within { scroll-behavior: smooth; }`` so the
@@ -751,29 +815,28 @@ class TestInteractionStyles:
         w.save()
         out = (chdir_tmp / "index.html").read_text()
 
-        # The page emits no ``scroll-behavior`` *declaration* (a
-        # semicolon-terminated CSS property): the only ``scroll-
-        # behavior`` text left in the file is inside an explanatory
-        # CSS comment, which never reaches the rendered style.
-        # ``smooth;`` / ``auto;`` are what a real declaration would
-        # look like, so this catches both the old rule and any
-        # accidental reintroduction.
-        assert "scroll-behavior: smooth;" not in out
-        assert "scroll-behavior: auto;" not in out
+        from tests._css_helpers import at_rule_body, normalize
+
+        # The page emits no ``scroll-behavior`` *declaration*: the
+        # only ``scroll-behavior`` text left should be inside an
+        # explanatory CSS comment (stripped at minify time anyway),
+        # never as a real declaration. ``scroll-behavior:`` after
+        # normalisation matches both the old formatted form
+        # (``scroll-behavior: smooth;``) and any minified
+        # reintroduction (``scroll-behavior:smooth;``).
+        assert "scroll-behavior:" not in normalize(out)
         # The reduced-motion media query is still emitted (the
         # ticker animation override needs to live), but no
-        # ``html:focus-within`` *selector* should appear in the
-        # reduced-motion block either. We tokenise the block by
-        # its selector-introducing newline + ``html:focus-within``
-        # so a comment-text mention doesn't trip the check.
-        rm_split = out.split("@media (prefers-reduced-motion: reduce)", 1)
-        assert len(rm_split) > 1, "reduced-motion block missing"
-        rm_tail = rm_split[1].split("\n}\n", 1)[0]
-        assert "\n  html:focus-within " not in rm_tail
-        assert "\nhtml:focus-within " not in rm_tail
+        # ``html:focus-within`` selector should appear in its body.
+        rm_body = at_rule_body(out, "@media (prefers-reduced-motion: reduce)")
+        assert rm_body is not None, "reduced-motion block missing"
+        assert "html:focus-within" not in rm_body
 
     def test_bars_row_link_hover_is_gated_to_pointer_devices(
-        self, stub_logo_lookup, chdir_tmp, freeze_today,
+        self,
+        stub_logo_lookup,
+        chdir_tmp,
+        freeze_today,
     ):
         # The user-reported regression: tapping a ticker row in the
         # equities allocation chart on a touch device left the row
@@ -790,21 +853,27 @@ class TestInteractionStyles:
         w.save()
         out = (chdir_tmp / "index.html").read_text()
 
+        from tests._css_helpers import (
+            blocks_for,
+            contains_at_rule,
+            normalize,
+        )
+
         # The hover branch is gated.
-        assert "@media (hover: hover)" in out
+        assert contains_at_rule(out, "@media (hover: hover)")
         # The keyboard focus branch is not, so the row still gets
         # a visible state when reached via the tab order.
-        assert ".bars__row--link:focus-visible {" in out
+        assert blocks_for(out, ".bars__row--link:focus-visible"), (
+            "focus-visible rule on .bars__row--link missing"
+        )
         # Regression guard: the comma-joined unconditional
         # ``:hover, :focus-visible`` shape that produced the
         # sticky-tap behaviour is gone.
-        assert (
-            ".bars__row--link:hover,\n.bars__row--link:focus-visible"
-        ) not in out
+        assert ".bars__row--link:hover,.bars__row--link:focus-visible" not in normalize(out)
+
+
 class TestSave:
-    def test_writes_index_html_with_key_sections(
-        self, stub_logo_lookup, chdir_tmp, freeze_today
-    ):
+    def test_writes_index_html_with_key_sections(self, stub_logo_lookup, chdir_tmp, freeze_today):
         freeze_today(datetime(2025, 6, 1))
         w = Webpage()
         w.add_return(_total_return(), [_benchmark()])
@@ -818,9 +887,7 @@ class TestSave:
                 ticker="NMS:OLD",
                 is_current=False,
                 weight=None,
-                periods=[
-                    {"start": datetime(2022, 1, 1), "end": datetime(2023, 1, 1)}
-                ],
+                periods=[{"start": datetime(2022, 1, 1), "end": datetime(2023, 1, 1)}],
             )
         )
         w.save()
@@ -834,9 +901,11 @@ class TestSave:
         # Mobile readiness: viewport + theme-color metas, and at least one
         # narrow-width media query in the embedded stylesheet.
         assert 'name="viewport"' in out
-        assert 'width=device-width' in out
+        assert "width=device-width" in out
         assert 'name="theme-color"' in out
-        assert "@media (max-width: 540px)" in out
+        from tests._css_helpers import contains_at_rule
+
+        assert contains_at_rule(out, "@media (max-width: 540px)")
         # Page header with title + in-page nav anchored to each section.
         assert '<header class="site-header">' in out
         assert "Jan Grzybek Investment Portfolio" in out
@@ -861,7 +930,7 @@ class TestSave:
         # Skip link is the first interactive element in <body>, ahead
         # of the sticky header.
         assert 'class="skip-link" href="#main-content"' in out
-        body_idx = out.index('<body>')
+        body_idx = out.index("<body>")
         skip_idx = out.index('class="skip-link"')
         header_idx = out.index('class="site-header"')
         assert body_idx < skip_idx < header_idx
@@ -884,8 +953,10 @@ class TestSave:
         # Methodology bullets in the footer cover the base currency
         # and the portfolio-level TWR scope.
         assert 'class="footer__notes"' in out
-        assert "USD as the base currency" in out
-        assert "portfolio-level time-weighted return (TWR)" in out
+        assert "<strong>USD</strong> as the <strong>base currency</strong>" in out
+        assert (
+            "portfolio-level <strong>time-weighted return (TWR)</strong>" in out
+        )
         # The frozen date appears in the footer, wrapped in a
         # machine-readable <time> element. The "Updated on X"
         # line reads as prose, so the human label uses the
@@ -896,7 +967,10 @@ class TestSave:
         assert '<time datetime="2025-06-01">Jun 1, 2025</time>' in out
 
     def test_save_footer_has_methodology_and_disclaimer_headings(
-        self, stub_logo_lookup, chdir_tmp, freeze_today,
+        self,
+        stub_logo_lookup,
+        chdir_tmp,
+        freeze_today,
     ):
         # The footer is split into two labelled blocks: the
         # "Methodology" heading sits above the bulleted notes
@@ -929,13 +1003,16 @@ class TestSave:
         # -- the nav only lists portfolio sections, the footer remains
         # a tail-of-page reference without nav targets.
         nav_start = out.index('<nav class="site-nav"')
-        nav_end = out.index('</nav>', nav_start)
+        nav_end = out.index("</nav>", nav_start)
         nav_html = out[nav_start:nav_end]
         assert "Methodology" not in nav_html
         assert "Disclaimer" not in nav_html
 
     def test_save_emits_seo_metadata_in_head(
-        self, stub_logo_lookup, chdir_tmp, freeze_today,
+        self,
+        stub_logo_lookup,
+        chdir_tmp,
+        freeze_today,
     ):
         # All the moving pieces search engines and social platforms
         # look for: descriptive title, canonical URL, robots opt-in,
@@ -959,14 +1036,24 @@ class TestSave:
         assert ('rel="canonical" href="https://jan-grzybek.github.io/investing/"') in out
         # Open Graph: title, description, image, url, type, locale, site_name.
         for prop in (
-            "og:title", "og:description", "og:image", "og:url",
-            "og:type", "og:locale", "og:site_name",
+            "og:title",
+            "og:description",
+            "og:image",
+            "og:url",
+            "og:type",
+            "og:locale",
+            "og:site_name",
         ):
             assert f'property="{prop}"' in out
         # Twitter Card variants for X/Twitter previews. Now using
         # ``summary_large_image`` since we ship a 1200x630 OG image.
-        for tw in ("twitter:card", "twitter:title", "twitter:description",
-                   "twitter:image", "twitter:image:alt"):
+        for tw in (
+            "twitter:card",
+            "twitter:title",
+            "twitter:description",
+            "twitter:image",
+            "twitter:image:alt",
+        ):
             assert f'name="{tw}"' in out
         assert 'name="twitter:card" content="summary_large_image"' in out
         # OG image dimensions are advertised so platforms can reserve
@@ -985,7 +1072,10 @@ class TestSave:
         assert "Jan Grzybek" in out
 
     def test_save_emits_security_headers_via_meta(
-        self, stub_logo_lookup, chdir_tmp, freeze_today,
+        self,
+        stub_logo_lookup,
+        chdir_tmp,
+        freeze_today,
     ):
         # GitHub Pages can't set HTTP headers, so the page sets the
         # equivalents via <meta>. The CSP allowlists exactly what the
@@ -1010,9 +1100,7 @@ class TestSave:
         # explicit ``==`` per element rather than ``URL in <list>``,
         # because CodeQL doesn't reliably distinguish list-membership
         # from substring containment and still flags the latter shape.
-        csp = out.split(
-            'http-equiv="Content-Security-Policy" content="', 1
-        )[1].split('"', 1)[0]
+        csp = out.split('http-equiv="Content-Security-Policy" content="', 1)[1].split('"', 1)[0]
         directives: dict[str, list[str]] = {}
         for directive in csp.split(";"):
             tokens = directive.strip().split()
@@ -1023,9 +1111,7 @@ class TestSave:
             return any(token == expected for token in tokens)
 
         assert _contains(directives["default-src"], "'self'")
-        assert _contains(
-            directives["script-src"], "https://static.cloudflareinsights.com"
-        )
+        assert _contains(directives["script-src"], "https://static.cloudflareinsights.com")
         assert _contains(directives["frame-ancestors"], "'none'")
         # Both the inline JSON-LD and the inline <style> are still
         # hash-pinned (XSS-relevant payloads stay locked).
@@ -1043,7 +1129,10 @@ class TestSave:
         assert "unsafe-inline" not in script_src
 
     def test_save_writes_og_image_png(
-        self, stub_logo_lookup, chdir_tmp, freeze_today,
+        self,
+        stub_logo_lookup,
+        chdir_tmp,
+        freeze_today,
     ):
         # The OG image is regenerated on every save with the current
         # numbers baked in. We don't assert its pixels - just that a
@@ -1071,11 +1160,15 @@ class TestSave:
         assert og_path.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
         # Verify the actual image dimensions match what <head> claims.
         from PIL import Image
+
         with Image.open(og_path) as img:
             assert img.size == (1200, 630)
 
     def test_save_writes_sitemap_xml(
-        self, stub_logo_lookup, chdir_tmp, freeze_today,
+        self,
+        stub_logo_lookup,
+        chdir_tmp,
+        freeze_today,
     ):
         # Search engines use ``<lastmod>`` as a hint to recrawl, so we
         # regenerate the sitemap on every ``save()`` with the current
@@ -1094,7 +1187,10 @@ class TestSave:
         assert "<changefreq>daily</changefreq>" in sitemap
 
     def test_save_writes_robots_txt(
-        self, stub_logo_lookup, chdir_tmp, freeze_today,
+        self,
+        stub_logo_lookup,
+        chdir_tmp,
+        freeze_today,
     ):
         # ``robots.txt`` is a build artifact like ``sitemap.xml`` /
         # ``og-image.png``: generating it at runtime keeps the canonical
@@ -1115,7 +1211,10 @@ class TestSave:
         assert "//sitemap.xml" not in robots
 
     def test_save_wires_click_to_scroll_targets_across_sections(
-        self, stub_logo_lookup, chdir_tmp, freeze_today,
+        self,
+        stub_logo_lookup,
+        chdir_tmp,
+        freeze_today,
     ):
         # End-to-end contract for the three new click affordances:
         #   * a marquee logo links to the matching holding capsule;
@@ -1170,9 +1269,7 @@ class TestSave:
                 ticker="NMS:OLD",
                 is_current=False,
                 weight=None,
-                periods=[
-                    {"start": datetime(2022, 1, 1), "end": datetime(2023, 1, 1)}
-                ],
+                periods=[{"start": datetime(2022, 1, 1), "end": datetime(2023, 1, 1)}],
             )
         )
         w.save()

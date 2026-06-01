@@ -19,6 +19,7 @@ The API intentionally mirrors Jinja2's ``Markup`` so the mental model
 transfers, but the implementation is ~30 lines and adds no third-
 party dependency.
 """
+
 from __future__ import annotations
 
 import html

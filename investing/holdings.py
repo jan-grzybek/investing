@@ -1,6 +1,7 @@
 """``Holding`` -- per-ticker bookkeeping (positions,
 periods, inflows / outflows / dividends, return / IRR).
 """
+
 from __future__ import annotations
 
 import bisect
@@ -22,7 +23,6 @@ WITHHOLDING_TAX_RATE = 0.15
 
 
 DAYS_YEAR = 365.2425
-
 
 
 # When a Holding has near-zero invested capital across an extreme runup
@@ -67,10 +67,7 @@ def _xirr(
         return math.nan
     cashflows = sorted(cashflows, key=lambda cf: cf[0])
     base_date = cashflows[0][0]
-    items = [
-        ((cf[0] - base_date).days / DAYS_YEAR, cf[1])
-        for cf in cashflows
-    ]
+    items = [((cf[0] - base_date).days / DAYS_YEAR, cf[1]) for cf in cashflows]
     has_pos = any(amount > 0 for _, amount in items)
     has_neg = any(amount < 0 for _, amount in items)
     if not (has_pos and has_neg):
@@ -107,8 +104,6 @@ def _xirr(
     return (low + high) / 2.0
 
 
-
-
 # ---------------------------------------------------------------------------
 # Per-ticker bookkeeping
 # ---------------------------------------------------------------------------
@@ -129,7 +124,8 @@ class Holding:
         # the other two network round-trips on this critical path.
         self._ticker = yf.Ticker(ticker)
         self._info = _call_with_retry(
-            self._ticker.get_info, description="yfinance get_info",
+            self._ticker.get_info,
+            description="yfinance get_info",
         )
         self._splits, self._dividends = self._get_splits_dividends()
         # FX callable: an ``ExchangeRate`` instance in production
@@ -166,7 +162,8 @@ class Holding:
         # rebuild them.
         self._split_dates: list[datetime] = [s["date"] for s in self._splits]
         self._split_factors = np.array(
-            [s["split"] for s in self._splits], dtype=float,
+            [s["split"] for s in self._splits],
+            dtype=float,
         )
 
     def _get_splits_dividends(self):
@@ -194,7 +191,8 @@ class Holding:
         # so a transient 5xx / 429 is absorbed rather than aborting
         # the whole build.
         raw_splits = _call_with_retry(
-            lambda: self._ticker.splits, description="yfinance splits",
+            lambda: self._ticker.splits,
+            description="yfinance splits",
         )
         for ts, split in raw_splits.items():
             date = _ts_to_datetime(ts)
@@ -206,10 +204,12 @@ class Holding:
             description="yfinance get_dividends",
         )
         for ts, dividend in raw_dividends.items():
-            dividends.append({
-                "date": _ts_to_datetime(ts),
-                "dividend": float(dividend),
-            })
+            dividends.append(
+                {
+                    "date": _ts_to_datetime(ts),
+                    "dividend": float(dividend),
+                }
+            )
         return splits, dividends
 
     def _apply_splits_between(self, quantity, after_date, before_date):
@@ -247,8 +247,9 @@ class Holding:
         # side; we still need to surface the explicit error so the
         # caller knows the split-vs-trade boundary is ambiguous.
         for date in self._split_dates[
-            bisect.bisect_left(self._split_dates, after_date)
-            : bisect.bisect_right(self._split_dates, before_date)
+            bisect.bisect_left(self._split_dates, after_date) : bisect.bisect_right(
+                self._split_dates, before_date
+            )
         ]:
             if date in (after_date, before_date):
                 raise InvariantError(
@@ -306,32 +307,42 @@ class Holding:
             self._periods.append({"start": trade.date, "end": None})
         elif trade.date > self._positions[-1]["date"]:
             current_quantity = self._apply_splits_between(
-                current_quantity, self._positions[-1]["date"], trade.date)
-        self._trade_events.append({
-            "date": trade.date,
-            "price": trade.price,
-            "quantity": trade.quantity,
-            "category": category,
-            "pre_quantity": current_quantity,
-        })
-        self._inflows.append({
-            "date": trade.date,
-            "value": trade.quantity * trade.price * self._fx(self._info["currency"], trade.date),
-        })
+                current_quantity, self._positions[-1]["date"], trade.date
+            )
+        self._trade_events.append(
+            {
+                "date": trade.date,
+                "price": trade.price,
+                "quantity": trade.quantity,
+                "category": category,
+                "pre_quantity": current_quantity,
+            }
+        )
+        self._inflows.append(
+            {
+                "date": trade.date,
+                "value": trade.quantity
+                * trade.price
+                * self._fx(self._info["currency"], trade.date),
+            }
+        )
         if self._positions and self._positions[-1]["date"] == trade.date:
             self._positions[-1]["quantity"] += trade.quantity
         else:
-            self._positions.append({
-                "date": trade.date,
-                "quantity": current_quantity + trade.quantity,
-            })
+            self._positions.append(
+                {
+                    "date": trade.date,
+                    "quantity": current_quantity + trade.quantity,
+                }
+            )
 
     def sell(self, trade: Trade) -> None:
         current_quantity = self._positions[-1]["quantity"]
         if trade.date > self._positions[-1]["date"]:
             current_quantity = self._apply_splits_between(
-                current_quantity, self._positions[-1]["date"], trade.date)
-        is_closing = (current_quantity - trade.quantity == 0)
+                current_quantity, self._positions[-1]["date"], trade.date
+            )
+        is_closing = current_quantity - trade.quantity == 0
         # Categorise as CLOSE iff this SELL would zero the position
         # out (in the same split-adjusted units the rest of this
         # method uses). Otherwise it's a partial DECREASE.
@@ -339,26 +350,34 @@ class Holding:
         # before this SELL so the combiner can compute "X% decrease
         # over previous state" using a denominator denominated in the
         # same share frame as ``trade.quantity``.
-        self._trade_events.append({
-            "date": trade.date,
-            "price": trade.price,
-            "quantity": trade.quantity,
-            "category": "CLOSE" if is_closing else "DECREASE",
-            "pre_quantity": current_quantity,
-        })
+        self._trade_events.append(
+            {
+                "date": trade.date,
+                "price": trade.price,
+                "quantity": trade.quantity,
+                "category": "CLOSE" if is_closing else "DECREASE",
+                "pre_quantity": current_quantity,
+            }
+        )
         if is_closing:
             self._periods[-1]["end"] = trade.date
-        self._outflows.append({
-            "date": trade.date,
-            "value": trade.quantity * trade.price * self._fx(self._info["currency"], trade.date),
-        })
+        self._outflows.append(
+            {
+                "date": trade.date,
+                "value": trade.quantity
+                * trade.price
+                * self._fx(self._info["currency"], trade.date),
+            }
+        )
         if self._positions[-1]["date"] == trade.date:
             self._positions[-1]["quantity"] -= trade.quantity
         else:
-            self._positions.append({
-                "date": trade.date,
-                "quantity": current_quantity - trade.quantity,
-            })
+            self._positions.append(
+                {
+                    "date": trade.date,
+                    "quantity": current_quantity - trade.quantity,
+                }
+            )
 
     def trade_events(
         self,
@@ -377,7 +396,8 @@ class Holding:
         row without holding a reference to the originating ``Holding``.
         """
         combined = _combine_trade_events(
-            self._trade_events, window_days=window_days,
+            self._trade_events,
+            window_days=window_days,
         )
         return [
             {
@@ -418,8 +438,7 @@ class Holding:
         """
         return self._info
 
-    def fetch_market_history(self, *, start, interval: str = "1d",
-                             auto_adjust: bool = False):
+    def fetch_market_history(self, *, start, interval: str = "1d", auto_adjust: bool = False):
         """Return the underlying ticker's price history.
 
         Public accessor used by :class:`investing.performance.Benchmark`
@@ -435,7 +454,9 @@ class Holding:
         """
         return _call_with_retry(
             lambda: self._ticker.history(
-                start=start, interval=interval, auto_adjust=auto_adjust,
+                start=start,
+                interval=interval,
+                auto_adjust=auto_adjust,
             ),
             description="yfinance ticker history",
         )
@@ -517,26 +538,34 @@ class Holding:
         for ev in self._trade_events:
             factor = self._split_factor_strictly_after(ev["date"])
             kind = "BUY" if ev["category"] in _BUY_CATEGORIES else "SELL"
-            events.append((
-                ev["date"], 0, kind,
-                {
-                    # Native value of the trade -- multiplying raw
-                    # quantity by raw price is invariant under any
-                    # subsequent split (so we don't need to rebase
-                    # this number, only the running quantity counter
-                    # below).
-                    "trade_value_native": ev["quantity"] * ev["price"],
-                    # Quantity in current share frame, used to know
-                    # how many shares were held when each dividend
-                    # is paid out.
-                    "qty_current": ev["quantity"] * factor,
-                },
-            ))
+            events.append(
+                (
+                    ev["date"],
+                    0,
+                    kind,
+                    {
+                        # Native value of the trade -- multiplying raw
+                        # quantity by raw price is invariant under any
+                        # subsequent split (so we don't need to rebase
+                        # this number, only the running quantity counter
+                        # below).
+                        "trade_value_native": ev["quantity"] * ev["price"],
+                        # Quantity in current share frame, used to know
+                        # how many shares were held when each dividend
+                        # is paid out.
+                        "qty_current": ev["quantity"] * factor,
+                    },
+                )
+            )
         for div in self._dividends:
-            events.append((
-                div["date"], 1, "DIV",
-                {"per_share_current": div["dividend"]},
-            ))
+            events.append(
+                (
+                    div["date"],
+                    1,
+                    "DIV",
+                    {"per_share_current": div["dividend"]},
+                )
+            )
         events.sort(key=lambda e: (e[0], e[1]))
 
         cashflows: list[tuple[datetime, float]] = []
@@ -555,24 +584,19 @@ class Holding:
                 if quantity_current == 0:
                     period_started = date
                 quantity_current += payload["qty_current"]
-                cash_usd = (
-                    payload["trade_value_native"]
-                    * self._fx(currency, date)
-                )
+                cash_usd = payload["trade_value_native"] * self._fx(currency, date)
                 cashflows.append((date, -cash_usd))
                 gross_invested += cash_usd
             elif kind == "SELL":
                 quantity_current -= payload["qty_current"]
-                cash_usd = (
-                    payload["trade_value_native"]
-                    * self._fx(currency, date)
-                )
+                cash_usd = payload["trade_value_native"] * self._fx(currency, date)
                 cashflows.append((date, +cash_usd))
                 gross_returned += cash_usd
                 if quantity_current <= 1e-9:
                     if period_started is not None:
                         total_ownership_length += max(
-                            (date - period_started).days, 1,
+                            (date - period_started).days,
+                            1,
                         )
                         period_started = None
                     quantity_current = 0.0
@@ -598,15 +622,14 @@ class Holding:
         # signal to bracket a root.
         if quantity_current > 0:
             mtm_usd = (
-                quantity_current
-                * float(self._info["regularMarketPrice"])
-                * self._fx(currency)
+                quantity_current * float(self._info["regularMarketPrice"]) * self._fx(currency)
             )
             cashflows.append((now, +mtm_usd))
             gross_returned += mtm_usd
             if period_started is not None:
                 total_ownership_length += max(
-                    (now - period_started).days, 1,
+                    (now - period_started).days,
+                    1,
                 )
                 period_started = None
 
@@ -632,9 +655,7 @@ class Holding:
 
         if quantity_current > 0:
             current_value_usd = (
-                quantity_current
-                * self._info["regularMarketPrice"]
-                * self._fx(currency)
+                quantity_current * self._info["regularMarketPrice"] * self._fx(currency)
             )
         else:
             current_value_usd = 0.0

@@ -12,6 +12,7 @@ pass the :func:`stub_exchange_rate` callable directly to whichever
 constructor they're exercising; no module-level patching is needed
 and no autouse cleanup fixture is required to keep tests isolated.
 """
+
 from __future__ import annotations
 
 import os
@@ -32,6 +33,7 @@ def stub_exchange_rate():
     ``get_benchmarks(..., fx=...)`` -- there is no module-level
     state to patch.
     """
+
     def _rate(currency, date=None):  # noqa: ARG001
         return 1.0
 

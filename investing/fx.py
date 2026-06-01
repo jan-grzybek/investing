@@ -2,6 +2,7 @@
 instance. Threaded through the API as the ``fx`` parameter
 rather than reached for as a module-level singleton.
 """
+
 from __future__ import annotations
 
 import math
@@ -43,7 +44,8 @@ def _fx_cache_dir() -> Path | None:
 
 
 def _load_history_from_disk(
-    cache_dir: Path, currency: str,
+    cache_dir: Path,
+    currency: str,
 ) -> tuple[np.ndarray, np.ndarray] | None:
     """Return the cached ``(dates, rates)`` arrays for ``currency``.
 
@@ -64,14 +66,18 @@ def _load_history_from_disk(
 
 
 def _save_history_to_disk(
-    cache_dir: Path, currency: str,
-    dates: np.ndarray, rates: np.ndarray,
+    cache_dir: Path,
+    currency: str,
+    dates: np.ndarray,
+    rates: np.ndarray,
 ) -> None:
     """Persist ``(dates, rates)`` to ``cache_dir``; swallow filesystem errors."""
     try:
         cache_dir.mkdir(parents=True, exist_ok=True)
         np.savez(
-            cache_dir / f"fx-{currency}.npz", dates=dates, rates=rates,
+            cache_dir / f"fx-{currency}.npz",
+            dates=dates,
+            rates=rates,
         )
     except OSError as exc:
         # Best-effort: the build keeps the data in-memory regardless,
@@ -99,9 +105,7 @@ class ExchangeRate:
         # instance so a test that mutates the env var between calls
         # can still re-create an ``ExchangeRate`` and pick up the
         # new value.
-        self._cache_dir: Path | None = (
-            cache_dir if cache_dir is not None else _fx_cache_dir()
-        )
+        self._cache_dir: Path | None = cache_dir if cache_dir is not None else _fx_cache_dir()
         # Track per-currency "we already warned about this" state so
         # that an empty FX history surfaces exactly once in the logs
         # rather than re-emitting on every dated lookup. The warning
@@ -141,7 +145,9 @@ class ExchangeRate:
             else:
                 hist = _call_with_retry(
                     lambda: yf.Ticker(f"{currency}USD=X").history(
-                        period="max", interval="1d", auto_adjust=False,
+                        period="max",
+                        interval="1d",
+                        auto_adjust=False,
                     ),
                     description="yfinance fx history",
                 )
@@ -171,7 +177,10 @@ class ExchangeRate:
                 # per currency per process.
                 if self._cache_dir is not None and date_arr.size > 0:
                     _save_history_to_disk(
-                        self._cache_dir, currency, date_arr, rate_arr,
+                        self._cache_dir,
+                        currency,
+                        date_arr,
+                        rate_arr,
                     )
         date_arr, rate_arr = self._history[currency]
         if date_arr.size == 0:
@@ -210,8 +219,6 @@ class ExchangeRate:
         return self._historical(currency, date)
 
 
-
-
 # Type alias for "anything callable as ``fx(currency, date=None) -> float``".
 # Threading the fx callable through the API rather than reaching for a
 # module-level singleton keeps construction explicit (production wires
@@ -221,8 +228,6 @@ class ExchangeRate:
 # instance or any plain callable matching the same shape so test stubs
 # (``lambda currency, date=None: 1.0``) satisfy the contract.
 type FxRate = "ExchangeRate" | Callable[..., float]
-
-
 
 
 def _fx_or_default(fx: FxRate | None) -> FxRate:

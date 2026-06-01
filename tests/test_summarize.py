@@ -1,4 +1,5 @@
 """Tests for ``summarize``: allocation %, top-10 weights, totals."""
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -29,8 +30,10 @@ def fx_one_to_one():
 
     Returned to the test which passes it as ``summarize(..., fx=fx_one_to_one)``.
     """
+
     def _rate(currency, date=None):  # noqa: ARG001
         return 1.0
+
     return _rate
 
 
@@ -96,12 +99,8 @@ class TestSummarize:
         # math (the "Other equities" bucket sums these) stays
         # precise; the expected values match that full precision.
         # Equity weight = 100 / 260
-        assert holdings["allocation%"]["Equities"] == pytest.approx(
-            100 * 100 / 260
-        )
-        assert holdings["allocation%"]["Cash & Cash Equivalents"] == pytest.approx(
-            100 * 160 / 260
-        )
+        assert holdings["allocation%"]["Equities"] == pytest.approx(100 * 100 / 260)
+        assert holdings["allocation%"]["Cash & Cash Equivalents"] == pytest.approx(100 * 160 / 260)
 
     def test_holding_weights_are_in_percent_of_total(self, fx_one_to_one):
         holdings = {

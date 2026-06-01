@@ -12,6 +12,7 @@ viewport box are encoded in the ``data-chart`` JSON so the
 client-side scrubber script can render markers without
 re-running the interpolation.
 """
+
 from __future__ import annotations
 
 import html
@@ -55,7 +56,8 @@ def render(
     # Collect series (JG + each benchmark) and the global y-range.
     start_date = history[0][0]
     time_x = np.array(
-        [int((d - start_date).days) for d, _ in history], dtype=float,
+        [int((d - start_date).days) for d, _ in history],
+        dtype=float,
     )
     jg_y = np.array([v for _, v in history], dtype=float)
 
@@ -92,9 +94,7 @@ def render(
     height = 400.0
     # Reserve 12% on the right when we'll be drawing a delta
     # annotation so its bar+label don't overlap the curves.
-    has_delta = (
-        len(series) >= 2 and series[0][0] == "jg" and series[1][0] == "bench"
-    )
+    has_delta = len(series) >= 2 and series[0][0] == "jg" and series[1][0] == "bench"
     right_margin_pct = 12.0 if has_delta else 0.0
     chart_x_end = width * (1 - right_margin_pct / 100.0)
 
@@ -117,9 +117,7 @@ def render(
     if len(time_x) >= 3:
         dense = np.linspace(x_min, x_max, 200)
         interp_x = dense
-        interp_targets = {
-            id(s[2]): np.exp(Pchip(time_x, np.log(s[2]))(dense)) for s in series
-        }
+        interp_targets = {id(s[2]): np.exp(Pchip(time_x, np.log(s[2]))(dense)) for s in series}
     else:
         interp_x = time_x
         interp_targets = {id(s[2]): s[2] for s in series}
@@ -130,10 +128,7 @@ def render(
         # ``map_x`` / ``map_y`` invocations per series.
         px = (interp_x - x_min) / x_span * chart_x_end
         py = height - (ys - view_min) / y_span * height
-        return " ".join(
-            f"{a:.2f},{b:.2f}"
-            for a, b in zip(px, py, strict=False)
-        )
+        return " ".join(f"{a:.2f},{b:.2f}" for a, b in zip(px, py, strict=False))
 
     ref_y = map_y(1.0)
     svg_lines = [
@@ -151,15 +146,19 @@ def render(
             f'<polyline class="return-chart__line return-chart__line--{kind}" '
             f'points="{to_points(interp_targets[id(ys)])}"/>'
         )
-    svg_lines.append('</svg>')
+    svg_lines.append("</svg>")
 
-    delta_html = _build_delta_html(
-        series=series,
-        total_return=total_return,
-        benchmarks=benchmarks,
-        map_y=map_y,
-        height=height,
-    ) if has_delta else ""
+    delta_html = (
+        _build_delta_html(
+            series=series,
+            total_return=total_return,
+            benchmarks=benchmarks,
+            map_y=map_y,
+            height=height,
+        )
+        if has_delta
+        else ""
+    )
 
     legend_html = _build_legend_html(series) if len(series) > 1 else ""
 
@@ -173,8 +172,8 @@ def render(
     caption = (
         f'<div class="return-chart__caption">'
         f'Since <time datetime="{start_date.strftime("%Y-%m-%d")}">'
-        f'{_fmt_date_long(start_date)}</time> &middot; '
-        f'{html.escape(duration)}</div>'
+        f"{_fmt_date_long(start_date)}</time> &middot; "
+        f"{html.escape(duration)}</div>"
     )
 
     hover_html = _build_hover_html(has_delta=has_delta)
@@ -194,25 +193,22 @@ def render(
                 "kind": kind,
                 "label": label,
                 "x": dense_x,
-                "y": [
-                    round(float(v), 6) for v in interp_targets[id(ys)].tolist()
-                ],
+                "y": [round(float(v), 6) for v in interp_targets[id(ys)].tolist()],
             }
             for kind, label, ys in series
         ],
     }
     chart_data_attr = html.escape(
-        json.dumps(chart_data, separators=(",", ":")), quote=True,
+        json.dumps(chart_data, separators=(",", ":")),
+        quote=True,
     )
 
     plot_html = (
-        f'<div class="return-chart__plot">'
-        f'{"".join(svg_lines)}{hover_html}{delta_html}'
-        f'</div>'
+        f'<div class="return-chart__plot">{"".join(svg_lines)}{hover_html}{delta_html}</div>'
     )
     return (
         f'<figure class="return-chart" data-chart="{chart_data_attr}">'
-        f'{plot_html}{legend_html}{caption}</figure>'
+        f"{plot_html}{legend_html}{caption}</figure>"
     )
 
 
@@ -246,17 +242,15 @@ def _build_delta_html(
     bench_y_pct = map_y(bench_final) / height * 100.0
     top_pct = min(jg_y_pct, bench_y_pct)
     height_pct = abs(jg_y_pct - bench_y_pct)
-    delta_color = (
-        "var(--positive)" if delta_pp >= 0 else "var(--negative)"
-    )
+    delta_color = "var(--positive)" if delta_pp >= 0 else "var(--negative)"
     return (
         '<div class="return-chart__delta" '
         f'style="--top: {top_pct:.2f}%; --height: {height_pct:.2f}%; '
         f'--delta-color: {delta_color};">'
         '<span class="return-chart__delta-bar"></span>'
         f'<span class="return-chart__delta-label {_value_class(delta_pp)}">'
-        f'{_fmt_pct(delta_pp, signed=True)} pp</span>'
-        '</div>'
+        f"{_fmt_pct(delta_pp, signed=True)} pp</span>"
+        "</div>"
     )
 
 
@@ -268,7 +262,7 @@ def _build_legend_html(series: list[tuple[str, str, np.ndarray]]) -> str:
             f'<span><span class="return-chart__swatch '
             f'return-chart__swatch--{kind}" '
             f'style="background: var(--{"accent" if kind == "jg" else "accent-bench"});">'
-            f'</span>{html.escape(label)}</span>'
+            f"</span>{html.escape(label)}</span>"
         )
     return f'<div class="return-chart__legend">{"".join(chips)}</div>'
 
@@ -282,20 +276,16 @@ def _build_hover_html(*, has_delta: bool) -> str:
     The hover overlay still paints on top thanks to its
     explicit ``z-index`` in the page stylesheet.
     """
-    hover_delta_bar_html = (
-        '<div class="return-chart__hover-delta-bar"></div>' if has_delta else ''
-    )
-    tooltip_delta_html = (
-        '<div class="return-chart__tooltip-delta"></div>' if has_delta else ''
-    )
+    hover_delta_bar_html = '<div class="return-chart__hover-delta-bar"></div>' if has_delta else ""
+    tooltip_delta_html = '<div class="return-chart__tooltip-delta"></div>' if has_delta else ""
     return (
         '<div class="return-chart__hover" aria-hidden="true">'
         '<div class="return-chart__guide"></div>'
-        f'{hover_delta_bar_html}'
+        f"{hover_delta_bar_html}"
         '<div class="return-chart__tooltip">'
         '<div class="return-chart__tooltip-date"></div>'
         '<div class="return-chart__tooltip-rows"></div>'
-        f'{tooltip_delta_html}'
-        '</div>'
-        '</div>'
+        f"{tooltip_delta_html}"
+        "</div>"
+        "</div>"
     )

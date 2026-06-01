@@ -1,6 +1,7 @@
 """Per-section rendering: returns + benchmarks capsule, holding
 cards, the marquee ticker, the trades table, and the
 per-section sort control."""
+
 from __future__ import annotations
 
 import math
@@ -69,7 +70,9 @@ class TestAddReturn:
         assert "holding__note" not in w.return_html
 
     def test_period_is_shared_across_jg_and_benchmark(
-        self, stub_logo_lookup, freeze_today,
+        self,
+        stub_logo_lookup,
+        freeze_today,
     ):
         # With a single-point history (no chart) the comparison block
         # picks up the "Since {start} · {duration}" header itself, so
@@ -85,10 +88,7 @@ class TestAddReturn:
         # rather than the page-wide DD/MM/YYYY convention -- the
         # slashes would break the sentence rhythm. The ISO
         # ``datetime`` attribute stays in W3C YYYY-MM-DD form.
-        assert (
-            '<time datetime="2024-01-01">Jan 1, 2024</time>'
-            in w.return_html
-        )
+        assert '<time datetime="2024-01-01">Jan 1, 2024</time>' in w.return_html
         # The duration ("1 year, 5 months") sits alongside the start
         # date so the header conveys both anchor and length.
         assert "1 year, 5 months" in w.return_html
@@ -106,11 +106,19 @@ class TestAddReturn:
             (datetime(2024, 12, 1), 1.2),
         ]
         w = Webpage()
-        w.add_return(tr, [_benchmark() | {"history": [
-            (datetime(2024, 1, 1), 1.0),
-            (datetime(2024, 6, 1), 1.05),
-            (datetime(2024, 12, 1), 1.1),
-        ]}])
+        w.add_return(
+            tr,
+            [
+                _benchmark()
+                | {
+                    "history": [
+                        (datetime(2024, 1, 1), 1.0),
+                        (datetime(2024, 6, 1), 1.05),
+                        (datetime(2024, 12, 1), 1.1),
+                    ]
+                }
+            ],
+        )
         # The chart's caption owns the period and wraps the date
         # as a machine-readable <time> element. This caption reads
         # as prose ("Since Jan 1, 2024 . X months"), so it carries
@@ -119,10 +127,7 @@ class TestAddReturn:
         # format used everywhere else on the page would break the
         # sentence rhythm. ISO ``datetime`` attribute stays in
         # W3C YYYY-MM-DD.
-        assert (
-            '<time datetime="2024-01-01">Jan 1, 2024</time>'
-            in w.return_html
-        )
+        assert '<time datetime="2024-01-01">Jan 1, 2024</time>' in w.return_html
         # Single occurrence of the start date in the entire section.
         assert w.return_html.count("Jan 1, 2024") == 1
         # And no period header on the comparison block.
@@ -155,7 +160,8 @@ class TestAddReturn:
         w.add_return(_total_return(), [_benchmark()])
         assert 'class="returns-compare__logo"' in w.return_html
         compare_imgs = [
-            line for line in w.return_html.split("<")
+            line
+            for line in w.return_html.split("<")
             if line.startswith("img") and "returns-compare__logo" in line
         ]
         assert len(compare_imgs) == 2
@@ -186,7 +192,8 @@ class TestAddReturn:
         assert "value--positive" in w.return_html
 
     def test_outperformance_delta_line_uses_negative_when_underperforming(
-        self, stub_logo_lookup,
+        self,
+        stub_logo_lookup,
     ):
         # JG -5 TWR vs bench +10 TSR = -15.0 pp Total Return.
         w = Webpage()
@@ -199,7 +206,8 @@ class TestAddReturn:
         assert "value--negative" in w.return_html
 
     def test_outperformance_delta_pieces_can_wrap_independently(
-        self, stub_logo_lookup,
+        self,
+        stub_logo_lookup,
     ):
         # Each piece (prefix, two metrics, separator) is wrapped in
         # its own span so a flex parent can break them across lines
@@ -215,15 +223,15 @@ class TestAddReturn:
         # Separator carries aria-hidden so screen readers don't read
         # an out-of-context middle dot when the narrow layout has
         # already turned it into noise.
-        assert (
-            'class="returns-compare__delta-sep" aria-hidden="true"'
-        ) in out
+        assert ('class="returns-compare__delta-sep" aria-hidden="true"') in out
         # The narrow-viewport stack rule lives in its own breakpoint.
         # We bumped the threshold from 480px to 540px when the label
         # grew from "TR" to "Total Return" so the stack kicks in
         # before the row gets visually cramped.
+        from tests._css_helpers import contains_at_rule
+
         full_html = w._head() + out  # styles live in <head>
-        assert "@media (max-width: 540px)" in full_html
+        assert contains_at_rule(full_html, "@media (max-width: 540px)")
 
     def test_chart_renders_above_returns_comparison(self, stub_logo_lookup):
         # Multi-point history triggers the chart; it should appear above
@@ -235,17 +243,26 @@ class TestAddReturn:
             (datetime(2024, 12, 1), 1.2),
         ]
         w = Webpage()
-        w.add_return(tr, [_benchmark() | {"history": [
-            (datetime(2024, 1, 1), 1.0),
-            (datetime(2024, 6, 1), 1.05),
-            (datetime(2024, 12, 1), 1.1),
-        ]}])
+        w.add_return(
+            tr,
+            [
+                _benchmark()
+                | {
+                    "history": [
+                        (datetime(2024, 1, 1), 1.0),
+                        (datetime(2024, 6, 1), 1.05),
+                        (datetime(2024, 12, 1), 1.1),
+                    ]
+                }
+            ],
+        )
         chart_idx = w.return_html.index('class="return-chart"')
         compare_idx = w.return_html.index('class="returns-compare"')
         assert chart_idx < compare_idx
 
     def test_intro_paragraph_precedes_chart_and_comparison(
-        self, stub_logo_lookup,
+        self,
+        stub_logo_lookup,
     ):
         # A one-liner sits at the top of the section so a first-time
         # reader knows what the chart + capsules below are showing
@@ -260,11 +277,19 @@ class TestAddReturn:
             (datetime(2024, 12, 1), 1.2),
         ]
         w = Webpage()
-        w.add_return(tr, [_benchmark() | {"history": [
-            (datetime(2024, 1, 1), 1.0),
-            (datetime(2024, 6, 1), 1.05),
-            (datetime(2024, 12, 1), 1.1),
-        ]}])
+        w.add_return(
+            tr,
+            [
+                _benchmark()
+                | {
+                    "history": [
+                        (datetime(2024, 1, 1), 1.0),
+                        (datetime(2024, 6, 1), 1.05),
+                        (datetime(2024, 12, 1), 1.1),
+                    ]
+                }
+            ],
+        )
         assert 'class="section__intro"' in w.return_html
         intro_idx = w.return_html.index('class="section__intro"')
         chart_idx = w.return_html.index('class="return-chart"')
@@ -272,13 +297,12 @@ class TestAddReturn:
         assert intro_idx < chart_idx < compare_idx
         # Benchmark name (escaped) is woven into the prose.
         assert (
-            "Cumulative return of the portfolio tracked against the "
-            "S&amp;P 500."
-            in w.return_html
+            "Cumulative return of the portfolio tracked against the S&amp;P 500." in w.return_html
         )
 
     def test_intro_paragraph_omits_benchmark_when_none_configured(
-        self, stub_logo_lookup,
+        self,
+        stub_logo_lookup,
     ):
         # No benchmark -> the comparison block renders the portfolio
         # column on its own, and the intro phrasing follows suit so we
@@ -287,13 +311,11 @@ class TestAddReturn:
         w = Webpage()
         w.add_return(_total_return(), [])
         assert 'class="section__intro"' in w.return_html
-        assert (
-            '<p class="section__intro">Cumulative return of the '
-            'portfolio.</p>'
-            in w.return_html
-        )
+        assert '<p class="section__intro">Cumulative return of the portfolio.</p>' in w.return_html
         assert "S&amp;P 500" not in w.return_html
         assert "benchmark" not in w.return_html.lower()
+
+
 class TestAddHolding:
     def test_current_holding_appears_in_current_bucket(self, stub_logo_lookup):
         w = Webpage()
@@ -350,14 +372,16 @@ class TestAddHolding:
         # ``datetime`` attribute keeps the W3C YYYY-MM-DD format --
         # two conventions serving two different audiences.
         w = Webpage()
-        w.add_holding(_holding(
-            ticker="NMS:CLO",
-            is_current=False,
-            weight=None,
-            periods=[
-                {"start": datetime(2022, 11, 4), "end": datetime(2024, 4, 12)},
-            ],
-        ))
+        w.add_holding(
+            _holding(
+                ticker="NMS:CLO",
+                is_current=False,
+                weight=None,
+                periods=[
+                    {"start": datetime(2022, 11, 4), "end": datetime(2024, 4, 12)},
+                ],
+            )
+        )
         card = w.historical[0]
         # Day 4 -> "04/11/2022" in the visible label (zero-padded);
         # the ISO attribute is ``2022-11-04``.
@@ -371,9 +395,13 @@ class TestAddHolding:
         # the dash separator -- that 3-column grid is what aligns
         # multi-period stacks vertically.
         w = Webpage()
-        w.add_holding(_holding(periods=[
-            {"start": datetime(2024, 1, 1), "end": None},
-        ]))
+        w.add_holding(
+            _holding(
+                periods=[
+                    {"start": datetime(2024, 1, 1), "end": None},
+                ]
+            )
+        )
         card = w.current[0]
         # DD/MM/YYYY for the visible label; ISO ``datetime``
         # attribute stays in YYYY-MM-DD.
@@ -395,30 +423,32 @@ class TestAddHolding:
         # children-per-li contract still has to hold for the layout
         # to work.
         w = Webpage()
-        w.add_holding(_holding(
-            ticker="NMS:GRID",
-            is_current=False,
-            weight=None,
-            periods=[
-                {"start": datetime(2022, 8, 5), "end": datetime(2023, 6, 9)},
-                {"start": datetime(2024, 1, 22), "end": datetime(2024, 11, 30)},
-            ],
-        ))
+        w.add_holding(
+            _holding(
+                ticker="NMS:GRID",
+                is_current=False,
+                weight=None,
+                periods=[
+                    {"start": datetime(2022, 8, 5), "end": datetime(2023, 6, 9)},
+                    {"start": datetime(2024, 1, 22), "end": datetime(2024, 11, 30)},
+                ],
+            )
+        )
         card = w.historical[0]
         # Newest-first (per the defensive sort in _build_card).
         expected_top = (
-            '<li>'
+            "<li>"
             '<time datetime="2024-01-22">22/01/2024</time>'
-            '<span>-</span>'
+            "<span>-</span>"
             '<time datetime="2024-11-30">30/11/2024</time>'
-            '</li>'
+            "</li>"
         )
         expected_bottom = (
-            '<li>'
+            "<li>"
             '<time datetime="2022-08-05">05/08/2022</time>'
-            '<span>-</span>'
+            "<span>-</span>"
             '<time datetime="2023-06-09">09/06/2023</time>'
-            '</li>'
+            "</li>"
         )
         assert expected_top in card
         assert expected_bottom in card
@@ -434,19 +464,29 @@ class TestAddHolding:
         # variable required. The earlier fixed-width 6.5em variant
         # (and the special-case ``holding__period--open`` desktop
         # override that compensated for it) is gone.
+        from tests._css_helpers import blocks_for, has_declaration
+
         full_html = w._head() + card
-        assert (
-            "grid-template-columns: max-content min-content max-content"
-            in full_html
+        # The 3-track grid template is declared on ``.holding__periods``
+        # itself, and each ``li`` collapses via ``display: contents`` so
+        # its three children land directly in those tracks. ``justify-
+        # content: start`` keeps the grid hugging the body's left edge;
+        # without it, leftover horizontal space gets distributed
+        # between the tracks and opens visible gaps on wide viewports.
+        ul_bodies = blocks_for(full_html, ".holding__periods")
+        assert ul_bodies, ".holding__periods rule missing"
+        assert any(
+            has_declaration(
+                b,
+                "grid-template-columns",
+                "max-content min-content max-content",
+            )
+            for b in ul_bodies
         )
-        assert ".holding__periods li { display: contents; }" in full_html
-        # ``justify-content: start`` is essential here: without it,
-        # CSS Grid would distribute leftover horizontal space inside
-        # the <ul> across the tracks, opening visible gaps on wide
-        # viewports. With ``justify-content: start`` and content-
-        # sized tracks, the entire grid hugs the body's left edge
-        # and any leftover width spills past the last column.
-        assert "justify-content: start" in full_html
+        assert any(has_declaration(b, "justify-content", "start") for b in ul_bodies)
+        li_bodies = blocks_for(full_html, ".holding__periods li")
+        assert li_bodies, ".holding__periods li rule missing"
+        assert any(has_declaration(b, "display", "contents") for b in li_bodies)
         # Default ``text-align: start`` for the start-date <time>
         # combined with ``text-align: end`` on :last-child gives the
         # spread "<start>  -  <end>" layout for closed periods,
@@ -457,13 +497,19 @@ class TestAddHolding:
         # end date hugging the dash) is gone, and so is the
         # desktop-only ``.holding__period--open > :first-child``
         # override that used to compensate for fixed-width slack.
-        assert ".holding__periods li > :last-child { text-align: end; }" in full_html
-        assert (
-            ".holding__periods li > span:last-child { text-align: start; }"
-            in full_html
+        from tests._css_helpers import normalize as _normalize_css
+
+        last_child_bodies = blocks_for(full_html, ".holding__periods li>:last-child")
+        assert last_child_bodies
+        assert any(has_declaration(b, "text-align", "end") for b in last_child_bodies)
+        span_last_bodies = blocks_for(
+            full_html,
+            ".holding__periods li>span:last-child",
         )
-        assert ".holding__periods li > :first-child { text-align: end; }" not in full_html
-        assert "holding__period--open" not in full_html
+        assert span_last_bodies
+        assert any(has_declaration(b, "text-align", "start") for b in span_last_bodies)
+        assert not blocks_for(full_html, ".holding__periods li>:first-child")
+        assert "holding__period--open" not in _normalize_css(full_html)
         # Sanity guards against the prior fixed-width variants
         # ("Present" desktop layout looked off because the start
         # date's variable trailing slack created asymmetric gaps
@@ -473,7 +519,8 @@ class TestAddHolding:
         assert "6.5em auto 6.5em" not in full_html
 
     def test_multiple_periods_stack_newest_first_as_list(
-        self, stub_logo_lookup,
+        self,
+        stub_logo_lookup,
     ):
         # The visual order (newest period on top) is a UX guarantee
         # that ``_build_card`` enforces internally via ``sorted(...,
@@ -481,15 +528,17 @@ class TestAddHolding:
         # the periods over in. Pass them in *oldest-first* on purpose
         # to prove the render is order-agnostic.
         w = Webpage()
-        w.add_holding(_holding(
-            ticker="NMS:MULTI",
-            is_current=False,
-            weight=None,
-            periods=[
-                {"start": datetime(2022, 1, 5), "end": datetime(2023, 3, 9)},
-                {"start": datetime(2024, 6, 1), "end": datetime(2025, 2, 1)},
-            ],
-        ))
+        w.add_holding(
+            _holding(
+                ticker="NMS:MULTI",
+                is_current=False,
+                weight=None,
+                periods=[
+                    {"start": datetime(2022, 1, 5), "end": datetime(2023, 3, 9)},
+                    {"start": datetime(2024, 6, 1), "end": datetime(2025, 2, 1)},
+                ],
+            )
+        )
         card = w.historical[0]
         assert '<ul class="holding__periods">' in card
         # Two list items, no inline bullet separator left behind.
@@ -505,19 +554,22 @@ class TestAddHolding:
         assert card.index(newest) < card.index(oldest)
 
     def test_open_period_sorts_to_top_among_multiple(
-        self, stub_logo_lookup,
+        self,
+        stub_logo_lookup,
     ):
         # An open position (end is None) is by definition the most
         # recent ownership window, so it must land at the top of the
         # stack even when older closed periods sit alongside it.
         w = Webpage()
-        w.add_holding(_holding(
-            ticker="NMS:OPEN",
-            periods=[
-                {"start": datetime(2020, 5, 1), "end": datetime(2021, 8, 1)},
-                {"start": datetime(2024, 9, 1), "end": None},
-            ],
-        ))
+        w.add_holding(
+            _holding(
+                ticker="NMS:OPEN",
+                periods=[
+                    {"start": datetime(2020, 5, 1), "end": datetime(2021, 8, 1)},
+                    {"start": datetime(2024, 9, 1), "end": None},
+                ],
+            )
+        )
         card = w.current[0]
         open_marker = '<time datetime="2024-09-01">'
         closed_marker = '<time datetime="2020-05-01">'
@@ -561,17 +613,20 @@ class TestAddHolding:
         # ones so a future link surface (e.g. a "trades for X" cross-
         # reference) can scroll to them too without a renderer change.
         w = Webpage()
-        w.add_holding(_holding(
-            ticker="NMS:OLD",
-            is_current=False,
-            weight=None,
-            periods=[{"start": datetime(2022, 1, 1), "end": datetime(2023, 1, 1)}],
-        ))
+        w.add_holding(
+            _holding(
+                ticker="NMS:OLD",
+                is_current=False,
+                weight=None,
+                periods=[{"start": datetime(2022, 1, 1), "end": datetime(2023, 1, 1)}],
+            )
+        )
         card = w.historical[0]
         assert ' id="holding-NMS-OLD"' in card
 
     def test_current_holding_card_carries_sort_attributes(
-        self, stub_logo_lookup,
+        self,
+        stub_logo_lookup,
     ):
         # The sort toolbar above each holdings list re-orders cards
         # by reading ``data-sort-*`` attributes on each
@@ -579,10 +634,15 @@ class TestAddHolding:
         # so the toolbar (which has no Python visibility into
         # the values) lines up with what the renderer emits.
         w = Webpage()
-        w.add_holding(_holding(
-            ticker="NMS:NVDA", name="NVIDIA Corporation",
-            tsr=217.4, cagr=64.2, weight=21.4,
-        ))
+        w.add_holding(
+            _holding(
+                ticker="NMS:NVDA",
+                name="NVIDIA Corporation",
+                tsr=217.4,
+                cagr=64.2,
+                weight=21.4,
+            )
+        )
         card = w.current[0]
         # Ticker key drops the exchange prefix and lower-cases so
         # "Sort by Ticker" reads as a clean A->Z run of company
@@ -598,7 +658,8 @@ class TestAddHolding:
         assert 'data-sort-weight="21.4000"' in card
 
     def test_historical_holding_card_omits_weight_sort_key(
-        self, stub_logo_lookup,
+        self,
+        stub_logo_lookup,
     ):
         # Historical positions have no ``current_weight%`` so the
         # card MUST NOT advertise a weight sort key -- the
@@ -608,15 +669,17 @@ class TestAddHolding:
         # to the *current* list could resort historical rows
         # if the JS ever queried by selector globally).
         w = Webpage()
-        w.add_holding(_holding(
-            ticker="NMS:OLD",
-            name="Old Co.",
-            is_current=False,
-            weight=None,
-            tsr=-12.5, cagr=-7.3,
-            periods=[{"start": datetime(2022, 1, 1),
-                      "end": datetime(2023, 1, 1)}],
-        ))
+        w.add_holding(
+            _holding(
+                ticker="NMS:OLD",
+                name="Old Co.",
+                is_current=False,
+                weight=None,
+                tsr=-12.5,
+                cagr=-7.3,
+                periods=[{"start": datetime(2022, 1, 1), "end": datetime(2023, 1, 1)}],
+            )
+        )
         card = w.historical[0]
         assert 'data-sort-ticker="old"' in card
         assert 'data-sort-name="old co."' in card
@@ -625,7 +688,8 @@ class TestAddHolding:
         assert "data-sort-weight" not in card
 
     def test_holding_title_keeps_exchange_prefix_for_display(
-        self, stub_logo_lookup,
+        self,
+        stub_logo_lookup,
     ):
         # The visible title still reads as ``EXCHANGE:SYMBOL -
         # Company`` so the row stays unambiguous; only the
@@ -633,21 +697,28 @@ class TestAddHolding:
         # accidental refactor that lower-cases the displayed
         # ticker too.
         w = Webpage()
-        w.add_holding(_holding(
-            ticker="NMS:NVDA", name="NVIDIA Corporation",
-        ))
+        w.add_holding(
+            _holding(
+                ticker="NMS:NVDA",
+                name="NVIDIA Corporation",
+            )
+        )
         card = w.current[0]
         assert "NMS:NVDA - NVIDIA Corporation" in card
+
+
 class TestTicker:
     def test_returns_empty_string_when_no_current_holdings(self, stub_logo_lookup):
         w = Webpage()
         # Only a closed/historical position.
-        w.add_holding(_holding(
-            ticker="NMS:OLD",
-            is_current=False,
-            weight=None,
-            periods=[{"start": datetime(2023, 1, 1), "end": datetime(2024, 1, 1)}],
-        ))
+        w.add_holding(
+            _holding(
+                ticker="NMS:OLD",
+                is_current=False,
+                weight=None,
+                periods=[{"start": datetime(2023, 1, 1), "end": datetime(2024, 1, 1)}],
+            )
+        )
         assert w._build_ticker() == ""
 
     def test_renders_one_logo_per_current_holding_doubled(self, stub_logo_lookup):
@@ -685,18 +756,21 @@ class TestTicker:
     def test_excludes_historical_holdings(self, stub_logo_lookup):
         w = Webpage()
         w.add_holding(_holding(ticker="NMS:LIVE", is_current=True))
-        w.add_holding(_holding(
-            ticker="NMS:DEAD",
-            is_current=False,
-            weight=None,
-            periods=[{"start": datetime(2023, 1, 1), "end": datetime(2024, 1, 1)}],
-        ))
+        w.add_holding(
+            _holding(
+                ticker="NMS:DEAD",
+                is_current=False,
+                weight=None,
+                periods=[{"start": datetime(2023, 1, 1), "end": datetime(2024, 1, 1)}],
+            )
+        )
         out = w._build_ticker()
         assert "NMS:LIVE" in out
         assert "NMS:DEAD" not in out
 
     def test_each_logo_is_wrapped_in_anchor_to_holding_capsule(
-        self, stub_logo_lookup,
+        self,
+        stub_logo_lookup,
     ):
         # Clicking a marquee logo should scroll to the matching
         # holding capsule below. Every logo gets its own ``<a>``
@@ -757,20 +831,23 @@ class TestTicker:
         w._get_logo_url("NMS:AAA")
         # Single probe even though we asked for the URL three times.
         assert len(calls) == 1
+
+
 class TestAddTrades:
     def test_renders_one_row_per_event(self, stub_logo_lookup):
         w = Webpage()
-        w.add_trades([
-            _trade_event(ticker="NMS:AAA", category="OPEN"),
-            _trade_event(ticker="NMS:BBB", category="CLOSE",
-                         start=datetime(2024, 5, 1)),
-        ])
+        w.add_trades(
+            [
+                _trade_event(ticker="NMS:AAA", category="OPEN"),
+                _trade_event(ticker="NMS:BBB", category="CLOSE", start=datetime(2024, 5, 1)),
+            ]
+        )
         assert len(w.trades) == 2
         # Each event materialises as a single ``<tr class="trades__row">``;
         # the surrounding ``<table>`` chrome is added by the section
         # builder in ``save()``.
         assert all('class="trades__row"' in row for row in w.trades)
-        assert all(row.startswith('<tr ') for row in w.trades)
+        assert all(row.startswith("<tr ") for row in w.trades)
 
     def test_no_trades_means_no_rows(self, stub_logo_lookup):
         w = Webpage()
@@ -778,7 +855,8 @@ class TestAddTrades:
         assert w.trades == []
 
     def test_action_collapses_categories_to_bought_or_sold(
-        self, stub_logo_lookup,
+        self,
+        stub_logo_lookup,
     ):
         # The "Action" column collapses the four-category space onto
         # a single buy-vs-sell axis: OPEN / INCREASE -> "Bought"
@@ -788,12 +866,14 @@ class TestAddTrades:
         # top-up? did this SELL close the position?) lives in the
         # adjacent "Details" column instead.
         w = Webpage()
-        w.add_trades([
-            _trade_event(category="OPEN"),
-            _trade_event(category="INCREASE", delta_pct=30.0),
-            _trade_event(category="DECREASE", delta_pct=25.0),
-            _trade_event(category="CLOSE"),
-        ])
+        w.add_trades(
+            [
+                _trade_event(category="OPEN"),
+                _trade_event(category="INCREASE", delta_pct=30.0),
+                _trade_event(category="DECREASE", delta_pct=25.0),
+                _trade_event(category="CLOSE"),
+            ]
+        )
         # Both BUY-side categories share the green pill modifier
         # ``--buy`` and the "Bought" label; both SELL-side categories
         # share the red ``--sell`` pill and the "Sold" label.
@@ -823,33 +903,27 @@ class TestAddTrades:
         # test, but holding the CSS rule in place is what guarantees
         # the visual invariant downstream.)
         from investing.assets import _PAGE_STYLES
-        # Locate the ``.trade__badge`` declaration block and assert
-        # both ``width`` and ``text-align: center`` survive in it.
-        block = _PAGE_STYLES.split(".trade__badge {", 1)[1].split("}", 1)[0]
-        assert "width: 7em;" in block
-        assert "text-align: center;" in block
-        # ``min-width`` is explicitly NOT used here any more; if it
-        # crept back in it would re-introduce the "longer label
-        # grows the pill" regression.
-        assert "min-width" not in block
-        # Every surviving mobile override of ``.trade__badge`` also
-        # pins to ``width: 7em``. There are two ``.trade__badge``
-        # declaration blocks total now: the base rule plus the
-        # 540px override that re-pins the pill for the 480-540px
-        # sliver where the action column is still visible. Below
-        # ~480px a separate rule hides the action column entirely,
-        # so any further per-breakpoint pill overrides would be
-        # dead code -- but for as long as the pill IS rendered on
-        # narrow viewports it has to stay at 7em or the longer
-        # "BOUGHT" label re-introduces the iPhone SE cropping
-        # regression we landed this guard for.
-        badge_blocks = _PAGE_STYLES.split(".trade__badge {")
-        assert len(badge_blocks) == 3  # 1 base + 1 override + leading "" split
-        for declared in badge_blocks[1:]:
-            assert "width: 7em;" in declared.split("}", 1)[0]
+        from tests._css_helpers import blocks_for, has_declaration
+
+        # Every ``.trade__badge`` declaration block (base rule + any
+        # surviving per-breakpoint override) must pin the pill to
+        # ``width: 7em``. The base rule additionally centres the
+        # label; the 540px override doesn't need to repeat that since
+        # it inherits ``text-align`` from the base. ``has_declaration``
+        # normalises whitespace so the checks work whether the served
+        # CSS is formatted (dev) or minified (prod). ``min-width`` is
+        # explicitly excluded to prevent the "longer label grows the
+        # pill" regression from creeping back in.
+        bodies = blocks_for(_PAGE_STYLES, ".trade__badge")
+        assert len(bodies) == 2  # 1 base + 1 540px override
+        assert has_declaration(bodies[0], "text-align", "center")
+        for body in bodies:
+            assert has_declaration(body, "width", "7em")
+            assert "min-width" not in body
 
     def test_details_column_uses_past_tense_initiated_and_divested(
-        self, stub_logo_lookup,
+        self,
+        stub_logo_lookup,
     ):
         # OPEN / CLOSE rows surface a qualitative label
         # ("Initiated" / "Divested") in the Details column -- the
@@ -865,12 +939,14 @@ class TestAddTrades:
         # branch -- the page commits to publishing relative
         # percentages and per-share prices only.
         w = Webpage()
-        w.add_trades([
-            _trade_event(category="OPEN",     delta_pct=None),
-            _trade_event(category="INCREASE", delta_pct=30.0),
-            _trade_event(category="DECREASE", delta_pct=25.0),
-            _trade_event(category="CLOSE",    delta_pct=None),
-        ])
+        w.add_trades(
+            [
+                _trade_event(category="OPEN", delta_pct=None),
+                _trade_event(category="INCREASE", delta_pct=30.0),
+                _trade_event(category="DECREASE", delta_pct=25.0),
+                _trade_event(category="CLOSE", delta_pct=None),
+            ]
+        )
         open_row, inc_row, dec_row, close_row = w.trades
         assert ">Initiated<" in open_row
         assert ">Divested<" in close_row
@@ -901,16 +977,19 @@ class TestAddTrades:
         assert "value--negative" in dec_row
 
     def test_single_day_trade_renders_one_quarter_label(
-        self, stub_logo_lookup,
+        self,
+        stub_logo_lookup,
     ):
         # The Date column shows calendar quarters instead of
         # to-the-day stamps. A burst that lives inside a single
         # quarter renders the bare quarter label ("Q1 2025") with
         # no separator -- the trade happened in Q1 2025, full stop.
         w = Webpage()
-        w.add_trades([
-            _trade_event(start=datetime(2025, 1, 14)),
-        ])
+        w.add_trades(
+            [
+                _trade_event(start=datetime(2025, 1, 14)),
+            ]
+        )
         row = w.trades[0]
         # Quarter label is wrapped in a single ``<time>`` carrying
         # the first month of the quarter as a W3C ``YYYY-MM``
@@ -922,19 +1001,22 @@ class TestAddTrades:
         assert "trades__date-sep" not in row
 
     def test_multi_day_burst_inside_one_quarter_still_shows_single_label(
-        self, stub_logo_lookup,
+        self,
+        stub_logo_lookup,
     ):
         # A burst that's spread over several days but doesn't cross
         # a quarter boundary still renders a single quarter label --
         # the page commits to quarter granularity regardless of how
         # many days the underlying fills span.
         w = Webpage()
-        w.add_trades([
-            _trade_event(
-                start=datetime(2024, 5, 22),
-                end=datetime(2024, 6, 11),
-            ),
-        ])
+        w.add_trades(
+            [
+                _trade_event(
+                    start=datetime(2024, 5, 22),
+                    end=datetime(2024, 6, 11),
+                ),
+            ]
+        )
         row = w.trades[0]
         # Both 22 May 2024 and 11 Jun 2024 sit in Q2 2024.
         assert '<time datetime="2024-04">Q2 2024</time>' in row
@@ -945,7 +1027,8 @@ class TestAddTrades:
         assert "trades__date-sep" not in row
 
     def test_burst_spanning_two_quarters_same_year_uses_slash(
-        self, stub_logo_lookup,
+        self,
+        stub_logo_lookup,
     ):
         # A burst that crosses a quarter boundary inside one
         # calendar year renders a single slash-joined label
@@ -954,12 +1037,14 @@ class TestAddTrades:
         # a single year, so a slash reads naturally as "spans
         # these two".
         w = Webpage()
-        w.add_trades([
-            _trade_event(
-                start=datetime(2024, 9, 20),  # Q3 2024
-                end=datetime(2024, 10, 5),    # Q4 2024
-            ),
-        ])
+        w.add_trades(
+            [
+                _trade_event(
+                    start=datetime(2024, 9, 20),  # Q3 2024
+                    end=datetime(2024, 10, 5),  # Q4 2024
+                ),
+            ]
+        )
         row = w.trades[0]
         assert '<time datetime="2024-07">Q3/Q4 2024</time>' in row
         # Slash format collapses to one ``<time>`` element, no
@@ -967,7 +1052,8 @@ class TestAddTrades:
         assert "trades__date-sep" not in row
 
     def test_burst_crossing_year_boundary_uses_hyphen_separator(
-        self, stub_logo_lookup,
+        self,
+        stub_logo_lookup,
     ):
         # A burst that crosses a calendar-year boundary (Q4 of one
         # year into Q1 of the next) renders as a hyphen-separated
@@ -977,12 +1063,14 @@ class TestAddTrades:
         # the equity capsules use for multi-period dates so the
         # eye can scan ranges across both surfaces.
         w = Webpage()
-        w.add_trades([
-            _trade_event(
-                start=datetime(2024, 12, 15),  # Q4 2024
-                end=datetime(2025, 1, 20),     # Q1 2025
-            ),
-        ])
+        w.add_trades(
+            [
+                _trade_event(
+                    start=datetime(2024, 12, 15),  # Q4 2024
+                    end=datetime(2025, 1, 20),  # Q1 2025
+                ),
+            ]
+        )
         row = w.trades[0]
         assert '<time datetime="2024-10">Q4 2024</time>' in row
         assert '<time datetime="2025-01">Q1 2025</time>' in row
@@ -1000,10 +1088,12 @@ class TestAddTrades:
         # header "Price" already tells the reader what the number
         # is.
         w = Webpage()
-        w.add_trades([
-            _trade_event(price=247.85, currency="USD"),
-            _trade_event(price=181.25, currency="EUR"),
-        ])
+        w.add_trades(
+            [
+                _trade_event(price=247.85, currency="USD"),
+                _trade_event(price=181.25, currency="EUR"),
+            ]
+        )
         assert ">247.85 USD<" in w.trades[0]
         assert ">181.25 EUR<" in w.trades[1]
         # Currency code never precedes the value any more.
@@ -1019,9 +1109,11 @@ class TestAddTrades:
         # follows the value (the rest of the page reads quantities
         # the same way).
         w = Webpage()
-        w.add_trades([
-            _trade_event(price=4820.50, currency="GBp"),
-        ])
+        w.add_trades(
+            [
+                _trade_event(price=4820.50, currency="GBp"),
+            ]
+        )
         assert ">4,820.50 GBp<" in w.trades[0]
 
     def test_details_pct_renders_as_whole_number(self, stub_logo_lookup):
@@ -1031,13 +1123,15 @@ class TestAddTrades:
         # meaningful. For position-change magnitudes a 4% vs 4.3%
         # split is below the noise floor of how we report sizes.
         w = Webpage()
-        w.add_trades([
-            _trade_event(category="INCREASE", delta_pct=30.0),
-            _trade_event(category="INCREASE", delta_pct=100.0),
-            _trade_event(category="DECREASE", delta_pct=99.5),
-            _trade_event(category="INCREASE", delta_pct=42.4),
-        ])
-        assert ">+30%<"  in w.trades[0]
+        w.add_trades(
+            [
+                _trade_event(category="INCREASE", delta_pct=30.0),
+                _trade_event(category="INCREASE", delta_pct=100.0),
+                _trade_event(category="DECREASE", delta_pct=99.5),
+                _trade_event(category="INCREASE", delta_pct=42.4),
+            ]
+        )
+        assert ">+30%<" in w.trades[0]
         assert ">+100%<" in w.trades[1]
         # 99.5 rounds up to 100; 42.4 rounds down to 42 -- standard
         # banker's-rounding-adjacent ``{:.0f}`` behaviour, which is
@@ -1045,7 +1139,7 @@ class TestAddTrades:
         # convention is uncontroversial for the values that show up
         # in practice. The minus sign is U+2212.
         assert ">\u2212100%<" in w.trades[2]
-        assert ">+42%<"  in w.trades[3]
+        assert ">+42%<" in w.trades[3]
 
     def test_table_has_no_logo_cell(self, stub_logo_lookup):
         # Logos were removed from the trades table -- the ticker
@@ -1055,9 +1149,11 @@ class TestAddTrades:
         # didn't already convey. Both the rendered ``<tr>`` and
         # the surrounding ``<table>`` chrome must be logo-free.
         w = Webpage()
-        w.add_trades([
-            _trade_event(ticker="NMS:NVDA", name="NVIDIA Corporation"),
-        ])
+        w.add_trades(
+            [
+                _trade_event(ticker="NMS:NVDA", name="NVIDIA Corporation"),
+            ]
+        )
         row = w.trades[0]
         assert "trade__logo" not in row
         assert "trades__cell--logo" not in row
@@ -1070,11 +1166,13 @@ class TestAddTrades:
         # bloat the cell width for no information gain. Both the
         # visible cell text and the case-folded sort key must drop it.
         w = Webpage()
-        w.add_trades([
-            _trade_event(ticker="NMS:NVDA", name="NVIDIA Corporation"),
-        ])
+        w.add_trades(
+            [
+                _trade_event(ticker="NMS:NVDA", name="NVIDIA Corporation"),
+            ]
+        )
         row = w.trades[0]
-        assert '>NVDA<' in row
+        assert ">NVDA<" in row
         # Ticker column should not surface the exchange anywhere on
         # the row -- the prefix is stripped before the cell text is
         # rendered.
@@ -1088,7 +1186,8 @@ class TestAddTrades:
         assert "NVIDIA Corporation" in row
 
     def test_row_carries_sort_keys_for_all_sortable_columns(
-        self, stub_logo_lookup,
+        self,
+        stub_logo_lookup,
     ):
         # The five sortable columns (ticker / name / action / detail /
         # date) are wired up via ``data-sort-*`` attributes the inline
@@ -1102,15 +1201,18 @@ class TestAddTrades:
         # DECREASE=2, CLOSE=3) so ascending walks through the
         # position's lifecycle.
         w = Webpage()
-        w.add_trades([
-            _trade_event(
-                ticker="NMS:NVDA", name="NVIDIA Corporation",
-                category="INCREASE",
-                start=datetime(2024, 5, 22),
-                end=datetime(2024, 6, 11),
-                delta_pct=30.0,
-            ),
-        ])
+        w.add_trades(
+            [
+                _trade_event(
+                    ticker="NMS:NVDA",
+                    name="NVIDIA Corporation",
+                    category="INCREASE",
+                    start=datetime(2024, 5, 22),
+                    end=datetime(2024, 6, 11),
+                    delta_pct=30.0,
+                ),
+            ]
+        )
         row = w.trades[0]
         # Date key reflects the burst's most recent event in ISO form.
         assert 'data-sort-date="2024-06-11"' in row
@@ -1131,12 +1233,14 @@ class TestAddTrades:
         # above Sold rows with a single numeric compare in the
         # inline sort script.
         w = Webpage()
-        w.add_trades([
-            _trade_event(category="OPEN"),
-            _trade_event(category="INCREASE", delta_pct=10.0),
-            _trade_event(category="DECREASE", delta_pct=10.0),
-            _trade_event(category="CLOSE"),
-        ])
+        w.add_trades(
+            [
+                _trade_event(category="OPEN"),
+                _trade_event(category="INCREASE", delta_pct=10.0),
+                _trade_event(category="DECREASE", delta_pct=10.0),
+                _trade_event(category="CLOSE"),
+            ]
+        )
         assert 'data-sort-action="0"' in w.trades[0]
         assert 'data-sort-action="0"' in w.trades[1]
         assert 'data-sort-action="1"' in w.trades[2]
@@ -1152,11 +1256,13 @@ class TestAddTrades:
         # asserting the gate explicitly keeps a regression from
         # quietly re-introducing the issue.
         from investing.assets import _TRADES_SORT_SCRIPT
+
         assert "DOMContentLoaded" in _TRADES_SORT_SCRIPT
-        assert "document.readyState===\'loading\'" in _TRADES_SORT_SCRIPT
+        assert "document.readyState==='loading'" in _TRADES_SORT_SCRIPT
 
     def test_short_log_does_not_render_show_all_toggle(
-        self, stub_logo_lookup,
+        self,
+        stub_logo_lookup,
     ):
         # When the trade log already fits in the default visible
         # window (``_TRADES_VISIBLE_DEFAULT``) there's nothing to
@@ -1165,12 +1271,10 @@ class TestAddTrades:
         # user. The threshold lives on the ``Webpage`` class so this
         # test reads it rather than hard-coding 10.
         from investing.webpage import Webpage as _Webpage
+
         threshold = _Webpage._TRADES_VISIBLE_DEFAULT
         w = Webpage()
-        w.add_trades([
-            _trade_event(start=datetime(2025, 1, i + 1))
-            for i in range(threshold)
-        ])
+        w.add_trades([_trade_event(start=datetime(2025, 1, i + 1)) for i in range(threshold)])
         w.add_return(_total_return(), [])
         # Build the table HTML directly so we exercise the toggle
         # decision without having to call ``save()``.
@@ -1181,7 +1285,8 @@ class TestAddTrades:
         # part of the contract this test enforces.
 
     def test_long_log_renders_show_all_toggle_with_total_count(
-        self, stub_logo_lookup,
+        self,
+        stub_logo_lookup,
     ):
         # Once the log exceeds the threshold the renderer emits a
         # ``<button class="trades__toggle">`` after the table whose
@@ -1192,12 +1297,10 @@ class TestAddTrades:
         # the collapsed state without the JS having to "fix it up"
         # post-DOMContentLoaded.
         from investing.webpage import Webpage as _Webpage
+
         threshold = _Webpage._TRADES_VISIBLE_DEFAULT
         w = Webpage()
-        w.add_trades([
-            _trade_event(start=datetime(2025, 1, i + 1))
-            for i in range(threshold + 5)
-        ])
+        w.add_trades([_trade_event(start=datetime(2025, 1, i + 1)) for i in range(threshold + 5)])
         table_html = _Webpage._build_trades_table(w.trades)
         total = threshold + 5
         assert 'class="trades__toggle"' in table_html
@@ -1223,14 +1326,18 @@ class TestAddTrades:
         # is present so a future refactor can't quietly drop it.
         from investing.assets import _PAGE_STYLES
         from investing.webpage import Webpage as _Webpage
+        from tests._css_helpers import contains_selector
+
         threshold = _Webpage._TRADES_VISIBLE_DEFAULT
         # Threshold + 1 is the first row hidden, which matches the
         # ``:nth-of-type(n+11)`` index in the stylesheet rule.
+        # ``contains_selector`` normalises whitespace so the assertion
+        # works against both formatted and minified CSS.
         rule = (
             f'.trades:not([data-expanded="true"]) tbody '
-            f'tr.trades__row:nth-of-type(n+{threshold + 1})'
+            f"tr.trades__row:nth-of-type(n+{threshold + 1})"
         )
-        assert rule in _PAGE_STYLES
+        assert contains_selector(_PAGE_STYLES, rule)
 
     def test_toggle_script_flips_state_and_relabels_button(self):
         # The toggle handler is folded into ``_TRADES_SORT_SCRIPT``
@@ -1243,6 +1350,7 @@ class TestAddTrades:
         # browser-level smoke test in /tmp/check_sort.py exercises
         # the full state machine end-to-end.
         from investing.assets import _TRADES_SORT_SCRIPT
+
         for needle in (
             ".trades__toggle",
             "data-expanded",
@@ -1257,24 +1365,32 @@ class TestAddTrades:
         # we still escape so an "&" or "<" in a security name can't
         # break the rendered HTML.
         w = Webpage()
-        w.add_trades([
-            _trade_event(name="S&P Global Inc."),
-        ])
+        w.add_trades(
+            [
+                _trade_event(name="S&P Global Inc."),
+            ]
+        )
         row = w.trades[0]
         assert "S&amp;P Global Inc." in row
         # No raw ``&P`` leaks.
         assert "S&P Global" not in row
+
+
 class TestSaveTradesSection:
     def test_save_emits_trades_section_when_present(
-        self, stub_logo_lookup, chdir_tmp, freeze_today,
+        self,
+        stub_logo_lookup,
+        chdir_tmp,
+        freeze_today,
     ):
         freeze_today(datetime(2025, 6, 1))
         w = Webpage()
         w.add_return(_total_return(), [])
-        w.add_trades([
-            _trade_event(ticker="NMS:AAA", category="OPEN",
-                         start=datetime(2024, 1, 1)),
-        ])
+        w.add_trades(
+            [
+                _trade_event(ticker="NMS:AAA", category="OPEN", start=datetime(2024, 1, 1)),
+            ]
+        )
         w.save()
         out = (chdir_tmp / "index.html").read_text()
         # Section anchor + heading + methodology subtitle are present.
@@ -1320,7 +1436,10 @@ class TestSaveTradesSection:
         assert 'data-sort-key="price"' not in out
 
     def test_save_skips_trades_section_when_empty(
-        self, stub_logo_lookup, chdir_tmp, freeze_today,
+        self,
+        stub_logo_lookup,
+        chdir_tmp,
+        freeze_today,
     ):
         freeze_today(datetime(2025, 6, 1))
         w = Webpage()
@@ -1341,7 +1460,10 @@ class TestSaveTradesSection:
         assert 'class="trades__row"' not in out
 
     def test_save_trades_after_historical_section(
-        self, stub_logo_lookup, chdir_tmp, freeze_today,
+        self,
+        stub_logo_lookup,
+        chdir_tmp,
+        freeze_today,
     ):
         # When the page carries both the historical holdings section
         # and the trades section, trades appears last so the page
@@ -1349,21 +1471,28 @@ class TestSaveTradesSection:
         freeze_today(datetime(2025, 6, 1))
         w = Webpage()
         w.add_return(_total_return(), [])
-        w.add_holding(_holding(
-            ticker="NMS:OLD",
-            is_current=False, weight=None,
-            periods=[{"start": datetime(2022, 1, 1),
-                      "end": datetime(2023, 1, 1)}],
-        ))
+        w.add_holding(
+            _holding(
+                ticker="NMS:OLD",
+                is_current=False,
+                weight=None,
+                periods=[{"start": datetime(2022, 1, 1), "end": datetime(2023, 1, 1)}],
+            )
+        )
         w.add_trades([_trade_event(start=datetime(2024, 1, 1))])
         w.save()
         out = (chdir_tmp / "index.html").read_text()
         idx_hist = out.index('id="historical"')
         idx_trades = out.index('id="trades"')
         assert idx_hist < idx_trades
+
+
 class TestHoldingsSortControl:
     def test_current_section_renders_full_sort_button_set(
-        self, stub_logo_lookup, chdir_tmp, freeze_today,
+        self,
+        stub_logo_lookup,
+        chdir_tmp,
+        freeze_today,
     ):
         # The current-holdings toolbar exposes the full set
         # (Default / Ticker / Name / TSR / CAGR / Weight) since
@@ -1388,23 +1517,26 @@ class TestHoldingsSortControl:
             assert f'data-holdings-sort-key="{key}"' in out
         # Default is pre-pressed; the others start inert.
         assert (
-            'data-holdings-sort-key="default" '
-            'data-holdings-sort-kind="default" '
-            'aria-pressed="true"'
+            'data-holdings-sort-key="default" data-holdings-sort-kind="default" aria-pressed="true"'
         ) in out
 
     def test_historical_section_omits_weight_button(
-        self, stub_logo_lookup, chdir_tmp, freeze_today,
+        self,
+        stub_logo_lookup,
+        chdir_tmp,
+        freeze_today,
     ):
         freeze_today(datetime(2025, 6, 1))
         w = Webpage()
         w.add_return(_total_return(), [])
-        w.add_holding(_holding(
-            ticker="NMS:OLD",
-            is_current=False, weight=None,
-            periods=[{"start": datetime(2022, 1, 1),
-                      "end": datetime(2023, 1, 1)}],
-        ))
+        w.add_holding(
+            _holding(
+                ticker="NMS:OLD",
+                is_current=False,
+                weight=None,
+                periods=[{"start": datetime(2022, 1, 1), "end": datetime(2023, 1, 1)}],
+            )
+        )
         w.save()
 
         out = (chdir_tmp / "index.html").read_text()
@@ -1412,14 +1544,17 @@ class TestHoldingsSortControl:
         # *that*; the current section may also render a Weight
         # button which is not what this test guards.
         hist_idx = out.index('data-holdings-sort="historical"')
-        hist_end = out.index('</div>', hist_idx)
+        hist_end = out.index("</div>", hist_idx)
         hist_toolbar = out[hist_idx:hist_end]
         for key in ("default", "ticker", "name", "tsr", "cagr"):
             assert f'data-holdings-sort-key="{key}"' in hist_toolbar
         assert 'data-holdings-sort-key="weight"' not in hist_toolbar
 
     def test_each_section_wraps_cards_in_holdings_list(
-        self, stub_logo_lookup, chdir_tmp, freeze_today,
+        self,
+        stub_logo_lookup,
+        chdir_tmp,
+        freeze_today,
     ):
         # The script pairs each toolbar with its sibling list via
         # the matching ``data-holdings-list`` value, so the two
@@ -1431,12 +1566,14 @@ class TestHoldingsSortControl:
         w = Webpage()
         w.add_return(_total_return(), [])
         w.add_holding(_holding(ticker="NMS:CURR"))
-        w.add_holding(_holding(
-            ticker="NMS:OLD",
-            is_current=False, weight=None,
-            periods=[{"start": datetime(2022, 1, 1),
-                      "end": datetime(2023, 1, 1)}],
-        ))
+        w.add_holding(
+            _holding(
+                ticker="NMS:OLD",
+                is_current=False,
+                weight=None,
+                periods=[{"start": datetime(2022, 1, 1), "end": datetime(2023, 1, 1)}],
+            )
+        )
         w.save()
 
         out = (chdir_tmp / "index.html").read_text()
@@ -1445,17 +1582,16 @@ class TestHoldingsSortControl:
         # The toolbar always sits *above* its list on the page so
         # the script's "next sibling" pairing model works without
         # extra wiring.
-        assert (
-            out.index('data-holdings-sort="current"')
-            < out.index('data-holdings-list="current"')
-        )
-        assert (
-            out.index('data-holdings-sort="historical"')
-            < out.index('data-holdings-list="historical"')
+        assert out.index('data-holdings-sort="current"') < out.index('data-holdings-list="current"')
+        assert out.index('data-holdings-sort="historical"') < out.index(
+            'data-holdings-list="historical"'
         )
 
     def test_sort_script_is_embedded_in_head(
-        self, stub_logo_lookup, chdir_tmp, freeze_today,
+        self,
+        stub_logo_lookup,
+        chdir_tmp,
+        freeze_today,
     ):
         # The inline sort script ships in <head> so the toolbar is
         # interactive on the first paint; the script itself defers
@@ -1482,7 +1618,10 @@ class TestHoldingsSortControl:
         assert head.count("'sha256-") >= 6  # JSON-LD + 5 IIFEs
 
     def test_default_button_lacks_indicator_triangle(
-        self, stub_logo_lookup, chdir_tmp, freeze_today,
+        self,
+        stub_logo_lookup,
+        chdir_tmp,
+        freeze_today,
     ):
         # Only the directional buttons carry the
         # ``.holdings__sort-indicator`` triangle; the Default
@@ -1500,7 +1639,7 @@ class TestHoldingsSortControl:
         # ``<button`` and its closing ``</button>`` and assert
         # the indicator span is absent from that span only.
         default_open = out.index('data-holdings-sort-key="default"')
-        button_start = out.rfind('<button', 0, default_open)
-        button_end = out.index('</button>', default_open)
+        button_start = out.rfind("<button", 0, default_open)
+        button_end = out.index("</button>", default_open)
         default_button = out[button_start:button_end]
         assert "holdings__sort-indicator" not in default_button

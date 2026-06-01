@@ -11,6 +11,7 @@ Entrypoints:
     * ``python -m investing`` -- launch :func:`main` through the
       leak-safe wrapper (:mod:`investing.__main__`)
 """
+
 from __future__ import annotations
 
 from .cli import main

@@ -1,10 +1,12 @@
 version: 2
 updates:
-  # Python production dependencies tracked via the pip-tools generated
-  # ``requirements.txt`` lockfile. The companion ``requirements.in`` is
-  # the human-edited source of truth, so Dependabot's PRs against the
-  # lock provide the reproducibility signal we want without colliding
-  # with the unpinned ``.in`` source.
+  # Python dependencies tracked via the pip-compile generated
+  # ``requirements.txt`` / ``requirements-dev.txt`` lockfiles. The
+  # source of truth for direct deps now lives in ``pyproject.toml``
+  # (``[project.dependencies]`` + ``[project.optional-dependencies.dev]``)
+  # so the lock is a pure transitive snapshot. Dependabot's PRs against
+  # the lock provide the reproducibility signal we want without
+  # colliding with the human-edited pyproject.
   - package-ecosystem: "pip"
     directory: "/"
     schedule:

@@ -1,4 +1,5 @@
 """Pure string helpers used by the renderer for in-page anchors / links."""
+
 from __future__ import annotations
 
 import re

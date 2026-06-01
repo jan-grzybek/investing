@@ -38,7 +38,8 @@ with `--check` to fail the build on drift.
 
 ## Development workflow
 
-1. Install editable dev deps: `pip install -r requirements-dev.txt`
+1. Install the package in editable mode with dev deps:
+   `pip install -e '.[dev]'`
 2. Install pre-commit hooks: `pre-commit install`
 3. Run the suite: `pytest`
 4. Render synthetic preview locally: `python scripts/preview.py --out preview/`
@@ -49,10 +50,26 @@ uses 3.13.
 
 ## Dependencies
 
-`requirements.in` is the human-edited source of truth. The pinned
-lockfile `requirements.txt` is regenerated with
-`pip-compile requirements.in`. Dependabot opens weekly PRs against the
-lockfile so version bumps land as reviewable diffs.
+The single source of truth for direct dependencies is
+[`pyproject.toml`](pyproject.toml) (`[project.dependencies]` for the
+runtime set, `[project.optional-dependencies.dev]` for the dev set).
+The pinned lockfiles are regenerated from it:
+
+```
+pip-compile --strip-extras pyproject.toml --output-file=requirements.txt
+pip-compile --strip-extras --extra=dev pyproject.toml --output-file=requirements-dev.txt
+```
+
+Dependabot opens weekly PRs against the lockfiles so transitive bumps
+land as reviewable diffs.
+
+## Pre-commit hooks
+
+`ruff` and `mypy` run as `language: system` so they use whichever
+versions are installed in the active virtualenv. Always install the
+dev set (step 1 above) before running `pre-commit install`, otherwise
+the hooks won't find the binaries. CI runs the same `ruff` / `mypy`
+the lockfile pins, so a successful pre-commit pass matches CI exactly.
 
 ## Commits
 

@@ -1,6 +1,7 @@
 """Format helpers used by both the data pipeline and the
 page renderer (dates, percentages, durations, hashes).
 """
+
 from __future__ import annotations
 
 import base64
@@ -29,8 +30,6 @@ def _ts_to_datetime(ts) -> datetime:
     return datetime.fromisoformat(iso_date)
 
 
-
-
 # ---------------------------------------------------------------------------
 # Date / formatting helpers (used by the renderer)
 # ---------------------------------------------------------------------------
@@ -49,8 +48,6 @@ def _fmt_date(dt) -> str:
     return dt.strftime("%d/%m/%Y")
 
 
-
-
 def _fmt_date_long(dt) -> str:
     # Long-form ``Mon D, YYYY`` (e.g. "Mar 7, 2026") used for the
     # one-off "Since ..." caption that sits under the return chart
@@ -64,8 +61,6 @@ def _fmt_date_long(dt) -> str:
     return dt.strftime("%b %-d, %Y")
 
 
-
-
 def _quarter_of(dt) -> tuple[int, int]:
     """``(year, quarter_index)`` for a date.
 
@@ -75,8 +70,6 @@ def _quarter_of(dt) -> tuple[int, int]:
     into a calendar-quarter label.
     """
     return (dt.year, (dt.month - 1) // 3 + 1)
-
-
 
 
 def _fmt_quarter_range(start, end) -> str:
@@ -113,10 +106,7 @@ def _fmt_quarter_range(start, end) -> str:
     end_y, end_q = _quarter_of(end)
     start_month_iso = f"{start_y}-{(start_q - 1) * 3 + 1:02d}"
     if (start_y, start_q) == (end_y, end_q):
-        return (
-            f'<time datetime="{start_month_iso}">'
-            f'Q{start_q} {start_y}</time>'
-        )
+        return f'<time datetime="{start_month_iso}">Q{start_q} {start_y}</time>'
     if start_y == end_y:
         # Single-element ``<time>`` for same-year multi-quarter
         # spans: the slash-joined label ("Q3/Q4 2026") reads as a
@@ -124,26 +114,19 @@ def _fmt_quarter_range(start, end) -> str:
         # splitting it across two ``<time>`` elements would over-
         # commit to a machine-readable structure the page doesn't
         # need.
-        return (
-            f'<time datetime="{start_month_iso}">'
-            f'Q{start_q}/Q{end_q} {start_y}</time>'
-        )
+        return f'<time datetime="{start_month_iso}">Q{start_q}/Q{end_q} {start_y}</time>'
     end_month_iso = f"{end_y}-{(end_q - 1) * 3 + 1:02d}"
     return (
         f'<time datetime="{start_month_iso}">'
-        f'Q{start_q} {start_y}</time>'
+        f"Q{start_q} {start_y}</time>"
         '<span class="trades__date-sep"> - </span>'
         f'<time datetime="{end_month_iso}">'
-        f'Q{end_q} {end_y}</time>'
+        f"Q{end_q} {end_y}</time>"
     )
-
-
 
 
 def _pluralize(count: int, singular: str) -> str:
     return f"1 {singular}" if count == 1 else f"{count} {singular}s"
-
-
 
 
 def _format_duration(delta: relativedelta) -> str:
@@ -160,13 +143,9 @@ def _format_duration(delta: relativedelta) -> str:
     return ", ".join(parts)
 
 
-
-
 def _value_class(value: float) -> str:
     """CSS modifier reflecting the sign of a TSR/CAGR/TWR percentage."""
     return "value--negative" if value < 0 else "value--positive"
-
-
 
 
 def _format_sort_number(value: float) -> str:
@@ -180,8 +159,6 @@ def _format_sort_number(value: float) -> str:
     the rendered HTML stays diff-stable regardless of whether
     the upstream computation emitted an int or a float."""
     return format(float(value), ".4f")
-
-
 
 
 def _fmt_pct(value: float, *, signed: bool = False) -> str:
@@ -210,8 +187,6 @@ def _fmt_pct(value: float, *, signed: bool = False) -> str:
     return format(value, f"{sign_spec}.1f")
 
 
-
-
 def _sha256_b64(payload: str) -> str:
     """Base64 SHA-256 digest in the form CSP expects for hash sources.
 
@@ -219,6 +194,4 @@ def _sha256_b64(payload: str) -> str:
     (verbatim, without surrounding ``<script>``/``<style>`` tags) and
     require it to match a ``'sha256-<b64>'`` entry in the matching
     directive of the page's Content-Security-Policy."""
-    return base64.b64encode(
-        hashlib.sha256(payload.encode("utf-8")).digest()
-    ).decode("ascii")
+    return base64.b64encode(hashlib.sha256(payload.encode("utf-8")).digest()).decode("ascii")

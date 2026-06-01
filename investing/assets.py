@@ -3,6 +3,7 @@
 lives in real ``.css`` / ``.js`` files that editors can
 lint and format.
 """
+
 from __future__ import annotations
 
 from .paths import _read_asset
@@ -15,8 +16,6 @@ from .paths import _read_asset
 # Embedded styles. Kept verbatim as a single string so ``save()`` stays
 # linear and the dark-mode / print rules are easy to audit.
 _PAGE_STYLES = _read_asset("page.css").strip()
-
-
 
 
 # Tiny inline script that strips the URL hash the moment the user
@@ -41,8 +40,6 @@ _PAGE_STYLES = _read_asset("page.css").strip()
 # Kept as a tight ES5-flavoured IIFE so the inline payload stays
 # small and gets a single stable SHA-256 hash (pinned in CSP).
 _HASH_CLEAR_SCRIPT = _read_asset("hash_clear.js")
-
-
 
 
 # Custom smooth-scroll for in-page anchor links. Native CSS
@@ -105,8 +102,6 @@ _HASH_CLEAR_SCRIPT = _read_asset("hash_clear.js")
 _NAV_SCROLL_SCRIPT = _read_asset("nav_scroll.js")
 
 
-
-
 # Pointer-driven scrubber for the return chart. A finger or cursor
 # dragged across the plot reveals the date and per-series total
 # return at that x-coordinate via a vertical guide line, a marker
@@ -138,8 +133,6 @@ _NAV_SCROLL_SCRIPT = _read_asset("nav_scroll.js")
 # Kept as a tight ES5-flavoured IIFE so the inline payload stays
 # small and gets a single stable SHA-256 hash (pinned in CSP).
 _RETURN_CHART_SCRIPT = _read_asset("return_chart.js")
-
-
 
 
 # Click-to-sort behaviour for the "Trades" table.
@@ -195,8 +188,6 @@ _RETURN_CHART_SCRIPT = _read_asset("return_chart.js")
 # Kept as a tight ES5-flavoured IIFE so the inline payload stays
 # small and gets a single stable SHA-256 hash (pinned in CSP).
 _TRADES_SORT_SCRIPT = _read_asset("trades_sort.js")
-
-
 
 
 # Click-to-sort behaviour for the "Current holdings" / "Historical

@@ -10,6 +10,7 @@ The classes carry no message-side payload beyond a hand-written
 description, so the wrapper's "drop ``str(exc)``" policy does not
 suppress diagnostic context that ``__qualname__`` already conveys.
 """
+
 from __future__ import annotations
 
 

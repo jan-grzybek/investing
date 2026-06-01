@@ -8,6 +8,7 @@ internal state through the instance; the self-contained helpers
 (anchors, sitemap/robots, logo cache) live next to it in the
 ``investing.webpage`` package.
 """
+
 from __future__ import annotations
 
 import html
@@ -24,6 +25,8 @@ from ..formatting import (
 )
 from ..logos import LogoCache
 from ..paths import COURAGE_LOGO
+from ..paths import SITE_URL as _SITE_URL
+from ..paths import SOCIAL_IMAGE as _SOCIAL_IMAGE
 from ..performance import _BENCHMARK_DISPLAY_NAMES
 from ..trades import _TRADE_DETAIL_LABELS
 from . import bars as _bars
@@ -77,11 +80,13 @@ class Webpage:
 
     def add_holding(self, holding):
         if holding["is_current"]:
-            self._current_logos.append((
-                holding["ticker"],
-                holding["name"],
-                self._get_logo_url(holding["ticker"]),
-            ))
+            self._current_logos.append(
+                (
+                    holding["ticker"],
+                    holding["name"],
+                    self._get_logo_url(holding["ticker"]),
+                )
+            )
         card = self._build_holding_card(holding)
         bucket = self.current if holding["is_current"] else self.historical
         bucket.append(card)
@@ -99,9 +104,7 @@ class Webpage:
         ``<tr>`` fragments so the page assembly in ``save()`` stays
         linear; ``_build_trades_table`` wraps them with the matching
         ``<thead>`` and sortable column headers."""
-        self.trades = [
-            self._build_trade_row(event) for event in trade_events
-        ]
+        self.trades = [self._build_trade_row(event) for event in trade_events]
 
     def save(self):
         now = self._now()
@@ -118,15 +121,13 @@ class Webpage:
         # the page still renders, just without a fresh social preview.
         self._render_og_image()
         parts: list[str] = []
-        parts.append('<!DOCTYPE html>')
+        parts.append("<!DOCTYPE html>")
         parts.append('<html lang="en">')
         parts.append(self._head())
-        parts.append('<body>')
+        parts.append("<body>")
         # Skip link: visually hidden until focused, lets keyboard users
         # bypass the sticky nav and jump straight to <main>.
-        parts.append(
-            '<a class="skip-link" href="#main-content">Skip to content</a>'
-        )
+        parts.append('<a class="skip-link" href="#main-content">Skip to content</a>')
         parts.append(self._build_site_header())
         parts.append('<main id="main-content" tabindex="-1">')
 
@@ -136,8 +137,8 @@ class Webpage:
 
         parts.append('<section id="performance" class="section section--return">')
         parts.append('<h2 class="section__title">All-time performance</h2>')
-        parts.append(self.return_html or '<p>No data yet.</p>')
-        parts.append('</section>')
+        parts.append(self.return_html or "<p>No data yet.</p>")
+        parts.append("</section>")
 
         if self.current:
             parts.append('<section id="current" class="section section--current">')
@@ -149,14 +150,14 @@ class Webpage:
                 # (where the per-ticker breakdown + individual
                 # capsules live). The cash row has no dedicated
                 # section to point at and stays a plain bar.
-                parts.append(self._render_bars(
-                    list(self.allocation_pct.items()),
-                    "allocation",
-                    anchors={"Equities": "equities"},
-                ))
-            parts.append(
-                '<h3 id="equities" class="section__subtitle">Equities</h3>'
-            )
+                parts.append(
+                    self._render_bars(
+                        list(self.allocation_pct.items()),
+                        "allocation",
+                        anchors={"Equities": "equities"},
+                    )
+                )
+            parts.append('<h3 id="equities" class="section__subtitle">Equities</h3>')
             if self.top_10:
                 # Each ticker bar in the top-10 chart jumps to the
                 # matching holding capsule. The synthetic "Other
@@ -167,36 +168,38 @@ class Webpage:
                     for ticker in self.top_10
                     if ticker not in self._NON_TICKER_TOP10_KEYS
                 }
-                parts.append(self._render_bars(
-                    list(self.top_10.items()),
-                    "equities",
-                    scale_to_max=True,
-                    anchors=equity_anchors,
-                ))
-            parts.append(self._build_holdings_sort_control(
-                scope="current",
-                include_weight=True,
-            ))
+                parts.append(
+                    self._render_bars(
+                        list(self.top_10.items()),
+                        "equities",
+                        scale_to_max=True,
+                        anchors=equity_anchors,
+                    )
+                )
             parts.append(
-                '<div class="holdings__list" data-holdings-list="current">'
+                self._build_holdings_sort_control(
+                    scope="current",
+                    include_weight=True,
+                )
             )
-            parts.append('\n'.join(self.current))
-            parts.append('</div>')
-            parts.append('</section>')
+            parts.append('<div class="holdings__list" data-holdings-list="current">')
+            parts.append("\n".join(self.current))
+            parts.append("</div>")
+            parts.append("</section>")
 
         if self.historical:
             parts.append('<section id="historical" class="section section--historical">')
             parts.append('<h2 class="section__title">Historical holdings</h2>')
-            parts.append(self._build_holdings_sort_control(
-                scope="historical",
-                include_weight=False,
-            ))
             parts.append(
-                '<div class="holdings__list" data-holdings-list="historical">'
+                self._build_holdings_sort_control(
+                    scope="historical",
+                    include_weight=False,
+                )
             )
-            parts.append('\n'.join(self.historical))
-            parts.append('</div>')
-            parts.append('</section>')
+            parts.append('<div class="holdings__list" data-holdings-list="historical">')
+            parts.append("\n".join(self.historical))
+            parts.append("</div>")
+            parts.append("</section>")
 
         if self.trades:
             parts.append('<section id="trades" class="section section--trades">')
@@ -214,24 +217,24 @@ class Webpage:
             # 90-day numerical ``TRADE_WINDOW_DAYS`` constant.
             parts.append(
                 '<p class="section__intro">'
-                'Every executed trade since inception. Fills within a '
-                'rolling quarter are combined into a single entry at '
-                'their volume-weighted average per-share price.'
-                '</p>'
+                "Every executed trade since inception. Fills within a "
+                "rolling quarter are combined into a single entry at "
+                "their volume-weighted average per-share price."
+                "</p>"
             )
             parts.append(self._build_trades_table(self.trades))
-            parts.append('</section>')
+            parts.append("</section>")
 
-        parts.append('</main>')
+        parts.append("</main>")
         parts.append(self._footer(update_date, update_iso))
         parts.append(
             "<!-- Cloudflare Web Analytics -->"
             "<script defer src='https://static.cloudflareinsights.com/beacon.min.js' "
-            "data-cf-beacon='{\"token\": \"8f450af27c86439fb0e9ab0031c76d6e\"}'></script>"
+            'data-cf-beacon=\'{"token": "8f450af27c86439fb0e9ab0031c76d6e"}\'></script>'
             "<!-- End Cloudflare Web Analytics -->"
         )
-        parts.append('</body>')
-        parts.append('</html>')
+        parts.append("</body>")
+        parts.append("</html>")
 
         with open("index.html", "w") as f:
             f.write("\n".join(parts))
@@ -247,7 +250,11 @@ class Webpage:
     # Used in <title>, OG/Twitter title, and JSON-LD. Keep it short so
     # search engines render it without truncation in SERPs (~60 chars).
     SEO_TITLE = "Jan Grzybek - Investment Portfolio"
-    SITE_URL = "https://jan-grzybek.github.io/investing/"
+    # Sourced from :mod:`investing.paths`, where the canonical value
+    # is env-overridable (``INVESTING_SITE_URL``) so a fork or staging
+    # build can repoint the canonical / sitemap / OG URLs in one place
+    # without patching the source.
+    SITE_URL = _SITE_URL
     # ~155 chars: long enough to surface keywords, short enough that
     # search engines won't truncate the snippet on result pages.
     SITE_DESCRIPTION = (
@@ -258,7 +265,7 @@ class Webpage:
     # The OG image is regenerated on every ``save()`` with the latest
     # numbers baked in. Cache-busting on the social-platform side
     # happens via the ``og:updated_time`` header below.
-    SOCIAL_IMAGE = "https://jan-grzybek.github.io/investing/og-image.png"
+    SOCIAL_IMAGE = _SOCIAL_IMAGE
     _NAV_ITEMS: tuple[tuple[str, str, str], ...] = (
         ("performance", "Performance", "return_html"),
         ("current", "Current", "current"),
@@ -274,13 +281,14 @@ class Webpage:
                 links.append(f'<a href="#{anchor}">{html.escape(label)}</a>')
         nav_html = (
             f'<nav class="site-nav" aria-label="Page sections">{"".join(links)}</nav>'
-            if len(links) > 1 else ""
+            if len(links) > 1
+            else ""
         )
         return (
             '<header class="site-header">'
             f'<h1 class="site-title">{html.escape(self.SITE_TITLE)}</h1>'
-            f'{nav_html}'
-            '</header>'
+            f"{nav_html}"
+            "</header>"
         )
 
     def _build_ticker(self) -> str:
@@ -320,13 +328,13 @@ class Webpage:
             f'<img class="ticker__logo" src="{html.escape(url)}" alt="" '
             f'title="{html.escape(f"{ticker} - {name}")}" '
             f'decoding="async" width="56" height="28">'
-            f'</a>'
+            f"</a>"
             for ticker, name, url in self._current_logos
         )
         return (
             '<div class="ticker" aria-hidden="true">'
             f'<div class="ticker__track">{items}{items}</div>'
-            '</div>'
+            "</div>"
         )
 
     @classmethod
@@ -389,12 +397,21 @@ class Webpage:
         return _og_image.top_holdings_for_og(self.top_10, limit=limit)
 
     def _draw_top_holdings_strip(
-        self, canvas, *, x: int, y: int, w: int, h: int,
+        self,
+        canvas,
+        *,
+        x: int,
+        y: int,
+        w: int,
+        h: int,
     ) -> None:
         _og_image.draw_top_holdings_strip(
             canvas,
             _og_image.top_holdings_for_og(self.top_10, limit=10),
-            x=x, y=y, w=w, h=h,
+            x=x,
+            y=y,
+            w=w,
+            h=h,
         )
 
     def _render_og_image(self) -> None:
@@ -445,48 +462,50 @@ class Webpage:
         # outline stays linear -- ``<footer>`` is its own landmark
         # at the same depth as a top-level section.
         return (
-            '<footer>\n'
+            "<footer>\n"
             '<h2 class="footer__title">Methodology</h2>\n'
             '<ul class="footer__notes">\n'
-            '<li>All performance metrics on this page were calculated using '
-            'USD as the base currency.</li>\n'
-            '<li>Per-holding <strong>Return</strong> and '
-            '<strong>IRR</strong> are money-weighted figures: they '
-            'reflect the actual journey of capital in the position, so '
-            'the size and timing of every purchase and sale shape the '
-            'result \u2014 the more dollars committed when the position '
-            'moved, the more weight that move carries. '
-            '<strong>Return</strong> is the cumulative profit per dollar '
-            'invested over the holding period; <strong>IRR</strong> is '
-            'its annualised equivalent. Dividends are treated as cash '
-            '(not reinvested) and reduced by an assumed 15% withholding '
-            'tax; the impact of capital gains taxes is not '
-            'modelled.</li>\n'
-            '<li>The portfolio-level time-weighted return (TWR) chains '
-            'sub-period returns across portfolio valuation snapshots, '
-            'neutralising the effect of contributions and withdrawals so it '
-            'reads apples-to-apples against the comparison benchmark. It '
-            'was calculated excluding the impact of capital gains taxes, '
-            'but including the effects of withholding taxes and transaction '
-            'costs.</li>\n'
-            '<li>The latest stock prices and dividend data used in the '
-            'calculations were obtained from '
+            "<li>All performance metrics on this page were calculated using "
+            "<strong>USD</strong> as the <strong>base currency</strong>."
+            "</li>\n"
+            "<li>Per-holding <strong>Return</strong> and "
+            "<strong>IRR</strong> are money-weighted figures: they "
+            "reflect the actual journey of capital in the position, so "
+            "the size and timing of every purchase and sale shape the "
+            "result \u2014 the more dollars committed when the position "
+            "moved, the more weight that move carries. "
+            "<strong>Return</strong> is the cumulative profit per dollar "
+            "invested over the holding period; <strong>IRR</strong> is "
+            "its annualised equivalent. Dividends are treated as cash "
+            "(not reinvested) and reduced by an assumed 15% withholding "
+            "tax; the impact of capital gains taxes is not "
+            "modelled.</li>\n"
+            "<li>The portfolio-level <strong>time-weighted return "
+            "(TWR)</strong> chains sub-period returns across portfolio "
+            "valuation snapshots, neutralising the effect of contributions "
+            "and withdrawals so it reads apples-to-apples against the "
+            "comparison benchmark. It was calculated excluding the impact "
+            "of capital gains taxes, but including the effects of "
+            "withholding taxes and transaction costs.</li>\n"
+            "<li>The latest <strong>stock prices and dividend data</strong> "
+            "used in the calculations were obtained from "
             '<a href="https://finance.yahoo.com/markets/stocks/trending/" '
             'title="Yahoo Finance" rel="noopener noreferrer">'
-            'Yahoo Finance</a>.</li>\n'
-            '</ul>\n'
+            "Yahoo Finance</a>.</li>\n"
+            "</ul>\n"
             '<h2 class="footer__title">Disclaimer</h2>\n'
-            '<p class="footer__disclaimer">For informational purposes only. '
-            'Nothing contained herein should be construed as a recommendation '
-            'to buy, sell or hold any security or pursue any investment '
-            'strategy.</p>\n'
+            '<p class="footer__disclaimer">For <strong>informational '
+            "purposes only</strong>. Nothing contained herein should be "
+            "construed as a recommendation to buy, sell or hold any "
+            "security or pursue any investment strategy.</p>\n"
             '<p class="footer__legal">Logos are trademarks of their respective '
-            'owners and are used for identification purposes only. This webpage '
-            'uses Cloudflare Web Analytics to measure anonymous traffic '
-            'statistics. No cookies or tracking identifiers are used.</p>\n'
+            "owners and are used for identification purposes only. This webpage "
+            "uses Cloudflare Web Analytics to measure anonymous traffic "
+            "statistics. <strong>No cookies or tracking identifiers are "
+            "used.</strong></p>\n"
             f'<p class="footer__updated">Updated on '
             f'<time datetime="{update_iso}">{update_date}</time></p>\n'
-            '</footer>'
+            "</footer>"
         )
 
     def _get_logo_url(self, ticker):
@@ -521,9 +540,13 @@ class Webpage:
         chart = self._render_return_chart(total_return, benchmarks)
         if chart:
             lines.append(chart)
-        lines.append(self._build_returns_comparison(
-            total_return, benchmarks, include_period=not chart,
-        ))
+        lines.append(
+            self._build_returns_comparison(
+                total_return,
+                benchmarks,
+                include_period=not chart,
+            )
+        )
         return "\n".join(lines)
 
     def _build_return_intro(self, benchmarks) -> str:
@@ -541,16 +564,17 @@ class Webpage:
         shows."""
         if benchmarks:
             bench = html.escape(self._benchmark_label(benchmarks[0]))
-            body = (
-                f"Cumulative return of the portfolio tracked against "
-                f"the {bench}."
-            )
+            body = f"Cumulative return of the portfolio tracked against the {bench}."
         else:
             body = "Cumulative return of the portfolio."
         return f'<p class="section__intro">{body}</p>'
 
     def _build_returns_comparison(
-        self, total_return, benchmarks, *, include_period: bool,
+        self,
+        total_return,
+        benchmarks,
+        *,
+        include_period: bool,
     ) -> str:
         """Render JG vs benchmark side-by-side with shared metrics.
 
@@ -574,30 +598,34 @@ class Webpage:
             period_html = (
                 '<p class="returns-compare__period">'
                 f'Since <time datetime="{start_date.strftime("%Y-%m-%d")}">'
-                f'{_fmt_date_long(start_date)}</time> &middot; '
-                f'{html.escape(duration)}'
-                '</p>'
+                f"{_fmt_date_long(start_date)}</time> &middot; "
+                f"{html.escape(duration)}"
+                "</p>"
             )
 
-        cols: list[str] = [self._render_compare_col(
-            name="JG",
-            subtitle="Jan Grzybek",
-            logo_url=COURAGE_LOGO,
-            rows=[
-                ("TWR", total_return["twr%"]),
-                ("CAGR", total_return["cagr%"]),
-            ],
-        )]
-        for benchmark in benchmarks or []:
-            cols.append(self._render_compare_col(
-                name=self._benchmark_label(benchmark),
-                subtitle=benchmark.get("ticker") or "",
-                logo_url=self._get_logo_url(benchmark["ticker"]),
+        cols: list[str] = [
+            self._render_compare_col(
+                name="JG",
+                subtitle="Jan Grzybek",
+                logo_url=COURAGE_LOGO,
                 rows=[
-                    ("TSR", benchmark["tsr%"]),
-                    ("CAGR", benchmark["cagr%"]),
+                    ("TWR", total_return["twr%"]),
+                    ("CAGR", total_return["cagr%"]),
                 ],
-            ))
+            )
+        ]
+        for benchmark in benchmarks or []:
+            cols.append(
+                self._render_compare_col(
+                    name=self._benchmark_label(benchmark),
+                    subtitle=benchmark.get("ticker") or "",
+                    logo_url=self._get_logo_url(benchmark["ticker"]),
+                    rows=[
+                        ("TSR", benchmark["tsr%"]),
+                        ("CAGR", benchmark["cagr%"]),
+                    ],
+                )
+            )
 
         delta_html = ""
         if benchmarks:
@@ -619,24 +647,24 @@ class Webpage:
             delta_html = (
                 '<p class="returns-compare__delta">'
                 '<span class="returns-compare__delta-prefix">JG vs '
-                f'{html.escape(self._benchmark_label(b))}:</span>'
+                f"{html.escape(self._benchmark_label(b))}:</span>"
                 f'<span class="returns-compare__delta-metric '
                 f'{_value_class(twr_delta)}">'
-                f'{_fmt_pct(twr_delta, signed=True)} pp Total Return</span>'
+                f"{_fmt_pct(twr_delta, signed=True)} pp Total Return</span>"
                 '<span class="returns-compare__delta-sep" '
                 'aria-hidden="true">&middot;</span>'
                 f'<span class="returns-compare__delta-metric '
                 f'{_value_class(cagr_delta)}">'
-                f'{_fmt_pct(cagr_delta, signed=True)} pp CAGR</span>'
-                '</p>'
+                f"{_fmt_pct(cagr_delta, signed=True)} pp CAGR</span>"
+                "</p>"
             )
 
         return (
             '<section class="returns-compare">'
-            f'{period_html}'
+            f"{period_html}"
             f'<div class="returns-compare__grid">{"".join(cols)}</div>'
-            f'{delta_html}'
-            '</section>'
+            f"{delta_html}"
+            "</section>"
         )
 
     @staticmethod
@@ -644,10 +672,7 @@ class Webpage:
         """Friendly display name for a benchmark, falling back gracefully."""
         ticker = benchmark.get("ticker", "")
         return (
-            _BENCHMARK_DISPLAY_NAMES.get(ticker)
-            or benchmark.get("name")
-            or ticker
-            or "Benchmark"
+            _BENCHMARK_DISPLAY_NAMES.get(ticker) or benchmark.get("name") or ticker or "Benchmark"
         )
 
     @staticmethod
@@ -660,15 +685,12 @@ class Webpage:
             # or whole-number (>=100%, where the decimal is just
             # noise next to a 3-digit integer part).
             stat_html.append(
-                f'<dt>{html.escape(label)}</dt>'
+                f"<dt>{html.escape(label)}</dt>"
                 f'<dd class="{_value_class(value)}">{_fmt_pct(value)}%</dd>'
             )
         sub_html = ""
         if subtitle:
-            sub_html = (
-                f'<small class="returns-compare__name-sub">'
-                f'{html.escape(subtitle)}</small>'
-            )
+            sub_html = f'<small class="returns-compare__name-sub">{html.escape(subtitle)}</small>'
         # ``h3`` keeps the heading tree contiguous: the parent section
         # is at h2, so jumping to h4 here would skip a level (a WCAG
         # and SEO smell).
@@ -678,10 +700,10 @@ class Webpage:
             f'<img class="returns-compare__logo" src="{html.escape(logo_url)}" '
             'alt="" decoding="async" width="48" height="48">'
             f'<span class="returns-compare__name-text">'
-            f'{html.escape(name)}{sub_html}</span>'
-            '</h3>'
+            f"{html.escape(name)}{sub_html}</span>"
+            "</h3>"
             f'<dl class="returns-compare__stats">{"".join(stat_html)}</dl>'
-            '</article>'
+            "</article>"
         )
 
     # The trades-table renderer (row builder, headers, sort indices,
@@ -731,7 +753,8 @@ class Webpage:
 
     def _build_holding_card(self, holding) -> str:
         return _holdings_view.build_holding_card(
-            holding, logo_url_for=self._get_logo_url,
+            holding,
+            logo_url_for=self._get_logo_url,
         )
 
     # ---- chart / bar primitives (also covered directly by tests) -------
@@ -752,10 +775,10 @@ class Webpage:
         used by the test suite.
         """
         return _return_chart.render(
-            total_return, benchmarks, benchmark_label=cls._benchmark_label,
+            total_return,
+            benchmarks,
+            benchmark_label=cls._benchmark_label,
         )
-
-
 
 
 def generate_webpage(total_return, benchmarks, holdings):

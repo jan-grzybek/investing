@@ -1,0 +1,83 @@
+name: Security scans
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly Monday 06:00 UTC sweep catches new CVE advisories that
+    # land for already-pinned versions between dependabot's runs.
+    - cron: "0 6 * * 1"
+  workflow_dispatch: {}
+
+# Least-privilege token: the audit only reads source and reports back
+# via SARIF / the CodeQL upload action's own ``security-events: write``.
+permissions:
+  contents: read
+
+jobs:
+  pip-audit:
+    name: pip-audit (dependency CVE scan)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install pip-audit
+        # ``pip-audit`` is intentionally NOT in the dev lockfile -- it
+        # would inflate every developer's env with a security tool
+        # they only need in CI. The pin here matches the CI surface
+        # we want to lock down.
+        run: pip install "pip-audit>=2.7"
+
+      - name: Audit production lockfile
+        # ``--strict`` exits non-zero on any advisory so a known-bad
+        # dependency fails the build. ``--vulnerability-service osv``
+        # uses the open OSV.dev database (rather than PyPI's own
+        # advisory feed) so we pick up CVEs published outside the
+        # PyPI Security Advisories pipeline.
+        run: pip-audit --strict --requirement requirements.txt --vulnerability-service osv
+
+      - name: Audit dev lockfile
+        # Dev deps don't ship with the build artefact, but a
+        # compromised ruff / mypy / pytest could still execute on a
+        # contributor's machine, so we audit the full surface.
+        run: pip-audit --strict --requirement requirements-dev.txt --vulnerability-service osv
+
+  codeql:
+    name: CodeQL (Python static analysis)
+    runs-on: ubuntu-latest
+    permissions:
+      # CodeQL needs to upload its SARIF result to the GitHub
+      # Security tab; the rest of the workflow stays read-only.
+      security-events: write
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: python
+          # ``security-and-quality`` includes the default ``security``
+          # query set plus maintainability queries (e.g. dead code,
+          # complex conditionals). Cheaper to run than ``security-
+          # extended`` and matches what GitHub's default Code Scanning
+          # setup would enable.
+          queries: security-and-quality
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:python"

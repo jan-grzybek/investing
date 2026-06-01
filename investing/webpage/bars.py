@@ -4,6 +4,7 @@ Both the asset-allocation block ("Equities" / "Cash") and the
 top-N equities row use the same visual shape, so the renderer is
 parameterised on a BEM variant rather than duplicated.
 """
+
 from __future__ import annotations
 
 import html
@@ -44,9 +45,7 @@ def render(
     if not rows:
         return ""
     rows = list(rows)
-    denom = (
-        max((value for _, value in rows), default=0.0) if scale_to_max else 100.0
-    )
+    denom = max((value for _, value in rows), default=0.0) if scale_to_max else 100.0
     if not denom:
         denom = 100.0
 
@@ -70,8 +69,7 @@ def render(
             # the grid layout (``<a>`` is treated as a grid
             # container the same way ``<div>`` is).
             row_html.append(
-                '<a class="bars__row bars__row--link" '
-                f'href="#{html.escape(anchor)}">{inner}</a>'
+                f'<a class="bars__row bars__row--link" href="#{html.escape(anchor)}">{inner}</a>'
             )
         else:
             row_html.append(f'<div class="bars__row">{inner}</div>')

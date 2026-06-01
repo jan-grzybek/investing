@@ -2,6 +2,7 @@
 ``pull_data`` (the only function in here that touches the
 network).
 """
+
 from __future__ import annotations
 
 import json
@@ -25,8 +26,6 @@ _BUY_TOKENS = frozenset({"B", "BUY", "b", "buy"})
 
 
 _SELL_TOKENS = frozenset({"S", "SELL", "s", "sell"})
-
-
 
 
 class SheetParseError(ValueError):
@@ -64,18 +63,12 @@ class SheetParseError(ValueError):
         self.reason = reason
 
 
-
-
 def _to_float(value: str) -> float:
     return float(value.replace(",", ""))
 
 
-
-
 def _to_int(value: str) -> int:
     return int(value.replace(",", ""))
-
-
 
 
 # Number of leading rows on each worksheet that pull_data should skip.
@@ -129,10 +122,7 @@ class _WorksheetSchema:
             raise SheetParseError(
                 worksheet=self.name,
                 row=row_index,
-                reason=(
-                    f"row has {len(row)} columns, "
-                    f"expected at least {self.width}"
-                ),
+                reason=(f"row has {len(row)} columns, expected at least {self.width}"),
             )
 
     def cell(self, row: list[str], spec: _ColSpec) -> str:
@@ -214,8 +204,6 @@ _SCHEMAS_BY_NAME: dict[str, _WorksheetSchema] = {
 _SCHEMAS: dict[str, int] = {name: s.width for name, s in _SCHEMAS_BY_NAME.items()}
 
 
-
-
 def _parse_number_cell(
     schema: _WorksheetSchema,
     spec: _ColSpec,
@@ -272,14 +260,24 @@ def _parse_equity_row(row_index: int, row: list[str]) -> EquityTransaction | Non
             field=_EquitiesCols.ACTION.label,
             reason=f"unknown action token {action_token!r}",
         )
-    quantity = int(_parse_number_cell(
-        schema, _EquitiesCols.QUANTITY,
-        row_index=row_index, row=row, convert=int,
-    ))
-    price = float(_parse_number_cell(
-        schema, _EquitiesCols.PRICE,
-        row_index=row_index, row=row, convert=float,
-    ))
+    quantity = int(
+        _parse_number_cell(
+            schema,
+            _EquitiesCols.QUANTITY,
+            row_index=row_index,
+            row=row,
+            convert=int,
+        )
+    )
+    price = float(
+        _parse_number_cell(
+            schema,
+            _EquitiesCols.PRICE,
+            row_index=row_index,
+            row=row,
+            convert=float,
+        )
+    )
     return {
         "date": schema.cell(row, _EquitiesCols.DATE),
         "ticker": schema.cell(row, _EquitiesCols.TICKER),
@@ -287,8 +285,6 @@ def _parse_equity_row(row_index: int, row: list[str]) -> EquityTransaction | Non
         "price_per_share": price,
         "action": action,
     }
-
-
 
 
 def _parse_return_row(row_index: int, row: list[str]) -> Valuation | None:
@@ -317,12 +313,12 @@ def _parse_return_row(row_index: int, row: list[str]) -> Valuation | None:
         flow = _to_float(schema.cell(row, _ReturnCols.FLOW))
     except ValueError as exc:
         raise SheetParseError(
-            worksheet=schema.name, row=row_index, field="value/flow",
+            worksheet=schema.name,
+            row=row_index,
+            field="value/flow",
             reason=f"not a number ({exc})",
         ) from None
     return {"date": date, "value": value, "flow": flow}
-
-
 
 
 def _parse_cash_row(row_index: int, row: list[str]) -> CashBalance | None:
@@ -330,16 +326,19 @@ def _parse_cash_row(row_index: int, row: list[str]) -> CashBalance | None:
     schema.check_shape(row_index, row)
     if schema.cell(row, _CashCols.INCLUDE) not in _YES_TOKENS:
         return None
-    amount = float(_parse_number_cell(
-        schema, _CashCols.AMOUNT,
-        row_index=row_index, row=row, convert=float,
-    ))
+    amount = float(
+        _parse_number_cell(
+            schema,
+            _CashCols.AMOUNT,
+            row_index=row_index,
+            row=row,
+            convert=float,
+        )
+    )
     return {
         "currency_code": schema.cell(row, _CashCols.CURRENCY),
         "amount": amount,
     }
-
-
 
 
 def _gspread_client():
@@ -359,8 +358,6 @@ def _gspread_client():
     return gspread.service_account(filename=creds_file)
 
 
-
-
 def _iter_data_rows(rows: list[list[str]]):
     """Yield ``(spreadsheet_row_number, row)`` for the data portion.
 
@@ -368,8 +365,6 @@ def _iter_data_rows(rows: list[list[str]]):
     1-indexed sheet row number for diagnostic messages.
     """
     yield from enumerate(rows[_SHEET_DATA_OFFSET:], start=_SHEET_DATA_OFFSET + 1)
-
-
 
 
 def pull_data() -> tuple[list[EquityTransaction], list[Valuation], list[CashBalance]]:
@@ -409,7 +404,8 @@ def pull_data() -> tuple[list[EquityTransaction], list[Valuation], list[CashBala
 
 
 def _batch_get_values(
-    sh, range_names: tuple[str, ...],
+    sh,
+    range_names: tuple[str, ...],
 ) -> dict[str, list[list[str]]]:
     """Fetch all requested worksheet ranges in a single API call.
 
@@ -465,10 +461,7 @@ def _batch_get_values(
     # API. ``Worksheet.get_all_values`` already runs gspread's
     # ``fill_gaps`` internally so production never hits a short
     # row through here.
-    return {
-        name: sh.worksheet(name).get_all_values()
-        for name in range_names
-    }
+    return {name: sh.worksheet(name).get_all_values() for name in range_names}
 
 
 def _pad_rows(rows: list[list[str]], width: int) -> list[list[str]]:

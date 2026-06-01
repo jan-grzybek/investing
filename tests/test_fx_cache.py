@@ -7,6 +7,7 @@ The cache only kicks in when ``INVESTING_FX_CACHE_DIR`` is set
   * corrupt cache file (silent fallback to yfinance)
   * default behaviour when env var is unset (no disk activity)
 """
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock
@@ -48,9 +49,7 @@ def test_disk_cache_writes_on_first_fetch(monkeypatch, tmp_path):
     """A fresh ExchangeRate writes its yfinance response to disk."""
     monkeypatch.setenv("INVESTING_FX_CACHE_DIR", str(tmp_path))
     ticker = MagicMock()
-    ticker.history = MagicMock(
-        return_value=_hist_for({"2024-01-01": 1.1, "2024-02-01": 1.2})
-    )
+    ticker.history = MagicMock(return_value=_hist_for({"2024-01-01": 1.1, "2024-02-01": 1.2}))
     _stub_ticker(monkeypatch, {"EURUSD=X": ticker})
 
     fx = ExchangeRate()

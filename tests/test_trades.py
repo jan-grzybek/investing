@@ -14,6 +14,7 @@ halves:
   ``trade_events`` helper that combines and decorates rows for the
   renderer over the full ownership history.
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -127,7 +128,7 @@ class TestCombineWindow:
             _ev(datetime(2024, 1, 1), 100.0, 1, "OPEN"),
             _ev(datetime(2024, 2, 1), 100.0, 1, "INCREASE"),
         ]
-        assert len(_combine_trade_events(events_in,  window_days=30)) == 1
+        assert len(_combine_trade_events(events_in, window_days=30)) == 1
         assert len(_combine_trade_events(events_out, window_days=30)) == 2
 
     def test_three_buys_within_window_collapse_to_one_opening(self):
@@ -136,7 +137,7 @@ class TestCombineWindow:
         # absorbing subsequent same-action events as long as each is
         # within the window of the GROUP's first event.
         events = [
-            _ev(datetime(2024, 3, 1),  100.0, 2, "OPEN"),
+            _ev(datetime(2024, 3, 1), 100.0, 2, "OPEN"),
             _ev(datetime(2024, 3, 10), 105.0, 3, "INCREASE"),
             _ev(datetime(2024, 3, 20), 110.0, 5, "INCREASE"),
         ]
@@ -146,9 +147,7 @@ class TestCombineWindow:
         assert burst["category"] == "OPEN"
         assert burst["start_date"] == datetime(2024, 3, 1)
         assert burst["end_date"] == datetime(2024, 3, 20)
-        assert burst["price"] == pytest.approx(
-            (2 * 100 + 3 * 105 + 5 * 110) / 10
-        )
+        assert burst["price"] == pytest.approx((2 * 100 + 3 * 105 + 5 * 110) / 10)
 
     def test_window_is_anchored_on_first_event_not_last(self):
         # Three events spaced 25 days apart: t1, t1+25, t1+50. The
@@ -158,7 +157,7 @@ class TestCombineWindow:
         # is violated (we'd produce a burst spanning 50 days against a
         # 30-day budget).
         events = [
-            _ev(datetime(2024, 1, 1),  100.0, 1, "OPEN"),
+            _ev(datetime(2024, 1, 1), 100.0, 1, "OPEN"),
             _ev(datetime(2024, 1, 26), 100.0, 1, "INCREASE"),
             _ev(datetime(2024, 2, 20), 100.0, 1, "INCREASE"),
         ]
@@ -190,9 +189,9 @@ class TestCombineCrossActionSplits:
         # should surface as its own row, including the second OPEN
         # (a re-entry, not an INCREASE of the first holding).
         events = [
-            _ev(datetime(2024, 1, 1),  100.0, 5, "OPEN"),
-            _ev(datetime(2024, 1, 5),  110.0, 5, "CLOSE"),
-            _ev(datetime(2024, 1, 8),  120.0, 5, "OPEN"),
+            _ev(datetime(2024, 1, 1), 100.0, 5, "OPEN"),
+            _ev(datetime(2024, 1, 5), 110.0, 5, "CLOSE"),
+            _ev(datetime(2024, 1, 8), 120.0, 5, "OPEN"),
         ]
         out = _combine_trade_events(events, window_days=30)
         assert [b["category"] for b in out] == ["OPEN", "CLOSE", "OPEN"]
@@ -220,25 +219,29 @@ class TestCombineDeltaPct:
 
     def test_increase_delta_pct_is_qty_over_pre_quantity(self):
         # 1000 shares held, then 1000 more bought -> "+100%".
-        events = [{
-            "date": datetime(2024, 2, 1),
-            "price": 50.0,
-            "quantity": 1000,
-            "category": "INCREASE",
-            "pre_quantity": 1000,
-        }]
+        events = [
+            {
+                "date": datetime(2024, 2, 1),
+                "price": 50.0,
+                "quantity": 1000,
+                "category": "INCREASE",
+                "pre_quantity": 1000,
+            }
+        ]
         out = _combine_trade_events(events)
         assert out[0]["delta_pct"] == pytest.approx(100.0)
 
     def test_decrease_delta_pct_is_qty_over_pre_quantity(self):
         # 1000 shares held, 500 sold -> 50%.
-        events = [{
-            "date": datetime(2024, 2, 1),
-            "price": 50.0,
-            "quantity": 500,
-            "category": "DECREASE",
-            "pre_quantity": 1000,
-        }]
+        events = [
+            {
+                "date": datetime(2024, 2, 1),
+                "price": 50.0,
+                "quantity": 500,
+                "category": "DECREASE",
+                "pre_quantity": 1000,
+            }
+        ]
         out = _combine_trade_events(events)
         assert out[0]["delta_pct"] == pytest.approx(50.0)
 
@@ -250,12 +253,27 @@ class TestCombineDeltaPct:
         # FIRST event in the burst -- so the percentage answers "what
         # fraction did this whole burst add to what we had going in?".
         events = [
-            {"date": datetime(2024, 3, 1),  "price": 100.0,
-             "quantity": 100, "category": "INCREASE", "pre_quantity": 1000},
-            {"date": datetime(2024, 3, 10), "price": 105.0,
-             "quantity": 200, "category": "INCREASE", "pre_quantity": 1100},
-            {"date": datetime(2024, 3, 20), "price": 110.0,
-             "quantity": 300, "category": "INCREASE", "pre_quantity": 1300},
+            {
+                "date": datetime(2024, 3, 1),
+                "price": 100.0,
+                "quantity": 100,
+                "category": "INCREASE",
+                "pre_quantity": 1000,
+            },
+            {
+                "date": datetime(2024, 3, 10),
+                "price": 105.0,
+                "quantity": 200,
+                "category": "INCREASE",
+                "pre_quantity": 1100,
+            },
+            {
+                "date": datetime(2024, 3, 20),
+                "price": 110.0,
+                "quantity": 300,
+                "category": "INCREASE",
+                "pre_quantity": 1300,
+            },
         ]
         out = _combine_trade_events(events, window_days=30)
         assert len(out) == 1
@@ -267,10 +285,20 @@ class TestCombineDeltaPct:
         # -- both DECREASE (position never hits 0). Burst delta is
         # 400 / 1000 = 40%.
         events = [
-            {"date": datetime(2024, 4, 1), "price": 100.0,
-             "quantity": 200, "category": "DECREASE", "pre_quantity": 1000},
-            {"date": datetime(2024, 4, 10), "price": 95.0,
-             "quantity": 200, "category": "DECREASE", "pre_quantity": 800},
+            {
+                "date": datetime(2024, 4, 1),
+                "price": 100.0,
+                "quantity": 200,
+                "category": "DECREASE",
+                "pre_quantity": 1000,
+            },
+            {
+                "date": datetime(2024, 4, 10),
+                "price": 95.0,
+                "quantity": 200,
+                "category": "DECREASE",
+                "pre_quantity": 800,
+            },
         ]
         out = _combine_trade_events(events, window_days=30)
         assert len(out) == 1
@@ -283,10 +311,20 @@ class TestCombineDeltaPct:
         # away -- "100% Divested" would just be visual noise next to
         # the verb.
         events = [
-            {"date": datetime(2024, 5, 1), "price": 100.0,
-             "quantity": 400, "category": "DECREASE", "pre_quantity": 1000},
-            {"date": datetime(2024, 5, 10), "price": 90.0,
-             "quantity": 600, "category": "CLOSE", "pre_quantity": 600},
+            {
+                "date": datetime(2024, 5, 1),
+                "price": 100.0,
+                "quantity": 400,
+                "category": "DECREASE",
+                "pre_quantity": 1000,
+            },
+            {
+                "date": datetime(2024, 5, 10),
+                "price": 90.0,
+                "quantity": 600,
+                "category": "CLOSE",
+                "pre_quantity": 600,
+            },
         ]
         out = _combine_trade_events(events, window_days=30)
         assert len(out) == 1
@@ -302,7 +340,7 @@ class TestCombineSorting:
         # date range.
         events = [
             _ev(datetime(2024, 1, 20), 110.0, 5, "INCREASE"),
-            _ev(datetime(2024, 1, 1),  100.0, 10, "OPEN"),
+            _ev(datetime(2024, 1, 1), 100.0, 10, "OPEN"),
         ]
         out = _combine_trade_events(events, window_days=30)
         assert len(out) == 1
@@ -320,8 +358,11 @@ class TestCombineSorting:
 def fake_apple(patch_yf_ticker, make_ticker_mock):
     """A USD-denominated stub ticker with no splits and no dividends."""
     mock = make_ticker_mock(
-        currency="USD", exchange="NMS", symbol="AAPL",
-        long_name="Apple Inc.", price=200.0,
+        currency="USD",
+        exchange="NMS",
+        symbol="AAPL",
+        long_name="Apple Inc.",
+        price=200.0,
     )
     patch_yf_ticker({"AAPL": mock})
     return mock
@@ -329,7 +370,11 @@ def fake_apple(patch_yf_ticker, make_ticker_mock):
 
 def _trade(date, qty, price, action):
     return Trade(
-        date=date, ticker="AAPL", quantity=qty, price=price, action=action,
+        date=date,
+        ticker="AAPL",
+        quantity=qty,
+        price=price,
+        action=action,
     )
 
 
@@ -345,7 +390,8 @@ class TestHoldingCategorisesTrades:
         h.buy(_trade(datetime(2024, 1, 1), 10, 100.0, "BUY"))
         h.buy(_trade(datetime(2024, 2, 1), 5, 110.0, "BUY"))
         assert [e["category"] for e in h._trade_events] == [
-            "OPEN", "INCREASE",
+            "OPEN",
+            "INCREASE",
         ]
 
     def test_partial_sell_is_decrease(self, stub_exchange_rate, fake_apple):
@@ -361,7 +407,9 @@ class TestHoldingCategorisesTrades:
         assert h._trade_events[-1]["category"] == "CLOSE"
 
     def test_buy_records_pre_quantity_zero_for_open(
-        self, stub_exchange_rate, fake_apple,
+        self,
+        stub_exchange_rate,
+        fake_apple,
     ):
         # OPEN trades have no prior position; the pre_quantity field
         # must be 0 so the combiner short-circuits and emits
@@ -371,7 +419,9 @@ class TestHoldingCategorisesTrades:
         assert h._trade_events[0]["pre_quantity"] == 0
 
     def test_subsequent_buy_records_pre_quantity_of_prior_holding(
-        self, stub_exchange_rate, fake_apple,
+        self,
+        stub_exchange_rate,
+        fake_apple,
     ):
         # After a 10-share OPEN, a follow-up BUY's pre_quantity must
         # reflect the holding right before the new trade (10 here),
@@ -379,11 +429,13 @@ class TestHoldingCategorisesTrades:
         # combiner needs for the "+X%" readout.
         h = Holding("AAPL", fx=stub_exchange_rate)
         h.buy(_trade(datetime(2024, 1, 1), 10, 100.0, "BUY"))
-        h.buy(_trade(datetime(2024, 2, 1), 5,  110.0, "BUY"))
+        h.buy(_trade(datetime(2024, 2, 1), 5, 110.0, "BUY"))
         assert h._trade_events[-1]["pre_quantity"] == 10
 
     def test_sell_records_pre_quantity_of_prior_holding(
-        self, stub_exchange_rate, fake_apple,
+        self,
+        stub_exchange_rate,
+        fake_apple,
     ):
         # A partial SELL exposes the holding right before the sell so
         # "X% decrease" is denominated against what we were holding.
@@ -393,7 +445,9 @@ class TestHoldingCategorisesTrades:
         assert h._trade_events[-1]["pre_quantity"] == 10
 
     def test_reopening_after_close_is_open_again(
-        self, stub_exchange_rate, fake_apple,
+        self,
+        stub_exchange_rate,
+        fake_apple,
     ):
         # Closing then re-buying must read as a fresh "Opening", not
         # an "Increase". The page's category column distinguishes
@@ -409,7 +463,9 @@ class TestHoldingCategorisesTrades:
 
 class TestHoldingTradeEventsDecoration:
     def test_attaches_ticker_name_currency(
-        self, stub_exchange_rate, fake_apple,
+        self,
+        stub_exchange_rate,
+        fake_apple,
     ):
         h = Holding("AAPL", fx=stub_exchange_rate)
         h.buy(_trade(datetime(2024, 1, 1), 10, 100.0, "BUY"))
@@ -426,7 +482,9 @@ class TestHoldingTradeEventsDecoration:
         assert ev["price"] == pytest.approx(100.0)
 
     def test_returns_all_bursts_regardless_of_age(
-        self, stub_exchange_rate, fake_apple,
+        self,
+        stub_exchange_rate,
+        fake_apple,
     ):
         # The trades section is a complete activity log -- every
         # burst this holding has ever recorded must come through,
@@ -448,13 +506,15 @@ class TestHoldingTradeEventsDecoration:
         ]
 
     def test_combines_within_holding(
-        self, stub_exchange_rate, fake_apple,
+        self,
+        stub_exchange_rate,
+        fake_apple,
     ):
         # Per-ticker combining flows through ``trade_events``: two
         # BUYs nine days apart should surface as a single OPENING row
         # with a volume-weighted price.
         h = Holding("AAPL", fx=stub_exchange_rate)
-        h.buy(_trade(datetime(2024, 6, 1),  2, 100.0, "BUY"))
+        h.buy(_trade(datetime(2024, 6, 1), 2, 100.0, "BUY"))
         h.buy(_trade(datetime(2024, 6, 10), 8, 110.0, "BUY"))
         events = h.trade_events()
         assert len(events) == 1
@@ -465,7 +525,9 @@ class TestHoldingTradeEventsDecoration:
         assert ev["end_date"] == datetime(2024, 6, 10)
 
     def test_delta_pct_flows_through_trade_events(
-        self, stub_exchange_rate, fake_apple,
+        self,
+        stub_exchange_rate,
+        fake_apple,
     ):
         # OPEN the position with 1,000 shares, then INCREASE by
         # another 1,000 inside a fresh burst (well outside the
@@ -473,8 +535,8 @@ class TestHoldingTradeEventsDecoration:
         # should expose ``delta_pct = 100`` so the badge renders as
         # "Increased by 100%".
         h = Holding("AAPL", fx=stub_exchange_rate)
-        h.buy(_trade(datetime(2024, 1, 1),  1000, 100.0, "BUY"))
-        h.buy(_trade(datetime(2024, 6, 1),  1000, 110.0, "BUY"))
+        h.buy(_trade(datetime(2024, 1, 1), 1000, 100.0, "BUY"))
+        h.buy(_trade(datetime(2024, 6, 1), 1000, 110.0, "BUY"))
         events = h.trade_events()
         assert len(events) == 2
         # Newest first inside a single Holding is implementation
@@ -494,7 +556,10 @@ class TestHoldingTradeEventsDecoration:
 
 class TestGetHoldingsTradesKey:
     def test_trades_key_is_globally_sorted_newest_first(
-        self, patch_yf_ticker, make_ticker_mock, stub_exchange_rate,
+        self,
+        patch_yf_ticker,
+        make_ticker_mock,
+        stub_exchange_rate,
         freeze_today,
     ):
         # Two tickers with trades interleaved in time. After
@@ -502,23 +567,44 @@ class TestGetHoldingsTradesKey:
         # tickers, sorted newest-first by end_date so the page reads
         # as a single chronological activity log.
         freeze_today(datetime(2024, 12, 1))
-        patch_yf_ticker({
-            "AAA": make_ticker_mock(
-                currency="USD", exchange="NMS", symbol="AAA",
-                long_name="Alpha Inc.",
-            ),
-            "BBB": make_ticker_mock(
-                currency="EUR", exchange="DUS", symbol="BBB",
-                long_name="Beta GmbH",
-            ),
-        })
+        patch_yf_ticker(
+            {
+                "AAA": make_ticker_mock(
+                    currency="USD",
+                    exchange="NMS",
+                    symbol="AAA",
+                    long_name="Alpha Inc.",
+                ),
+                "BBB": make_ticker_mock(
+                    currency="EUR",
+                    exchange="DUS",
+                    symbol="BBB",
+                    long_name="Beta GmbH",
+                ),
+            }
+        )
         transactions = [
-            {"date": "01-02-2024", "ticker": "AAA",
-             "quantity": 10, "price_per_share": 100.0, "action": "BUY"},
-            {"date": "15-05-2024", "ticker": "BBB",
-             "quantity": 4,  "price_per_share": 50.0,  "action": "BUY"},
-            {"date": "01-08-2024", "ticker": "AAA",
-             "quantity": 10, "price_per_share": 120.0, "action": "SELL"},
+            {
+                "date": "01-02-2024",
+                "ticker": "AAA",
+                "quantity": 10,
+                "price_per_share": 100.0,
+                "action": "BUY",
+            },
+            {
+                "date": "15-05-2024",
+                "ticker": "BBB",
+                "quantity": 4,
+                "price_per_share": 50.0,
+                "action": "BUY",
+            },
+            {
+                "date": "01-08-2024",
+                "ticker": "AAA",
+                "quantity": 10,
+                "price_per_share": 120.0,
+                "action": "SELL",
+            },
         ]
         holdings = get_holdings(transactions, fx=stub_exchange_rate)
         trades = holdings["trades"]
@@ -531,7 +617,8 @@ class TestGetHoldingsTradesKey:
         assert tickers == {"NMS:AAA", "DUS:BBB"}
 
     def test_returns_empty_trades_list_for_empty_transactions(
-        self, stub_exchange_rate,
+        self,
+        stub_exchange_rate,
     ):
         holdings = get_holdings([], fx=stub_exchange_rate)
         assert holdings["trades"] == []

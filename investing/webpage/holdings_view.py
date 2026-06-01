@@ -13,6 +13,7 @@ no Logo lookup of its own. Callers pass the resolved logo URL
 in -- the renderer's ``_get_logo_url`` continues to own the
 per-page logo cache.
 """
+
 from __future__ import annotations
 
 import html
@@ -33,8 +34,8 @@ from .anchors import holding_anchor
 # special-cases the restore-DOM-order button.
 SORT_OPTIONS: tuple[tuple[str, str, str], ...] = (
     ("default", "Default", "default"),
-    ("ticker",  "Ticker",  "text"),
-    ("name",    "Name",    "text"),
+    ("ticker", "Ticker", "text"),
+    ("name", "Name", "text"),
     # ``tsr`` and ``cagr`` are kept as the sort *keys* (they match
     # the ``data-sort-tsr`` / ``data-sort-cagr`` attributes the
     # holdings-sort script reads, and the on-disk DOM order tests
@@ -42,9 +43,9 @@ SORT_OPTIONS: tuple[tuple[str, str, str], ...] = (
     # because the underlying figures are now MoIC-based and IRR-
     # based rather than TWR/CAGR -- see the disclaimer methodology
     # bullet for the full rationale.
-    ("tsr",     "Return",  "number"),
-    ("cagr",    "IRR",     "number"),
-    ("weight",  "Weight",  "number"),
+    ("tsr", "Return", "number"),
+    ("cagr", "IRR", "number"),
+    ("weight", "Weight", "number"),
 )
 
 
@@ -71,8 +72,7 @@ def build_sort_control(*, scope: str, include_weight: bool) -> str:
         indicator_html = (
             ""
             if is_default
-            else '<span class="holdings__sort-indicator" aria-hidden="true">'
-                 '</span>'
+            else '<span class="holdings__sort-indicator" aria-hidden="true"></span>'
         )
         buttons.append(
             f'<button type="button" class="holdings__sort-btn" '
@@ -80,8 +80,8 @@ def build_sort_control(*, scope: str, include_weight: bool) -> str:
             f'data-holdings-sort-kind="{kind}" '
             f'aria-pressed="{"true" if is_default else "false"}" '
             f'aria-sort="none">'
-            f'{html.escape(label)}{indicator_html}'
-            '</button>'
+            f"{html.escape(label)}{indicator_html}"
+            "</button>"
         )
     scope_label = "current" if scope == "current" else "historical"
     return (
@@ -89,10 +89,10 @@ def build_sort_control(*, scope: str, include_weight: bool) -> str:
         f'aria-label="Sort {scope_label} holdings" '
         f'data-holdings-sort="{html.escape(scope)}">'
         '<span class="holdings__sort-label" aria-hidden="true">'
-        'Sort by'
-        '</span>'
-        f'{"".join(buttons)}'
-        '</div>'
+        "Sort by"
+        "</span>"
+        f"{''.join(buttons)}"
+        "</div>"
     )
 
 
@@ -128,27 +128,15 @@ def build_card(
         ordered = sorted(periods, key=lambda p: p[0], reverse=True)
         items = []
         for start, end in ordered:
-            start_html = (
-                f'<time datetime="{start.strftime("%Y-%m-%d")}">'
-                f'{_fmt_date(start)}</time>'
-            )
+            start_html = f'<time datetime="{start.strftime("%Y-%m-%d")}">{_fmt_date(start)}</time>'
             if end is None:
-                end_html = '<span>Present</span>'
+                end_html = "<span>Present</span>"
             else:
-                end_html = (
-                    f'<time datetime="{end.strftime("%Y-%m-%d")}">'
-                    f'{_fmt_date(end)}</time>'
-                )
-            items.append(
-                f'<li>{start_html}<span>-</span>{end_html}</li>'
-            )
-        body_parts.append(
-            f'<ul class="holding__periods">{"".join(items)}</ul>'
-        )
+                end_html = f'<time datetime="{end.strftime("%Y-%m-%d")}">{_fmt_date(end)}</time>'
+            items.append(f"<li>{start_html}<span>-</span>{end_html}</li>")
+        body_parts.append(f'<ul class="holding__periods">{"".join(items)}</ul>')
     if note:
-        body_parts.append(
-            f'<p class="holding__note">{html.escape(note)}</p>'
-        )
+        body_parts.append(f'<p class="holding__note">{html.escape(note)}</p>')
 
     stat_parts = []
     for label, value, sign in stats:
@@ -157,9 +145,9 @@ def build_card(
             attr = f' class="{_value_class(sign)}"'
         stat_parts.append(
             '<div class="holding__stat">'
-            f'<dt>{html.escape(label)}</dt>'
-            f'<dd{attr}>{html.escape(value)}</dd>'
-            '</div>'
+            f"<dt>{html.escape(label)}</dt>"
+            f"<dd{attr}>{html.escape(value)}</dd>"
+            "</div>"
         )
 
     id_attr = f' id="{html.escape(card_id)}"' if card_id else ""
@@ -171,8 +159,7 @@ def build_card(
         # pass keeps the output reproducible regardless of how
         # the caller built the mapping.
         data_attr_html = "".join(
-            f' data-{key}="{html.escape(data_attrs[key])}"'
-            for key in sorted(data_attrs)
+            f' data-{key}="{html.escape(data_attrs[key])}"' for key in sorted(data_attrs)
         )
     return (
         f'<article class="holding"{id_attr}{data_attr_html}>'
@@ -183,7 +170,7 @@ def build_card(
         'width="64" height="64">'
         f'<div class="holding__body">{"".join(body_parts)}</div>'
         f'<dl class="holding__stats">{"".join(stat_parts)}</dl>'
-        '</article>'
+        "</article>"
     )
 
 
@@ -240,13 +227,11 @@ def build_holding_card(
         "sort-cagr": _format_sort_number(holding["cagr%"]),
     }
     if holding["is_current"]:
-        sort_attrs["sort-weight"] = _format_sort_number(
-            holding["current_weight%"]
-        )
+        sort_attrs["sort-weight"] = _format_sort_number(holding["current_weight%"])
 
     return build_card(
         logo_url=logo_url_for(holding["ticker"]),
-        title=f'{holding["ticker"]} - {holding["name"]}',
+        title=f"{holding['ticker']} - {holding['name']}",
         stats=stats,
         periods=periods,
         card_id=holding_anchor(holding["ticker"]),

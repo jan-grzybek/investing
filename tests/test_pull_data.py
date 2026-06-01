@@ -3,6 +3,7 @@
 The Google API stack is fully mocked. We focus on row parsing rules:
 the include flag, action normalisation, and numeric/comma stripping.
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -102,9 +103,7 @@ class TestPullData:
                 "action": "SELL",
             },
         ]
-        assert valuations == [
-            {"date": datetime(2024, 1, 1), "value": 1000.0, "flow": 0.0}
-        ]
+        assert valuations == [{"date": datetime(2024, 1, 1), "value": 1000.0, "flow": 0.0}]
         assert cash == [{"currency_code": "USD", "amount": 250.0}]
 
     def test_thousands_separators_are_stripped(self, patch_gspread):
@@ -242,6 +241,7 @@ def _batched_response(equities, returns, cash):
     (a row whose right-most column is blank and therefore comes
     back narrower than the schema) can be expressed verbatim.
     """
+
     def _value_range(rows):
         return {"range": "ignored", "majorDimension": "ROWS", "values": rows}
 
@@ -295,9 +295,7 @@ class TestBatchedPath:
     fails the build.
     """
 
-    def test_trimmed_trailing_cells_are_padded_for_parsers(
-        self, patch_gspread_batched
-    ):
+    def test_trimmed_trailing_cells_are_padded_for_parsers(self, patch_gspread_batched):
         # Equities row missing the trailing include flag (the API
         # would have trimmed that blank cell). Reproduces the
         # production failure observed when a row's include column
@@ -319,9 +317,7 @@ class TestBatchedPath:
         # row whose include cell was blank rather than absent.
         assert transactions == []
 
-    def test_full_width_rows_pass_through_unchanged(
-        self, patch_gspread_batched
-    ):
+    def test_full_width_rows_pass_through_unchanged(self, patch_gspread_batched):
         # Sanity check: the padding step must not interfere with a
         # row that already has all schema-required columns
         # populated.
@@ -338,9 +334,7 @@ class TestBatchedPath:
         assert len(transactions) == 1
         assert transactions[0]["ticker"] == "AAPL"
 
-    def test_empty_value_range_is_treated_as_no_rows(
-        self, patch_gspread_batched
-    ):
+    def test_empty_value_range_is_treated_as_no_rows(self, patch_gspread_batched):
         # The Sheets API omits the ``"values"`` key entirely when a
         # range is empty; the loader must treat that the same as
         # an empty list rather than propagate ``None`` into the
@@ -383,5 +377,7 @@ class TestPadRows:
 
     def test_mixed_widths_normalise_to_target(self):
         assert _sheets._pad_rows([["a"], ["a", "b", "c"], []], 2) == [
-            ["a", ""], ["a", "b", "c"], ["", ""],
+            ["a", ""],
+            ["a", "b", "c"],
+            ["", ""],
         ]

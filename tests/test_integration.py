@@ -6,6 +6,7 @@ mocked. We exercise:
 * ``get_holdings`` from raw transactions through to per-ticker summaries.
 * ``generate_webpage`` writing a complete ``index.html`` file.
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -35,8 +36,10 @@ def _mk_ticker(symbol, *, price, currency="USD"):
 @pytest.fixture
 def stub_fx():
     """A stub fx callable that always returns 1.0."""
+
     def _rate(currency, date=None):  # noqa: ARG001
         return 1.0
+
     return _rate
 
 
@@ -151,14 +154,16 @@ class TestGenerateWebpage:
             "twr%": 50.0,
             "cagr%": 50.0,
         }
-        benchmarks = [{
-            "ticker": "LSE:VUAA.L",
-            "name": "Vanguard S&P 500 UCITS ETF",
-            "tsr%": 20.0,
-            "cagr%": 20.0,
-            "periods": [{"start": datetime(2024, 1, 1), "end": None}],
-            "history": [(datetime(2024, 1, 1), 1.0)],
-        }]
+        benchmarks = [
+            {
+                "ticker": "LSE:VUAA.L",
+                "name": "Vanguard S&P 500 UCITS ETF",
+                "tsr%": 20.0,
+                "cagr%": 20.0,
+                "periods": [{"start": datetime(2024, 1, 1), "end": None}],
+                "history": [(datetime(2024, 1, 1), 1.0)],
+            }
+        ]
 
         generate_webpage(total_return, benchmarks, holdings)
 

@@ -1,6 +1,7 @@
 """Portfolio-wide rollups: TWR, allocations, top-10
 weights, benchmark fetch.
 """
+
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
@@ -67,8 +68,6 @@ def _display_name_map() -> dict[str, str]:
 # ``from .performance import _BENCHMARK_DISPLAY_NAMES`` imports continue
 # to work while callers migrate to ``BENCHMARKS`` / ``BenchmarkConfig``.
 _BENCHMARK_DISPLAY_NAMES = _display_name_map()
-
-
 
 
 # ---------------------------------------------------------------------------
@@ -157,7 +156,9 @@ def get_holdings(
 
     return {
         "current": sorted(current_holdings, key=lambda item: item["latest_buy"], reverse=True),
-        "historical": sorted(historical_holdings, key=lambda item: item["latest_sell"], reverse=True),
+        "historical": sorted(
+            historical_holdings, key=lambda item: item["latest_sell"], reverse=True
+        ),
         # Sort by the burst's most recent event (so a multi-day burst
         # ranks by when it finished). Ties are broken by start date,
         # which only matters on synthetic / same-day-only data sets.
@@ -167,8 +168,6 @@ def get_holdings(
             reverse=True,
         ),
     }
-
-
 
 
 # ---------------------------------------------------------------------------
@@ -203,12 +202,12 @@ def calc_twr(
     twr = 1.0
     history.append((valuations[0]["date"], twr))
     for valuation in valuations[1:]:
-        twr *= (valuation["value"] / start_value)
+        twr *= valuation["value"] / start_value
         start_value = valuation["value"] + valuation["flow"]
         history.append((valuation["date"], twr))
     today = _now()
     if today.date() > valuations[-1]["date"].date():
-        twr *= (current_value / start_value)
+        twr *= current_value / start_value
         history.append((today, twr))
     cagr = twr ** (DAYS_YEAR / max((today - start_date).days, 1)) - 1.0
     twr -= 1.0
@@ -232,19 +231,41 @@ def calc_twr(
     }
 
 
+@dataclass(frozen=True)
+class PortfolioRollup:
+    """Allocation / top-10 / per-holding weights derived from a holdings dict.
+
+    Replaces the in-place mutation :func:`summarize` used to perform
+    on the holdings dict. The rollup is computed in a pure function
+    (:func:`compute_rollup`) and applied to the carrier dict in an
+    explicit step (:func:`apply_rollup`) so the pipeline orchestrator
+    in :mod:`investing.cli` reads as "compute, then apply" rather
+    than "the function that returns a float also rewrites half its
+    input behind the caller's back".
+    """
+
+    total_value_usd: float
+    allocation_pct: dict[str, float] | None
+    top_10: dict[str, float] | None
+    weights_by_ticker: dict[str, float]
 
 
-def summarize(
+def compute_rollup(
     holdings: dict,
     cash: list[CashBalance],
     *,
     fx: FxRate | None = None,
-) -> float:
-    """Compute allocations and weights, mutating ``holdings`` in place.
+) -> PortfolioRollup:
+    """Compute allocation percentages, per-holding weights and top-10 buckets.
 
-    Accepts an explicit ``fx`` rather than reaching for a module global
-    so callers can plug in a stub for tests and a single shared
-    ``ExchangeRate`` for production.
+    Returns a :class:`PortfolioRollup` snapshot; the input ``holdings``
+    dict is read but not mutated, so callers can decide whether to
+    apply the rollup back onto the dict (the legacy carrier shape via
+    :func:`apply_rollup`) or thread the snapshot through explicitly.
+
+    Accepts an explicit ``fx`` rather than reaching for a module
+    global so callers can plug in a stub for tests and a single
+    shared :class:`investing.fx.ExchangeRate` for production.
     """
     fx = _fx_or_default(fx)
     total_equity_value_usd = 0.0
@@ -265,50 +286,101 @@ def summarize(
 
     total_value_usd = total_equity_value_usd + total_cash_value_usd
 
+    allocation_pct: dict[str, float] | None
     if total_value_usd > 0.0:
         # Unrounded percentages: ``current_weight%`` is summed when
         # building the "Other equities" bucket, and ``allocation%``
         # entries are read directly elsewhere. Rounding here would
         # leak into those derived numbers; we round only at display
         # time (``_render_bars`` formats with ``:.1f`` / ``:.2f``).
-        holdings["allocation%"] = {
+        allocation_pct = {
             "Equities": 100 * total_equity_value_usd / total_value_usd,
             "Cash & Cash Equivalents": 100 * total_cash_value_usd / total_value_usd,
         }
         logger.info(
             "Equity allocation: %s%%",
-            _fmt_pct(holdings["allocation%"]["Equities"]),
+            _fmt_pct(allocation_pct["Equities"]),
         )
         logger.info(
             "Cash allocation: %s%%",
-            _fmt_pct(holdings["allocation%"]["Cash & Cash Equivalents"]),
+            _fmt_pct(allocation_pct["Cash & Cash Equivalents"]),
         )
     else:
-        holdings["allocation%"] = None
+        allocation_pct = None
 
-    holdings["top_10"] = None
     weights: dict[str, float] = {}
     for holding in holdings["current"]:
-        holding["current_weight%"] = 100 * holding["current_value_usd"] / total_value_usd
-        weights[holding["ticker"]] = holding["current_weight%"]
+        # ``total_value_usd`` is guaranteed positive here: every
+        # ``current`` holding has been validated as strictly positive
+        # USD above, so iterating ``current`` implies a positive
+        # denominator. The empty-portfolio branch above already
+        # short-circuited when there was nothing to weight.
+        weight = 100 * holding["current_value_usd"] / total_value_usd
+        weights[holding["ticker"]] = weight
         logger.info(
             "%s - %s - Weight: %s%% - Return: %s%% - IRR: %s%%",
             holding["ticker"],
             holding["name"],
-            _fmt_pct(holding["current_weight%"]),
+            _fmt_pct(weight),
             _fmt_pct(holding["tsr%"]),
             _fmt_pct(holding["cagr%"]),
         )
+
+    top_10: dict[str, float] | None = None
     if weights:
         ranked = sorted(weights.items(), key=lambda item: item[1], reverse=True)
         if len(ranked) > 11:
-            holdings["top_10"] = dict(ranked[:10] + [("Other equities", sum(w for _, w in ranked[10:]))])
+            top_10 = dict(
+                ranked[:10] + [("Other equities", sum(w for _, w in ranked[10:]))],
+            )
         else:
-            holdings["top_10"] = dict(ranked)
+            top_10 = dict(ranked)
 
-    return total_value_usd
+    return PortfolioRollup(
+        total_value_usd=total_value_usd,
+        allocation_pct=allocation_pct,
+        top_10=top_10,
+        weights_by_ticker=weights,
+    )
 
 
+def apply_rollup(holdings: dict, rollup: PortfolioRollup) -> None:
+    """Write a :class:`PortfolioRollup` onto the carrier holdings dict.
+
+    The renderer reads ``allocation%`` / ``top_10`` off the holdings
+    dict and ``current_weight%`` off each current-holdings entry, so
+    the orchestrator applies the rollup to that shape before handing
+    the dict to :func:`generate_webpage`. Keeping the mutation in one
+    visible call (rather than buried inside :func:`compute_rollup`)
+    makes it obvious where and when the carrier dict changes.
+    """
+    holdings["allocation%"] = rollup.allocation_pct
+    holdings["top_10"] = rollup.top_10
+    for holding in holdings["current"]:
+        holding["current_weight%"] = rollup.weights_by_ticker.get(
+            holding["ticker"],
+        )
+
+
+def summarize(
+    holdings: dict,
+    cash: list[CashBalance],
+    *,
+    fx: FxRate | None = None,
+) -> float:
+    """Legacy facade preserved for tests: compute + apply in one call.
+
+    New code prefers :func:`compute_rollup` (pure) + :func:`apply_rollup`
+    (visibly mutates) so the orchestrator in :mod:`investing.cli`
+    reads as a step-by-step pipeline instead of nesting a side-
+    effecting call inside :func:`calc_twr`. Returns the total
+    portfolio USD value -- the figure :func:`calc_twr` divides today's
+    valuation by to extend the TWR curve past the last spreadsheet
+    row.
+    """
+    rollup = compute_rollup(holdings, cash, fx=fx)
+    apply_rollup(holdings, rollup)
+    return rollup.total_value_usd
 
 
 class Benchmark:
@@ -458,7 +530,8 @@ class Benchmark:
                 "cannot normalise cumulative-return curve",
             )
         ref_dates = np.array(
-            [d.date() for d, _ in reference_history], dtype="datetime64[D]",
+            [d.date() for d, _ in reference_history],
+            dtype="datetime64[D]",
         )
         # ``side="right"`` then ``- 1`` returns the index of the
         # last benchmark trading day with date <= ref_date.
@@ -484,11 +557,7 @@ class Benchmark:
         # trading day -- earlier ref dates legitimately want the
         # in-history adjusted close at that earlier date, not a
         # "today" stand-in.
-        if (
-            len(multipliers) > 1
-            and ref_dates[-1] >= self._dates[-1]
-            and start_price > 0.0
-        ):
+        if len(multipliers) > 1 and ref_dates[-1] >= self._dates[-1] and start_price > 0.0:
             multipliers[-1] = self._current_market_price / start_price
         # Pin the first entry at 1.0 by convention (the chart's
         # normalising denominator is by definition the start basis,

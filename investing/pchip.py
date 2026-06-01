@@ -22,6 +22,7 @@ Public API mirrors the scipy class enough for a drop-in swap:
 Inputs are expected to be 1-D float arrays, strictly increasing in
 ``x``. The class evaluates in O(log n) per query via ``searchsorted``.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -112,7 +113,7 @@ class Pchip:
         # closed form scipy emits for the same knots / derivatives.
         h00 = (1.0 + 2.0 * t) * (1.0 - t) ** 2
         h10 = t * (1.0 - t) ** 2
-        h01 = t ** 2 * (3.0 - 2.0 * t)
-        h11 = t ** 2 * (t - 1.0)
+        h01 = t**2 * (3.0 - 2.0 * t)
+        h11 = t**2 * (t - 1.0)
         out = h00 * y0 + h10 * h * d0 + h01 * y1 + h11 * h * d1
         return out.reshape(q.shape) if q.shape else float(out[0])

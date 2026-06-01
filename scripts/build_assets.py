@@ -29,6 +29,7 @@ minification, which lets the styles eventually grow into a per-
 section split (``00-base.css``, ``10-ticker.css``, ...) without
 touching this script.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -46,12 +47,16 @@ except ImportError as exc:  # pragma: no cover - exercised only on a misconfigur
     )
     sys.exit(2)
 
-# Kept available for the future ``_concatenate_css`` -> minify upgrade
-# described below.
 try:
-    import csscompressor as _css
-except ImportError:  # pragma: no cover - optional today
-    _css = None  # type: ignore[assignment]
+    import csscompressor
+except ImportError as exc:  # pragma: no cover - exercised only on a misconfigured env
+    print(
+        f"build_assets requires csscompressor: {exc}\n"
+        "Install via ``pip install -r requirements-dev.txt`` or, in "
+        "pre-commit, let the hook environment manage it.",
+        file=sys.stderr,
+    )
+    sys.exit(2)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -61,31 +66,33 @@ OUT_DIR = REPO_ROOT / "assets"
 
 
 def _minify_js(source: str) -> str:
-    """Run rjsmin and append a trailing newline.
+    """Run rjsmin over ``source`` and return the minified output.
 
-    ``end_of_file_fixer`` (the matching pre-commit hook) skips
-    generated files, but a trailing newline is friendlier to anyone
-    cat-ing the file at the terminal.
+    ``rjsmin`` is idempotent, so source files that are already
+    hand-minified pass through unchanged. ``keep_bang_comments=False``
+    drops every comment from the served bytes.
     """
     return rjsmin.jsmin(source, keep_bang_comments=False)
 
 
 def _concatenate_css(chunks: list[str]) -> str:
-    """Join CSS chunks with a blank line and ensure a trailing newline.
+    """Concatenate readable CSS sources and minify the result.
 
-    CSS minification is deliberately *not* applied here -- the suite
-    of webpage render tests asserts on the formatted whitespace
-    pattern of the inline ``<style>`` block (``.foo { bar: 1; }``),
-    so a minifying pass would invalidate ~20 assertions for a few
-    kilobytes saved. The structural separation (readable
-    ``assets/src/css/`` vs served ``assets/page.css``) is in place;
-    flip on :func:`csscompressor.compress` here when you're ready
-    to update the assertions in ``tests/test_webpage_*.py``.
+    Test assertions against the served stylesheet now go through
+    ``tests/_css_helpers.py``, which normalises whitespace before
+    matching, so the minifier's output (``.foo{prop:val;...}`` on a
+    single line) is now safe to ship without rewriting every
+    assertion. The structural separation between readable
+    ``assets/src/css/`` and served ``assets/page.css`` is the
+    source-of-truth boundary the rest of the build relies on (the CSP
+    hash in :mod:`investing.webpage.head` is computed over the served
+    bytes).
     """
-    body = "\n".join(chunks).rstrip("\n") + "\n"
-    # Future enabling line:
-    # return csscompressor.compress(body, max_linelen=0)
-    return body
+    body = "\n".join(chunks).rstrip("\n")
+    # ``max_linelen=0`` disables the per-line wrap so the served
+    # ``page.css`` ships as a single line -- smaller payload, and the
+    # SHA-256 over it stays stable across csscompressor versions.
+    return csscompressor.compress(body, max_linelen=0) + "\n"
 
 
 def _build_outputs() -> dict[Path, str]:
@@ -98,10 +105,7 @@ def _build_outputs() -> dict[Path, str]:
         # explicitly preserve the trailing-newline contract here.
         outputs[OUT_DIR / src.name] = _minify_js(src.read_text(encoding="utf-8"))
 
-    css_chunks = [
-        path.read_text(encoding="utf-8")
-        for path in sorted(SRC_CSS_DIR.glob("*.css"))
-    ]
+    css_chunks = [path.read_text(encoding="utf-8") for path in sorted(SRC_CSS_DIR.glob("*.css"))]
     if css_chunks:
         outputs[OUT_DIR / "page.css"] = _concatenate_css(css_chunks)
     return outputs

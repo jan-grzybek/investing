@@ -1,4 +1,5 @@
 """Tests for ``calc_twr`` (time-weighted return)."""
+
 from __future__ import annotations
 
 from datetime import datetime

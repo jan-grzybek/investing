@@ -1,4 +1,5 @@
 """Sibling files emitted alongside ``index.html``: ``sitemap.xml`` and ``robots.txt``."""
+
 from __future__ import annotations
 
 from ..clock import NowFn
@@ -17,13 +18,13 @@ def write_sitemap(site_url: str, *, now: NowFn) -> None:
     sitemap: SafeHtml = render_template(
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
-        '  <url>\n'
-        '    <loc>{url}</loc>\n'
-        '    <lastmod>{last_mod}</lastmod>\n'
-        '    <changefreq>daily</changefreq>\n'
-        '    <priority>1.0</priority>\n'
-        '  </url>\n'
-        '</urlset>\n',
+        "  <url>\n"
+        "    <loc>{url}</loc>\n"
+        "    <lastmod>{last_mod}</lastmod>\n"
+        "    <changefreq>daily</changefreq>\n"
+        "    <priority>1.0</priority>\n"
+        "  </url>\n"
+        "</urlset>\n",
         url=site_url,
         last_mod=last_mod,
     )

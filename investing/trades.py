@@ -1,6 +1,7 @@
 """``Trade`` records and the burst-aggregation logic that
 powers the "Trades" section.
 """
+
 from __future__ import annotations
 
 from collections import defaultdict
@@ -20,11 +21,7 @@ class Trade:
     action: str
 
 
-
-
 ACTIONS = ["BUY", "SELL"]
-
-
 
 
 def combine_and_sort(transactions: list[EquityTransaction]) -> list[Trade]:
@@ -59,17 +56,17 @@ def combine_and_sort(transactions: list[EquityTransaction]) -> list[Trade]:
             qty = t["quantity"]
             total_quantity += qty
             total_value += qty * t["price_per_share"]
-        trades.append(Trade(
-            date=datetime.strptime(date, "%d-%m-%Y"),
-            ticker=ticker,
-            quantity=total_quantity,
-            price=total_value / total_quantity,
-            action=action,
-        ))
+        trades.append(
+            Trade(
+                date=datetime.strptime(date, "%d-%m-%Y"),
+                ticker=ticker,
+                quantity=total_quantity,
+                price=total_value / total_quantity,
+                action=action,
+            )
+        )
 
     return sorted(trades, key=lambda t: (t.date, t.action))
-
-
 
 
 # ---------------------------------------------------------------------------
@@ -97,13 +94,11 @@ def combine_and_sort(transactions: list[EquityTransaction]) -> list[Trade]:
 TRADE_WINDOW_DAYS = 90
 
 
-
 # Reading these as a buy-vs-sell action partitions the four categories
 # along the only axis that matters for grouping (same-action trades go
 # together) and for picking the group's effective category (first event
 # decides BUY bursts, last event decides SELL bursts).
 _BUY_CATEGORIES = frozenset({"OPEN", "INCREASE"})
-
 
 
 # Display tables used by the trades-section renderer.
@@ -118,12 +113,11 @@ _BUY_CATEGORIES = frozenset({"OPEN", "INCREASE"})
 # red pill fills and stay aligned with the action axis so the
 # stylesheet keeps describing exactly what the badge marks.
 _TRADE_ACTION_DISPLAY: dict[str, tuple[str, str]] = {
-    "OPEN":     ("Bought", "buy"),
+    "OPEN": ("Bought", "buy"),
     "INCREASE": ("Bought", "buy"),
-    "DECREASE": ("Sold",   "sell"),
-    "CLOSE":    ("Sold",   "sell"),
+    "DECREASE": ("Sold", "sell"),
+    "CLOSE": ("Sold", "sell"),
 }
-
 
 
 # Static "Details" labels for the boundary events. INCREASE and
@@ -139,11 +133,9 @@ _TRADE_ACTION_DISPLAY: dict[str, tuple[str, str]] = {
 # rather than mixing noun phrases like "Initial stake" with
 # percentage values.
 _TRADE_DETAIL_LABELS: dict[str, str] = {
-    "OPEN":  "Initiated",
+    "OPEN": "Initiated",
     "CLOSE": "Divested",
 }
-
-
 
 
 def _combine_trade_events(
@@ -203,9 +195,7 @@ def _combine_trade_events(
         total_qty = sum(e["quantity"] for e in group)
         # ``quantity`` is always positive here (the sheet ingestion
         # rejects zero / negative rows), so the divide is safe.
-        weighted_price = (
-            sum(e["quantity"] * e["price"] for e in group) / total_qty
-        )
+        weighted_price = sum(e["quantity"] * e["price"] for e in group) / total_qty
         # BUY bursts inherit their effective category from the FIRST
         # event (did this burst open the position?); SELL bursts from
         # the LAST one (did this burst close the position?).
@@ -234,11 +224,13 @@ def _combine_trade_events(
         delta_pct: float | None = None
         if category in ("INCREASE", "DECREASE") and pre_quantity > 0:
             delta_pct = total_qty / pre_quantity * 100
-        combined.append({
-            "start_date": group[0]["date"],
-            "end_date": group[-1]["date"],
-            "price": weighted_price,
-            "category": category,
-            "delta_pct": delta_pct,
-        })
+        combined.append(
+            {
+                "start_date": group[0]["date"],
+                "end_date": group[-1]["date"],
+                "price": weighted_price,
+                "category": category,
+                "delta_pct": delta_pct,
+            }
+        )
     return combined

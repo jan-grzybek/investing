@@ -17,6 +17,7 @@ denormalised to percentage points (``42.0`` for "42%"). That isn't a
 valid Python identifier, so the alternative-syntax form
 (``TypedDict("Name", {...})``) is used wherever such a key appears.
 """
+
 from __future__ import annotations
 
 from datetime import datetime
