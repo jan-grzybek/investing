@@ -170,6 +170,21 @@ _RETURN_CHART_SCRIPT = _read_asset("return_chart.js")
 # happen?" question and matches the desktop convention of headlining
 # a burst by its last fill.
 #
+# Right after the initial sort the script also runs ``freezeColumns``
+# to pin each ``<th>`` to the width it would naturally take with
+# every row exposed. The default ``table-layout: auto`` recomputes
+# column widths from whichever rows are currently visible, and the
+# "Show fewer trades" cap (CSS hides ``tr:nth-of-type(n+11)``) means
+# sorting can rotate a long name -- "UnitedHealth Group Inc.", "Lam
+# Research Corporation" -- in or out of the top-10 window, which
+# visibly squashes or widens the Company column. By measuring once
+# with all rows displayed and then locking the table to
+# ``table-layout: fixed`` with those pixel widths, the column edges
+# stay flush across every sort + collapse permutation. The freeze is
+# re-run on viewport resize so the @540px breakpoint (which hides
+# the Company column entirely on phones) gets a fresh snapshot
+# rather than carrying desktop widths into the narrower layout.
+#
 # ``boot`` is deferred to ``DOMContentLoaded`` because the script ships
 # from <head> and the ``<table class="trades">`` body it queries for
 # isn't parsed yet at that point. Without the defer the IIFE would

@@ -832,15 +832,19 @@ class TestAddTrades:
         # crept back in it would re-introduce the "longer label
         # grows the pill" regression.
         assert "min-width" not in block
-        # Every mobile override of ``.trade__badge`` also pins to
-        # ``width: 7em`` -- there are three ``.trade__badge``
-        # declaration blocks total (base + two media-query
-        # overrides), and all three must carry the same width
-        # token. A future refactor that shrinks the mobile pill
-        # back down would silently re-introduce the iPhone SE
-        # cropping issue without this guard.
+        # Every surviving mobile override of ``.trade__badge`` also
+        # pins to ``width: 7em``. There are two ``.trade__badge``
+        # declaration blocks total now: the base rule plus the
+        # 540px override that re-pins the pill for the 480-540px
+        # sliver where the action column is still visible. Below
+        # ~480px a separate rule hides the action column entirely,
+        # so any further per-breakpoint pill overrides would be
+        # dead code -- but for as long as the pill IS rendered on
+        # narrow viewports it has to stay at 7em or the longer
+        # "BOUGHT" label re-introduces the iPhone SE cropping
+        # regression we landed this guard for.
         badge_blocks = _PAGE_STYLES.split(".trade__badge {")
-        assert len(badge_blocks) == 4  # 1 base + 2 overrides + leading "" split
+        assert len(badge_blocks) == 3  # 1 base + 1 override + leading "" split
         for declared in badge_blocks[1:]:
             assert "width: 7em;" in declared.split("}", 1)[0]
 

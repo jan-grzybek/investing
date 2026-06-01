@@ -1442,8 +1442,11 @@ footer a { color: var(--accent-bench); }
      column (the ticker uniquely identifies the security on its own)
      so the remaining ticker / action / details / date / price
      columns still fit on a phone width without horizontal scrolling.
-     The wrapping ``.trades__wrap`` is the fallback when even those
-     remaining columns can't fit on an unusually narrow viewport. */
+     A second cut at ``480px`` (further down) also drops the action
+     pill once even the tightened 5-column layout starts overflowing,
+     leaving ticker / details / date / price for the narrowest
+     phones. The wrapping ``.trades__wrap`` remains the fallback for
+     anything that still can't fit. */
   .trades { font-size: 0.875rem; }
   .trades thead th { padding: 8px 8px; font-size: 0.6875rem; }
   .trades tbody td { padding: 8px 8px; }
@@ -1504,6 +1507,30 @@ footer a { color: var(--accent-bench); }
   .returns-compare__delta-metric { flex: 1 0 100%; }
   .returns-compare__delta-sep { display: none; }
 }
+/* Below ~480px the 5-column trades layout left over after the 540px
+   ``.trades__cell--name`` cut still overflows on common phone widths
+   (iPhone SE 375px, iPhone 14/15 393px, iPhone 14/15 Pro Max 430px,
+   plus the typical 360-412px Android portrait range). The ``Action``
+   column is the next-biggest fixed-width consumer after the company
+   name -- the BUY / SELL pill is locked to ``7em`` so both labels
+   render at byte-for-byte identical widths, which makes it the
+   single widest "decorative" column in the table.
+   
+   Hide it here so ticker / details / date / price fit a phone width
+   without horizontal scrolling. The direction information the pill
+   carried is still encoded redundantly in the adjacent ``Details``
+   column: ``Initiated`` / ``Divested`` spell the lifecycle event
+   directly, and the magnitude rows ride ``value--positive`` /
+   ``value--negative`` colouring with an explicit ``+`` / ``-`` sign
+   on the percent, so a reader can recover buy-vs-sell at a glance
+   without the badge. The trades-sort script's ``freezeColumns``
+   helper re-measures on viewport resize so the locked
+   ``table-layout: fixed`` pixel widths recompute to a 4-column
+   layout once this rule trips. */
+@media (max-width: 480px) {
+  .trades__col--action,
+  .trades__cell--action { display: none; }
+}
 @media (max-width: 380px) {
   body { padding: 16px 12px 28px; }
   .site-header {
@@ -1523,23 +1550,10 @@ footer a { color: var(--accent-bench); }
   .holding__title { font-size: 0.9375rem; }
   .holding__stats { font-size: 0.875rem; gap: 6px 10px; }
   /* Phone-portrait widths shrink the trades table padding further
-     and tighten the action pill so all five remaining columns
-     (ticker / action / details / date / price) sit on one line.
-     ``.trades__wrap`` still provides horizontal scroll as a final
-     fallback for the rare ultra-narrow viewport where even this
-     can't fit. */
+     so the four remaining columns (ticker / details / date / price,
+     once the 480px rule above has hidden the action pill) sit
+     comfortably without nudging into ``.trades__wrap``'s
+     horizontal-scroll fallback. */
   .trades thead th { padding: 6px; }
   .trades tbody td { padding: 6px; }
-  .trade__badge {
-    /* iPhone SE / Galaxy Fold widths: bump both the pill box and
-       the font so the longer "BOUGHT" label sits comfortably
-       inside the rounded ends instead of pressing against them.
-       The wider pill nudges other columns into ``.trades__wrap``'s
-       horizontal-scroll territory, which is fine -- the action
-       column is the one the reader scans first and it has to
-       read cleanly. */
-    width: 7em;
-    padding: 2px 0;
-    font-size: 0.6875rem;
-  }
 }
