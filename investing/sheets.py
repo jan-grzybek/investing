@@ -280,6 +280,22 @@ def _batch_get_values(
     fallback preserves the historical behaviour for tests that
     plant ``sh.worksheet(name).get_all_values`` stubs without
     teaching them about ``values_batch_get``.
+
+    Sheets API normalisation: the underlying ``values.batchGet``
+    endpoint trims trailing empty cells per row (a row whose
+    right-most columns are blank comes back as a 5-element list
+    even when the worksheet schema is 7 columns wide). The
+    legacy per-worksheet ``Worksheet.get_all_values`` quietly
+    pads each row up to a uniform width via gspread's
+    ``fill_gaps`` helper before returning, which is what every
+    parser downstream assumes. We replicate that contract on
+    the batched path here by padding every row out to the
+    schema-defined minimum so a sheet whose right-most column
+    happens to be blank doesn't trip ``_check_row_shape`` after
+    the batched call. The per-worksheet fallback path keeps the
+    raw mock contract -- tests that plant short rows directly
+    through ``get_all_values`` continue to exercise the
+    parser-side shape check unchanged.
     """
     batch = getattr(sh, "values_batch_get", None)
     if batch is not None:
@@ -300,12 +316,39 @@ def _batch_get_values(
             value_ranges = response.get("valueRanges", [])
             if len(value_ranges) == len(range_names):
                 return {
-                    name: vr.get("values", []) or []
+                    name: _pad_rows(vr.get("values") or [], _SCHEMAS.get(name, 0))
                     for name, vr in zip(range_names, value_ranges, strict=True)
                 }
-    # Per-worksheet fallback path; preserves the legacy contract for
-    # any caller (or test) that hasn't migrated to the batched API.
+    # Per-worksheet fallback path; preserves the legacy contract
+    # for any caller (or test) that hasn't migrated to the batched
+    # API. ``Worksheet.get_all_values`` already runs gspread's
+    # ``fill_gaps`` internally so production never hits a short
+    # row through here.
     return {
         name: sh.worksheet(name).get_all_values()
         for name in range_names
     }
+
+
+def _pad_rows(rows: list[list[str]], width: int) -> list[list[str]]:
+    """Pad short rows out to ``width`` columns with empty strings.
+
+    The Sheets ``values.batchGet`` API trims trailing empty cells
+    per row, so a sheet whose right-most columns happen to be
+    blank on a given row comes back narrower than the schema
+    expects. Every parser downstream addresses cells by positional
+    index (``row[5]`` for the action token, etc.) and relies on
+    the row being at least ``_SCHEMAS[name]`` wide; padding here
+    makes the per-row shape consistent with the legacy
+    ``get_all_values`` contract. Rows that are already at or
+    above ``width`` are passed through unchanged.
+    """
+    if not width:
+        return list(rows)
+    padded: list[list[str]] = []
+    for row in rows:
+        if len(row) < width:
+            padded.append(list(row) + [""] * (width - len(row)))
+        else:
+            padded.append(list(row))
+    return padded

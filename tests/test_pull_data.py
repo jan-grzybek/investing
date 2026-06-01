@@ -230,3 +230,158 @@ class TestPullData:
         assert transactions == []
         assert valuations == []
         assert cash == []
+
+
+def _batched_response(equities, returns, cash):
+    """Compose a gspread ``values_batch_get`` response payload.
+
+    The batched endpoint trims trailing empty cells per row -- a
+    behaviour the production fix has to absorb explicitly via
+    :func:`investing.sheets._pad_rows`. This helper hands the test
+    direct control over the per-row shape so the regression case
+    (a row whose right-most column is blank and therefore comes
+    back narrower than the schema) can be expressed verbatim.
+    """
+    def _value_range(rows):
+        return {"range": "ignored", "majorDimension": "ROWS", "values": rows}
+
+    return {
+        "spreadsheetId": "fake-sheet-id",
+        "valueRanges": [
+            _value_range(_equities_header() + equities),
+            _value_range(_return_header() + returns),
+            _value_range(_cash_header() + cash),
+        ],
+    }
+
+
+@pytest.fixture
+def patch_gspread_batched(monkeypatch):
+    """Plant a spreadsheet that responds via ``values_batch_get``.
+
+    Mirrors :func:`patch_gspread` but the resulting mock answers
+    the batched API rather than the per-worksheet ``get_all_values``
+    chain, so the test exercises the production path through
+    :func:`investing.sheets._batch_get_values`.
+    """
+
+    def _install(payload):
+        sh = MagicMock()
+        sh.values_batch_get = MagicMock(return_value=payload)
+        sh.worksheet.side_effect = AssertionError(
+            "values_batch_get should serve the entire request -- the "
+            "per-worksheet fallback must not be reached when the "
+            "batched API is available."
+        )
+        gc = MagicMock()
+        gc.open_by_key.return_value = sh
+        monkeypatch.setattr(_sheets.gspread, "service_account", lambda filename: gc)  # noqa: ARG005
+        monkeypatch.setenv("GSHEET_ID", "fake-sheet-id")
+        return sh
+
+    return _install
+
+
+class TestBatchedPath:
+    """Regression tests for the ``values_batch_get`` shape contract.
+
+    The Sheets ``values.batchGet`` endpoint trims trailing empty
+    cells from each row before serialising the response. The
+    legacy per-worksheet ``Worksheet.get_all_values`` ran
+    ``fill_gaps`` internally so every parser downstream got rows
+    of uniform width; the batched path needs an explicit pad to
+    match that contract, otherwise a sheet whose right-most
+    column happens to be blank trips ``_check_row_shape`` and
+    fails the build.
+    """
+
+    def test_trimmed_trailing_cells_are_padded_for_parsers(
+        self, patch_gspread_batched
+    ):
+        # Equities row missing the trailing include flag (the API
+        # would have trimmed that blank cell). Reproduces the
+        # production failure observed when a row's include column
+        # was empty: ``len(row) == 6`` < ``_SCHEMAS['Equities']``
+        # would raise ``SheetParseError`` before the fix.
+        payload = _batched_response(
+            equities=[
+                ["", "01-01-2024", "AAPL", "1", "100.0", "BUY"],
+            ],
+            returns=[],
+            cash=[],
+        )
+        patch_gspread_batched(payload)
+
+        transactions, _, _ = pull_data()
+        # Padded include flag ("") is not a YES token, so the row
+        # is silently skipped -- which is the same outcome the
+        # legacy per-worksheet path would have produced for a
+        # row whose include cell was blank rather than absent.
+        assert transactions == []
+
+    def test_full_width_rows_pass_through_unchanged(
+        self, patch_gspread_batched
+    ):
+        # Sanity check: the padding step must not interfere with a
+        # row that already has all schema-required columns
+        # populated.
+        payload = _batched_response(
+            equities=[
+                ["", "01-01-2024", "AAPL", "1", "100.0", "BUY", "YES"],
+            ],
+            returns=[],
+            cash=[],
+        )
+        patch_gspread_batched(payload)
+
+        transactions, _, _ = pull_data()
+        assert len(transactions) == 1
+        assert transactions[0]["ticker"] == "AAPL"
+
+    def test_empty_value_range_is_treated_as_no_rows(
+        self, patch_gspread_batched
+    ):
+        # The Sheets API omits the ``"values"`` key entirely when a
+        # range is empty; the loader must treat that the same as
+        # an empty list rather than propagate ``None`` into the
+        # per-row iterator.
+        payload = {
+            "spreadsheetId": "fake-sheet-id",
+            "valueRanges": [
+                {"range": "ignored"},
+                {"range": "ignored"},
+                {"range": "ignored"},
+            ],
+        }
+        patch_gspread_batched(payload)
+
+        transactions, valuations, cash = pull_data()
+        assert transactions == []
+        assert valuations == []
+        assert cash == []
+
+
+class TestPadRows:
+    """Direct coverage for :func:`investing.sheets._pad_rows`.
+
+    The batched path's regression tests above cover the
+    end-to-end contract; this class exercises the helper in
+    isolation so an edge case (zero-width target, already-wide
+    row, mixed-width input) doesn't have to be reproduced through
+    the whole gspread mock chain.
+    """
+
+    def test_short_row_is_padded_to_target_width(self):
+        assert _sheets._pad_rows([["a", "b"]], 4) == [["a", "b", "", ""]]
+
+    def test_already_wide_row_is_passed_through(self):
+        assert _sheets._pad_rows([["a", "b", "c", "d"]], 3) == [["a", "b", "c", "d"]]
+
+    def test_zero_width_returns_input_copy(self):
+        rows = [["a"], ["b"]]
+        assert _sheets._pad_rows(rows, 0) == rows
+
+    def test_mixed_widths_normalise_to_target(self):
+        assert _sheets._pad_rows([["a"], ["a", "b", "c"], []], 2) == [
+            ["a", ""], ["a", "b", "c"], ["", ""],
+        ]
