@@ -1,5 +1,5 @@
 """``Holding`` -- per-ticker bookkeeping (positions,
-periods, inflows / outflows / dividends, TSR / CAGR).
+periods, inflows / outflows / dividends, return / IRR).
 """
 from __future__ import annotations
 
@@ -25,10 +25,86 @@ DAYS_YEAR = 365.2425
 
 
 
-# When a Holding has near-zero average capital deployed (e.g. fully sold and
-# repurchased within a small window) the CAGR formula explodes. Anything
-# above this sentinel is rendered as "TBA" rather than a misleading number.
+# When a Holding has near-zero invested capital across an extreme runup
+# (e.g. a $1 starter position 10x'd before a large top-up at the new high)
+# the XIRR can blow up to silly annualised rates. Anything above this
+# sentinel is rendered as "TBA" rather than a misleading headline.
 CAGR_TBA_THRESHOLD = math.nextafter(1_000_000, 0)
+
+
+def _xirr(
+    cashflows: list[tuple[datetime, float]],
+    *,
+    low: float = -0.999,
+    high: float = 1.0e4,
+    max_iter: int = 200,
+    tol: float = 1.0e-9,
+) -> float:
+    """Annualised internal rate of return for an irregular cashflow series.
+
+    ``cashflows`` is a list of ``(date, amount)`` pairs in any order;
+    negative amounts represent outflows from the investor (BUYs),
+    positive amounts represent inflows (SELLs, dividends, the
+    open-position mark-to-market). Returns the rate ``r`` such that
+    the net present value of every cashflow discounted at ``r`` is
+    zero -- i.e. the same number Excel's ``=XIRR(...)`` and a typical
+    brokerage "Personal Rate of Return" figure would report.
+
+    Algorithm: bisection on ``[low, high]``. The NPV function is
+    monotonic in ``r`` whenever the cashflow series has a single
+    sign change (the typical retail BUY-then-everything-positive
+    pattern, by Descartes' rule), so the root is unique and the
+    bracket converges quickly. Bisection is preferred over Newton
+    for robustness -- the derivative can pass close to zero on
+    degenerate inputs and a Newton step would overshoot wildly.
+
+    Returns ``math.nan`` if the bracket can't capture a sign change
+    after one widening pass; the caller is expected to gate on the
+    existing ``CAGR_TBA_THRESHOLD`` sentinel and render "TBA" in
+    that case.
+    """
+    if len(cashflows) < 2:
+        return math.nan
+    cashflows = sorted(cashflows, key=lambda cf: cf[0])
+    base_date = cashflows[0][0]
+    items = [
+        ((cf[0] - base_date).days / DAYS_YEAR, cf[1])
+        for cf in cashflows
+    ]
+    has_pos = any(amount > 0 for _, amount in items)
+    has_neg = any(amount < 0 for _, amount in items)
+    if not (has_pos and has_neg):
+        return math.nan
+
+    def npv(r: float) -> float:
+        return sum(amount / ((1.0 + r) ** t) for t, amount in items)
+
+    f_low = npv(low)
+    f_high = npv(high)
+    # One widening pass: a tiny initial position that has 100x'd in a
+    # week can land outside the default ``[-0.999, 1e4]`` window.
+    # Walk the upper bound upward (geometric) before giving up so the
+    # bisect still has a hope of bracketing.
+    while f_low * f_high > 0 and high < 1.0e8:
+        high *= 10.0
+        f_high = npv(high)
+    if f_low * f_high > 0:
+        return math.nan
+
+    for _ in range(max_iter):
+        mid = (low + high) / 2.0
+        f_mid = npv(mid)
+        if abs(f_mid) < tol:
+            return mid
+        if f_low * f_mid < 0:
+            high = mid
+            f_high = f_mid
+        else:
+            low = mid
+            f_low = f_mid
+        if abs(high - low) < tol:
+            break
+    return (low + high) / 2.0
 
 
 
@@ -92,11 +168,6 @@ class Holding:
         self._split_factors = np.array(
             [s["split"] for s in self._splits], dtype=float,
         )
-        # Lazy daily-close cache used only by :meth:`_close_on` to
-        # resolve a sub-period's ex-dividend boundary in the chained
-        # TWR walk. ``None`` means "not fetched yet" -- a holding
-        # with no dividends never triggers the fetch.
-        self._history_cache: tuple[np.ndarray, np.ndarray] | None = None
 
     def _get_splits_dividends(self):
         """Bootstrap the per-ticker splits / dividends timelines.
@@ -214,68 +285,6 @@ class Holding:
             return 1.0
         return float(self._split_factors[idx:].prod())
 
-    def _ensure_history(self) -> tuple[np.ndarray, np.ndarray] | None:
-        """Lazily fetch + cache the ticker's daily ``Close`` series.
-
-        Returns parallel ``(dates, closes)`` numpy arrays in the
-        current (post-all-splits) share frame -- yfinance's
-        ``Close`` column with ``auto_adjust=False`` is split-
-        adjusted but not dividend-adjusted, which is exactly the
-        frame the chained TWR walk operates in.
-
-        Holdings with no dividends never call this method, so
-        the extra HTTPS round trip is paid only when the chain
-        genuinely needs an ex-dividend boundary close.
-        """
-        if self._history_cache is not None:
-            return self._history_cache
-        if not self._positions:
-            return None
-        start = self._positions[0]["date"].strftime("%Y-%m-%d")
-        history = self.fetch_market_history(start=start)
-        # ``ffill`` then ``bfill`` covers any NaN run in the response
-        # (a missing day inherits the previous trading day's close;
-        # a leading NaN inherits the first finite close). The
-        # downstream ``np.searchsorted`` then doesn't have to dodge
-        # NaNs at lookup time.
-        closes = history["Close"].ffill().bfill().to_numpy(dtype=float)
-        idx = history.index
-        # See the same dance in :class:`Benchmark.__init__` -- a
-        # tz-aware DatetimeIndex (LSE / NYSE / ...) collapsed via a
-        # naive ``.to_numpy().astype("datetime64[D]")`` would shift
-        # BST trading days back one calendar day in UTC. Drop the
-        # tz without converting so the date keys preserve the
-        # exchange-local calendar dates the bars actually represent.
-        if getattr(idx, "tz", None) is not None:
-            idx = idx.tz_localize(None)
-        dates = idx.to_numpy().astype("datetime64[D]")
-        self._history_cache = (dates, closes)
-        return self._history_cache
-
-    def _close_on(self, date: datetime) -> float:
-        """Return the ``Close`` on the trading day at-or-before ``date``.
-
-        Forward-fills across non-trading days (weekends / holidays)
-        so any calendar date the dividend timeline lands on resolves
-        to a usable close. The first available row is the floor;
-        a date earlier than every history row falls back to that
-        first close (vanishingly rare in practice -- the history
-        fetch starts from the earliest trade date).
-        """
-        cache = self._ensure_history()
-        if cache is None or cache[0].size == 0:
-            raise InvariantError(
-                "no daily-history rows available -- cannot resolve "
-                "close-on-date for the chained-TWR sub-period bounded "
-                "by a dividend event",
-            )
-        dates, closes = cache
-        target = np.datetime64(date.date(), "D")
-        idx = int(np.searchsorted(dates, target, side="right")) - 1
-        if idx < 0:
-            idx = 0
-        return float(closes[idx])
-
     def buy(self, trade: Trade) -> None:
         try:
             current_quantity = self._positions[-1]["quantity"]
@@ -388,12 +397,11 @@ class Holding:
         snapshot fetched in ``__init__`` -- the same value
         :meth:`summary` uses to mark the open position to market.
         Exposed so :class:`investing.performance.Benchmark` can pin
-        its chart curve's right-edge sample to the same number the
-        modified-Dietz TSR below the chart computes against, instead
-        of clipping to the latest adjusted close already in the
-        ``history()`` response (which lags by intraday / overnight
-        movement against the live tape ``regularMarketPrice``
-        reflects).
+        its chart curve's right-edge sample to the same number its
+        capsule TSR computes against, instead of clipping to the
+        latest adjusted close already in the ``history()`` response
+        (which lags by intraday / overnight movement against the
+        live tape ``regularMarketPrice`` reflects).
         """
         return float(self._info["regularMarketPrice"])
 
@@ -436,32 +444,47 @@ class Holding:
         # Returns a :class:`investing.types.HoldingSummary`-shaped
         # dict; signature kept loose so mypy doesn't fight the
         # incremental dict construction below.
-        """Compute chained-TWR TSR/CAGR plus the renderer-facing payload.
+        """Compute money-weighted return / IRR plus the renderer payload.
 
-        Walks BUY / SELL / DIVIDEND events chronologically and
-        accumulates a multiplier across each sub-period bounded by
-        adjacent events. Within a sub-period nothing happens except
-        market motion; at a dividend event we add the after-tax
-        dividend yield (``per_share_after_tax / close_on_div_date``)
-        to the running multiplier. Closed-period gaps where the
-        position was fully sold pause the walk -- the next BUY
-        re-anchors a fresh sub-period at the actual trade price.
+        The per-holding figures answer "how did *I* do on this
+        position" rather than "how did the security itself perform".
+        Concretely we build the actual cashflow timeline the
+        investor experienced and reduce it to two numbers:
 
-        Withholding tax (``WITHHOLDING_TAX_RATE``) only applies to
-        the dividend-yield term; the price-only sub-period return
-        carries no tax drag (capital-gains tax is intentionally
-        not modelled in this report).
+        * ``tsr%`` is the **money multiple minus one**, expressed
+          as a percentage. A 1.45x multiple becomes ``tsr% =
+          45.0``. Total dollars returned (sells + after-tax
+          dividends + open mark-to-market) divided by total
+          dollars invested. Dividends are treated as **cash** --
+          no reinvestment assumption -- because that matches what
+          the holder actually experienced (the cheque hit the
+          brokerage account).
 
-        Real BUY / SELL prices come from the spreadsheet (via the
+        * ``cagr%`` is the **annualised IRR** (Excel's ``=XIRR``)
+          of the cashflow series. Solves for the rate that makes
+          the NPV of every BUY (negative), SELL (positive),
+          dividend (positive, post-15%-tax), and the synthetic
+          mark-to-market at ``now`` (positive, open positions
+          only) sum to zero. Captures the time-value-of-money
+          effect that MoIC alone misses.
+
+        Together they form the standard PE/VC + brokerage
+        "personal performance" pair: MoIC for cumulative
+        magnitude, XIRR for annualised time-weighted rate.
+        Withholding tax (``WITHHOLDING_TAX_RATE``) reduces the
+        dividend cashflow at the moment it's recorded; capital
+        gains on closed sells are not taxed (the report does not
+        model the investor's local capital-gains regime).
+
+        Real BUY / SELL prices come from the spreadsheet (via
         ``Trade`` records funnelled into ``_trade_events``); the
-        close-on-date for DIVIDEND boundaries comes from yfinance
-        daily history (fetched lazily on first use); the final
-        mark-to-market for an open position uses the live
-        ``regularMarketPrice``. All three sources are denominated
-        in the **current** (post-all-splits) share frame, so
-        spreadsheet trade prices/quantities are rebased on the fly
-        via :meth:`_split_factor_strictly_after` before they enter
-        the walk.
+        open-position mark-to-market uses the live
+        ``regularMarketPrice``. Quantities are rebased into the
+        current (post-all-splits) share frame on the fly via
+        :meth:`_split_factor_strictly_after` so dividend
+        cashflows (yfinance reports per-share values in current
+        frame) multiply through cleanly with the running share
+        count.
         """
         now = self._now()
         currency = self._info["currency"]
@@ -487,8 +510,9 @@ class Holding:
         # records the new shares before the dividend is paid out);
         # dividends carry priority 1. Splits aren't first-class
         # events here -- ``_split_factor_strictly_after`` rebases
-        # every quantity / price into the current frame on the fly,
-        # so the chain reads as a single share-frame timeline.
+        # the quantity tracker into the current share frame on the
+        # fly, which is the only frame ``_dividends`` is denominated
+        # in.
         events: list[tuple[datetime, int, str, dict]] = []
         for ev in self._trade_events:
             factor = self._split_factor_strictly_after(ev["date"])
@@ -496,96 +520,119 @@ class Holding:
             events.append((
                 ev["date"], 0, kind,
                 {
-                    "price_native": ev["price"] / factor,
-                    "quantity": ev["quantity"] * factor,
+                    # Native value of the trade -- multiplying raw
+                    # quantity by raw price is invariant under any
+                    # subsequent split (so we don't need to rebase
+                    # this number, only the running quantity counter
+                    # below).
+                    "trade_value_native": ev["quantity"] * ev["price"],
+                    # Quantity in current share frame, used to know
+                    # how many shares were held when each dividend
+                    # is paid out.
+                    "qty_current": ev["quantity"] * factor,
                 },
             ))
         for div in self._dividends:
             events.append((
                 div["date"], 1, "DIV",
-                {"per_share_native": div["dividend"]},
+                {"per_share_current": div["dividend"]},
             ))
         events.sort(key=lambda e: (e[0], e[1]))
 
-        twr = 1.0
-        quantity = 0.0
-        prev_price: float | None = None
-        total_ownership_length = 0
+        cashflows: list[tuple[datetime, float]] = []
+        # Dollars-in vs dollars-out, both in USD, for MoIC. Tracked
+        # alongside the cashflow timeline because the XIRR solver
+        # only needs the signed timeline, not the magnitudes.
+        gross_invested = 0.0
+        gross_returned = 0.0
+
+        quantity_current = 0.0
         period_started: datetime | None = None
+        total_ownership_length = 0
 
         for date, _, kind, payload in events:
-            if kind in ("BUY", "SELL"):
-                event_price = payload["price_native"]
-            else:  # DIV
-                event_price = self._close_on(date)
-
-            # Sub-period price-only return -- only when shares were
-            # held for the whole stretch from ``prev_price`` (the
-            # previous event's marking price) to ``event_price``.
-            if quantity > 0 and prev_price is not None and prev_price > 0:
-                twr *= event_price / prev_price
-
             if kind == "BUY":
-                if quantity == 0:
+                if quantity_current == 0:
                     period_started = date
-                quantity += payload["quantity"]
-                # Re-anchor at the actual trade price the user paid;
-                # the next sub-period measures appreciation from
-                # *that* price, not the close on the trade date.
-                prev_price = event_price
+                quantity_current += payload["qty_current"]
+                cash_usd = (
+                    payload["trade_value_native"]
+                    * self._fx(currency, date)
+                )
+                cashflows.append((date, -cash_usd))
+                gross_invested += cash_usd
             elif kind == "SELL":
-                quantity -= payload["quantity"]
-                if quantity <= 1e-9:
+                quantity_current -= payload["qty_current"]
+                cash_usd = (
+                    payload["trade_value_native"]
+                    * self._fx(currency, date)
+                )
+                cashflows.append((date, +cash_usd))
+                gross_returned += cash_usd
+                if quantity_current <= 1e-9:
                     if period_started is not None:
                         total_ownership_length += max(
                             (date - period_started).days, 1,
                         )
                         period_started = None
-                    quantity = 0.0
-                    # Reset so the next BUY (if any) starts a fresh
-                    # sub-period without compounding the gap's
-                    # market motion into TSR.
-                    prev_price = None
-                else:
-                    prev_price = event_price
+                    quantity_current = 0.0
             elif kind == "DIV":
-                if quantity > 0 and event_price > 0:
-                    # Withholding tax applies *only* here: the
-                    # capital-return component of the chained walk
-                    # (price ratios across BUY/SELL/MTM boundaries)
-                    # is tax-free by design.
-                    div_after_tax = (
-                        payload["per_share_native"]
+                if quantity_current > 0:
+                    # Withholding tax applies *only* here. Capital
+                    # returns flowing through SELL / MTM cashflows
+                    # are untaxed by design (capital gains tax is
+                    # not modelled).
+                    cash_usd = (
+                        quantity_current
+                        * payload["per_share_current"]
                         * (1.0 - WITHHOLDING_TAX_RATE)
+                        * self._fx(currency, date)
                     )
-                    twr *= 1.0 + div_after_tax / event_price
-                    prev_price = event_price
+                    if cash_usd > 0:
+                        cashflows.append((date, +cash_usd))
+                        gross_returned += cash_usd
 
-        # Final mark-to-market for an open position. Closes the
-        # currently-open ownership period with the live tape price
-        # so the chart reads ``Adj Close[start] -> regularMarketPrice``
-        # -- the same numerator + denominator the comparison
-        # benchmark uses for its capsule TSR.
-        last_quantity = quantity
-        if last_quantity > 0:
-            live_price = float(self._info["regularMarketPrice"])
-            if prev_price is not None and prev_price > 0:
-                twr *= live_price / prev_price
+        # Synthetic mark-to-market for an open position: as if the
+        # holder sold at ``regularMarketPrice`` today. Together with
+        # the actual BUY/SELL/DIV cashflows this gives XIRR enough
+        # signal to bracket a root.
+        if quantity_current > 0:
+            mtm_usd = (
+                quantity_current
+                * float(self._info["regularMarketPrice"])
+                * self._fx(currency)
+            )
+            cashflows.append((now, +mtm_usd))
+            gross_returned += mtm_usd
             if period_started is not None:
                 total_ownership_length += max(
                     (now - period_started).days, 1,
                 )
                 period_started = None
 
-        if total_ownership_length > 0:
-            cagr = twr ** (DAYS_YEAR / total_ownership_length) - 1.0
+        # MoIC - 1, in percent. Reuses the historical ``tsr%`` key
+        # so the renderer / sort attrs / OG image / capsule layout
+        # don't have to plumb a new field; the disclaimer carries
+        # the methodology change.
+        if gross_invested > 0:
+            tsr = gross_returned / gross_invested - 1.0
         else:
-            cagr = 0.0
-        tsr = twr - 1.0
+            tsr = 0.0
 
-        if last_quantity > 0:
+        # XIRR via the bisection solver. ``math.nan`` (no bracket
+        # found, e.g. degenerate cashflow series) propagates through
+        # the multiplication and the renderer will hit the
+        # ``CAGR_TBA_THRESHOLD`` guard which already exists for
+        # extreme rates -- ``nan > threshold`` is ``False`` in
+        # Python, so we explicitly map ``nan`` to ``inf`` to take
+        # the "TBA" branch.
+        irr = _xirr(cashflows)
+        if math.isnan(irr):
+            irr = math.inf
+
+        if quantity_current > 0:
             current_value_usd = (
-                last_quantity
+                quantity_current
                 * self._info["regularMarketPrice"]
                 * self._fx(currency)
             )
@@ -600,7 +647,7 @@ class Holding:
             # hero) can do further math without compounding rounding
             # error. Display sites round at format time with ``:.1f``.
             "tsr%": tsr * 100,
-            "cagr%": cagr * 100,
+            "cagr%": irr * 100,
             "is_current": self._positions[-1]["quantity"] > 0,
             "current_weight%": None,
             "current_value_usd": current_value_usd,

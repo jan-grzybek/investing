@@ -35,8 +35,15 @@ SORT_OPTIONS: tuple[tuple[str, str, str], ...] = (
     ("default", "Default", "default"),
     ("ticker",  "Ticker",  "text"),
     ("name",    "Name",    "text"),
-    ("tsr",     "TSR",     "number"),
-    ("cagr",    "CAGR",    "number"),
+    # ``tsr`` and ``cagr`` are kept as the sort *keys* (they match
+    # the ``data-sort-tsr`` / ``data-sort-cagr`` attributes the
+    # holdings-sort script reads, and the on-disk DOM order tests
+    # pin those names). The visible labels read "Return" and "IRR"
+    # because the underlying figures are now MoIC-based and IRR-
+    # based rather than TWR/CAGR -- see the disclaimer methodology
+    # bullet for the full rationale.
+    ("tsr",     "Return",  "number"),
+    ("cagr",    "IRR",     "number"),
     ("weight",  "Weight",  "number"),
 )
 
@@ -105,8 +112,11 @@ def build_card(
     names (without the ``data-`` prefix) to string values that
     will be emitted on the outer ``<article>``. Used by the
     holdings sort control to read per-card sort keys (ticker,
-    name, TSR, CAGR, weight) without having to re-parse the
-    rendered card body.
+    name, return, IRR, weight) without having to re-parse the
+    rendered card body. The attribute names use the historical
+    ``tsr`` / ``cagr`` keys to keep the JS contract stable; only
+    the visible labels and the underlying formulas have moved
+    to MoIC / XIRR semantics.
     """
     body_parts = [f'<h3 class="holding__title">{html.escape(title)}</h3>']
     if periods:
@@ -193,13 +203,20 @@ def build_holding_card(
         # floats; ``_fmt_pct`` chooses one decimal under 100 and
         # whole-number from 100 up. The raw float still flows to
         # ``_value_class`` for sign-based colouring.
-        ("TSR:", f"{_fmt_pct(holding['tsr%'])}%", holding["tsr%"]),
+        #
+        # The visible labels read "Return" (cumulative MoIC - 1)
+        # and "IRR" (annualised XIRR over the holding's actual
+        # cashflow series). The dict keys ``tsr%``/``cagr%`` are
+        # retained so the OG image / sort attrs / capsule layout
+        # don't churn; the methodology bullet in the footer
+        # disclaimer carries the formula change.
+        ("Return:", f"{_fmt_pct(holding['tsr%'])}%", holding["tsr%"]),
     ]
     if holding["cagr%"] > CAGR_TBA_THRESHOLD:
-        stats.append(("CAGR:", "TBA", None))
+        stats.append(("IRR:", "TBA", None))
     else:
         stats.append(
-            ("CAGR:", f"{_fmt_pct(holding['cagr%'])}%", holding["cagr%"]),
+            ("IRR:", f"{_fmt_pct(holding['cagr%'])}%", holding["cagr%"]),
         )
     if holding["is_current"]:
         weight = holding["current_weight%"]

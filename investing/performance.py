@@ -292,7 +292,7 @@ def summarize(
         holding["current_weight%"] = 100 * holding["current_value_usd"] / total_value_usd
         weights[holding["ticker"]] = holding["current_weight%"]
         logger.info(
-            "%s - %s - Weight: %s%% - TSR: %s%% - CAGR: %s%%",
+            "%s - %s - Weight: %s%% - Return: %s%% - IRR: %s%%",
             holding["ticker"],
             holding["name"],
             _fmt_pct(holding["current_weight%"]),
@@ -513,16 +513,16 @@ class Benchmark:
         by construction.
 
         Note we deliberately do NOT route this through
-        :meth:`Holding.summary`: that path is Modified-Dietz over
-        actual cashflows in the as-of-trade-date share frame, and
-        marks open positions to market by walking forward through
-        any intervening splits to translate the position quantity
-        into post-all-splits units. Our basis is already in
-        post-all-future-splits units (Yahoo back-adjusts ``Adj
-        Close``), so any further split-adjustment of a "1 share"
-        synthetic trade would double-count the split and overstate
-        the return. Computing the ratio directly here keeps the
-        Benchmark's price-frame contract local and unambiguous.
+        :meth:`Holding.summary`: that path is a chained sub-period
+        TWR over actual trade events with explicit ex-dividend
+        boundaries, none of which a benchmark "1 share" synthetic
+        needs. The buy-and-hold ratio
+        ``regularMarketPrice / Adj Close[start]`` collapses the same
+        arithmetic into a single line and keeps the Benchmark's
+        price-frame contract local and unambiguous (Yahoo's
+        ``Adj Close`` is already in post-all-future-splits units, so
+        a synthetic trade routed through the chain would have to
+        avoid the split-rebase that genuine trades depend on).
         """
         info = self._holding.info
         currency = info["currency"]

@@ -900,11 +900,11 @@ class TestSave:
     ):
         # The footer is split into two labelled blocks: the
         # "Methodology" heading sits above the bulleted notes
-        # (base currency / Dietz / TWR scope / data source), and the
-        # "Disclaimer" heading sits above the informational-purposes
-        # paragraph and the logos/analytics legal note. Heading level
-        # mirrors ``.section__title`` (h2) inside ``<main>`` so the
-        # document outline stays linear.
+        # (base currency / per-holding TSR / portfolio TWR / data
+        # source), and the "Disclaimer" heading sits above the
+        # informational-purposes paragraph and the logos/analytics
+        # legal note. Heading level mirrors ``.section__title`` (h2)
+        # inside ``<main>`` so the document outline stays linear.
         freeze_today(datetime(2025, 6, 1))
         w = Webpage()
         w.add_return(_total_return(), [_benchmark()])

@@ -388,31 +388,39 @@ class TestSummary:
         expected_cagr = ((1.44) ** (DAYS_YEAR / length) - 1) * 100
         assert summary["cagr%"] == pytest.approx(expected_cagr)
 
-    def test_top_up_after_runup_does_not_break_chain(
+    def test_top_up_after_runup_reflects_actual_money_journey(
         self, install_ticker, stub_exchange_rate, freeze_today
     ):
-        # Regression coverage for the Modified Dietz collapse:
-        # a small initial position 10x's, then the holder adds a
-        # large top-up near the live price, and finally we mark to
-        # market a smidge above. Modified Dietz computed
-        # ``avg_capital`` by weighting cashflows linearly through
-        # the period, which on a 10x runup followed by a near-end
-        # large top-up yields an average capital that under-counts
-        # the real exposure (or even goes negative under the right
-        # ordering), spitting out wildly inflated percentages.
-        # The chained TWR threads the run-up and top-up through
-        # multiplicative sub-period returns, so the final TSR is
-        # bounded by what the price actually did.
+        # Regression coverage for the headline-figure honesty
+        # invariant of the MoIC + XIRR pair: a small initial
+        # position 10x's, then the holder adds a large top-up near
+        # the live price, and finally we mark-to-market a smidge
+        # above. Under TWR semantics the figures looked like a
+        # 10x return on the security (technically true!), but the
+        # investor's actual money saw only ~2% return because the
+        # vast majority of the dollars were deployed only in the
+        # last month. MoIC + XIRR are the standard tool to read
+        # this honestly.
         freeze_today(datetime(2025, 1, 1))
         install_ticker(_make_ticker(price=1010.0))
         holding = Holding("TST", fx=stub_exchange_rate)
-        # Buy 1 share at $100, ride to $1000, then top up 100 more
-        # shares at $1000. From the second buy to today the price
-        # only moves another 1%, so the holding's total return is
-        # the 10x leg compounded with the 1.01x leg = ~10.1x.
+        # Buy 1 share at $100 (Jan 2023), watch it ride to $1000,
+        # top up 100 more shares at $1000 (Dec 2024). From the
+        # second buy to today the price only moves another 1%.
         holding.buy(Trade(datetime(2023, 1, 1), "TST", 1, 100.0, "BUY"))
         holding.buy(Trade(datetime(2024, 12, 1), "TST", 100, 1000.0, "BUY"))
 
         summary = holding.summary()
-        # TWR = (1000/100) * (1010/1000) = 10.1 -> 910%.
-        assert summary["tsr%"] == pytest.approx(910.0)
+        # MoIC = (101 * $1010) / ($100 + $100,000) = 102,010 /
+        # 100,100 ≈ 1.0191x -> Return % ≈ 1.91%. Tiny, because
+        # the investor's actual capital-weighted exposure was
+        # almost entirely on the late top-up that barely moved.
+        assert summary["tsr%"] == pytest.approx(1.91, abs=0.05)
+        # IRR is much higher than MoIC because the late capital
+        # was deployed for only ~31 days and a 1% return over 31
+        # days annualises to ~12% p.a.; the early $100's 10x over
+        # 2 years pulls that up further. The exact value depends
+        # on the bisection but is unambiguously double-digit
+        # positive p.a.
+        assert summary["cagr%"] > 10.0
+        assert summary["cagr%"] < 50.0
