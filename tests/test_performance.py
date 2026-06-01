@@ -33,6 +33,7 @@ def _make_benchmark_ticker(
     long_name: str = "Vanguard S&P 500 UCITS ETF",
     splits: dict | None = None,
     dividends: dict | None = None,
+    index_tz: str | None = None,
 ):
     """Build a ``yf.Ticker``-shaped mock whose ``history()`` returns a
     DataFrame with the columns ``Benchmark.__init__`` reads.
@@ -40,6 +41,13 @@ def _make_benchmark_ticker(
     ``history`` maps trading-day datetime -> ``(open, adj_close)``;
     the DataFrame's index is built from the dict keys (in insertion
     order) so the test controls the timeline directly.
+
+    ``index_tz`` (e.g. ``"Europe/London"``) localises the synthetic
+    DatetimeIndex to mirror what real yfinance returns for an
+    exchange-listed ticker. The default ``None`` keeps the index
+    tz-naive so legacy tests, which were written before the
+    timezone-aware contract was reproduced in fixtures, continue to
+    exercise the same code path they always did.
     """
     from unittest.mock import MagicMock
 
@@ -56,9 +64,12 @@ def _make_benchmark_ticker(
     dates = list(history.keys())
     opens = [history[d][0] for d in dates]
     adj_closes = [history[d][1] for d in dates]
+    index = pd.DatetimeIndex(dates)
+    if index_tz is not None:
+        index = index.tz_localize(index_tz)
     frame = pd.DataFrame(
         {"Open": opens, "Adj Close": adj_closes},
-        index=pd.DatetimeIndex(dates),
+        index=index,
     )
     mock.history.return_value = frame
     return mock
@@ -210,6 +221,125 @@ class TestCumulativeReturnSeries:
         assert series[1][1] == pytest.approx(180.0 / 152.0)
         # First sample pinned to 1.0 by convention.
         assert series[0][1] == 1.0
+
+
+class TestCumulativeReturnSeriesTimezoneHandling:
+    """Yahoo returns a tz-aware ``DatetimeIndex`` for exchange-listed
+    tickers. The resampler's ``np.searchsorted`` lookup compares those
+    timestamps against tz-naive reference dates parsed from the
+    spreadsheet, so the construction-time ``datetime64[D]`` conversion
+    has to preserve the **exchange-local** calendar date -- not the
+    UTC-shifted one -- or every BST trading day silently maps to the
+    next session's adj close."""
+
+    def test_bst_ref_date_resolves_to_same_days_adj_close(
+        self, install_ticker, stub_exchange_rate
+    ):
+        # Yahoo returns LSE bars as ``YYYY-MM-DD 00:00:00+01:00``
+        # during BST. The naive ``.to_numpy().astype("datetime64[D]")``
+        # collapses each timestamp to its UTC date, which subtracts an
+        # hour and shifts every BST trading day back one calendar day.
+        # The resampler's ``searchsorted`` then maps the ref date
+        # ``2026-03-31`` to the **Apr 1** row's adj close (overstating
+        # the curve by a session's move). The fix re-localises to
+        # naive before the date conversion so the lookup picks the
+        # actual Mar 31 row.
+        install_ticker(_make_benchmark_ticker(
+            price=999.0,
+            history={
+                # Winter (UTC+0): conversion is a no-op even without
+                # the fix -- included to anchor the start basis.
+                datetime(2026, 1, 2): (131.64, 131.64),
+                # BST (UTC+1): exactly the regression case from the
+                # production page. Without the fix, ref Mar 31 picks
+                # up Apr 1's close (127.04) and the chart reads
+                # ``-3.49%`` instead of the correct ``-5.85%``.
+                datetime(2026, 3, 31): (123.94, 123.94),
+                datetime(2026, 4, 1): (127.04, 127.04),
+                # Anchor the right edge of the Yahoo history past
+                # the last ref date so the resampler's last-sample
+                # ``regularMarketPrice`` override stays inactive and
+                # we can assert directly on the adj-close-derived
+                # value the bug would otherwise produce.
+                datetime(2026, 4, 30): (130.00, 130.00),
+            },
+            index_tz="Europe/London",
+        ))
+        benchmark = Benchmark(
+            "VUAA.L", datetime(2026, 1, 1), fx=stub_exchange_rate,
+        )
+        ref_history = [
+            (datetime(2026, 1, 1), 1.0),
+            (datetime(2026, 3, 31), 0.95),
+        ]
+        series = benchmark.cumulative_return_series(ref_history)
+        assert series[1][1] == pytest.approx(123.94 / 131.64)
+        # And NOT the next-session number the bug produced.
+        assert series[1][1] != pytest.approx(127.04 / 131.64)
+
+    def test_winter_ref_date_unchanged_by_tz_handling(
+        self, install_ticker, stub_exchange_rate
+    ):
+        # Sanity check: outside DST the conversion is already a
+        # no-op (UTC+0 == local), so the resampler must produce the
+        # same value before and after the fix. Guards against an
+        # over-zealous rewrite that drops the tz on a value that
+        # would have round-tripped correctly anyway.
+        #
+        # The Yahoo history extends past the last ref date so the
+        # right-edge override (which would otherwise pin the last
+        # sample to ``regularMarketPrice / start_basis``) stays
+        # inactive and we can assert the adj-close-derived value.
+        install_ticker(_make_benchmark_ticker(
+            price=200.0,
+            history={
+                datetime(2026, 1, 2): (131.64, 131.64),
+                datetime(2026, 1, 12): (135.00, 135.00),
+                datetime(2026, 1, 18): (134.66, 134.66),
+                datetime(2026, 2, 2): (137.00, 137.00),
+            },
+            index_tz="Europe/London",
+        ))
+        benchmark = Benchmark(
+            "VUAA.L", datetime(2026, 1, 1), fx=stub_exchange_rate,
+        )
+        ref_history = [
+            (datetime(2026, 1, 1), 1.0),
+            (datetime(2026, 1, 12), 1.02),
+            (datetime(2026, 1, 18), 1.02),
+        ]
+        series = benchmark.cumulative_return_series(ref_history)
+        assert series[1][1] == pytest.approx(135.00 / 131.64)
+        assert series[2][1] == pytest.approx(134.66 / 131.64)
+
+    def test_naive_index_still_supported(
+        self, install_ticker, stub_exchange_rate
+    ):
+        # Tests have always synthesised a tz-naive ``DatetimeIndex``
+        # because that's the natural default from
+        # ``pd.DatetimeIndex(naive_datetimes)``. The fix must leave
+        # that path untouched (no exception, same numbers) so the
+        # broader test suite doesn't have to be rewritten around
+        # the new contract.
+        install_ticker(_make_benchmark_ticker(
+            price=200.0,
+            history={
+                datetime(2024, 1, 2): (150.0, 152.0),
+                datetime(2024, 6, 3): (180.0, 180.0),
+                datetime(2024, 12, 31): (190.0, 190.0),
+            },
+            # index_tz=None by default -> naive DatetimeIndex
+        ))
+        benchmark = Benchmark(
+            "VUAA.L", datetime(2024, 1, 1), fx=stub_exchange_rate,
+        )
+        ref_history = [
+            (datetime(2024, 1, 2), 1.0),
+            (datetime(2024, 6, 3), 1.05),
+            (datetime(2024, 12, 31), 1.20),
+        ]
+        series = benchmark.cumulative_return_series(ref_history)
+        assert series[1][1] == pytest.approx(180.0 / 152.0)
 
 
 class TestSummaryChartAgreement:

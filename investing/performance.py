@@ -370,7 +370,27 @@ class Benchmark:
         # Yahoo returns a ``DatetimeIndex``; ``datetime64[D]``
         # collapses each timestamp to its date so the per-ref-date
         # ``np.searchsorted`` lookup compares apples to apples.
-        self._dates = history.index.to_numpy().astype("datetime64[D]")
+        #
+        # The index is tz-aware for exchange-listed tickers
+        # (Europe/London for LSE, US/Eastern for NYSE/Nasdaq, ...).
+        # A naive ``.to_numpy()`` would convert each timestamp to
+        # UTC before stripping the tz, which during DST shifts
+        # every local-trading-day timestamp back one calendar day
+        # (e.g. an LSE bar at ``2026-03-31 00:00:00+01:00`` becomes
+        # UTC ``2026-03-30 23:00:00`` -> date ``2026-03-30``).
+        # The ref dates ``cumulative_return_series`` searches with
+        # are tz-naive ``datetime`` objects parsed from the
+        # spreadsheet, so a UTC-shifted ``_dates`` array would map
+        # every BST ref date to the *next* trading day's adj close
+        # and silently inflate the chart's curve by one session.
+        # ``tz_localize(None)`` drops the tz without converting,
+        # preserving the exchange-local calendar date the trading
+        # bar actually represents. Guarded so already-naive indices
+        # (the test fixtures synthesise these directly) pass through.
+        idx = history.index
+        if getattr(idx, "tz", None) is not None:
+            idx = idx.tz_localize(None)
+        self._dates = idx.to_numpy().astype("datetime64[D]")
         # Stashed at construction so :meth:`cumulative_return_series`
         # can pin the chart's right-edge sample to the same number
         # :meth:`summary` uses to compute the buy-and-hold TSR --
