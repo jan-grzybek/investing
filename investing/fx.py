@@ -102,6 +102,12 @@ class ExchangeRate:
         self._cache_dir: Path | None = (
             cache_dir if cache_dir is not None else _fx_cache_dir()
         )
+        # Track per-currency "we already warned about this" state so
+        # that an empty FX history surfaces exactly once in the logs
+        # rather than re-emitting on every dated lookup. The warning
+        # itself fires from :meth:`_historical` because that's the
+        # only path where the empty fallback distorts the result.
+        self._empty_history_warned: set[str] = set()
 
     def _current(self, currency):
         if currency == "USD":
@@ -169,6 +175,24 @@ class ExchangeRate:
                     )
         date_arr, rate_arr = self._history[currency]
         if date_arr.size == 0:
+            # yfinance occasionally returns an empty Close series for
+            # long-tail currency pairs (delisted ticker, intermittent
+            # outage, or a pair that has only ever traded as a synthetic
+            # cross). The legacy path silently fell through to the live
+            # spot rate, which means every dated lookup -- including
+            # year-old period bounds -- gets stamped with today's rate
+            # and the historical FX context is lost. Surface that loudly
+            # the first time so the operator can investigate; subsequent
+            # lookups for the same currency stay quiet to avoid log spam.
+            if currency not in self._empty_history_warned:
+                logger.warning(
+                    "FX history for %s/USD is empty; historical lookups "
+                    "will fall back to today's spot rate (multi-year "
+                    "period bounds may be distorted because every dated "
+                    "lookup uses today's rate)",
+                    currency,
+                )
+                self._empty_history_warned.add(currency)
             return self._current(currency)
         target_date = date.date() if isinstance(date, datetime) else date
         target = np.datetime64(target_date, "D")

@@ -31,8 +31,11 @@ def _make_ticker(
     long_name: str = "Test Co.",
     symbol: str = "TST",
     exchange: str = "NMS",
+    history=None,
 ):
     from unittest.mock import MagicMock
+
+    import pandas as pd
 
     mock = MagicMock()
     mock.get_info.return_value = {
@@ -44,6 +47,20 @@ def _make_ticker(
     }
     mock.splits = splits or {}
     mock.get_dividends.return_value = dividends or {}
+    # ``history`` is a ``{datetime: close}`` dict that mirrors the
+    # slice of yfinance's ``Ticker.history`` output our chained-TWR
+    # walk consumes. Only tests with dividend events need to wire
+    # this up -- the close-on-date helper is invoked exclusively
+    # to bound the ex-dividend sub-period, so dividend-free tests
+    # can leave ``history`` unset and the MagicMock default never
+    # gets dereferenced.
+    if history is not None:
+        sorted_dates = sorted(history)
+        df = pd.DataFrame(
+            {"Close": [history[d] for d in sorted_dates]},
+            index=pd.DatetimeIndex(sorted_dates, name="Date"),
+        )
+        mock.history.return_value = df
     return mock
 
 
@@ -75,9 +92,13 @@ class TestSplitsAndDividendsBootstrap:
         # Raw splits (not cumulative).
         assert [s["split"] for s in holding._splits] == [2.0, 3.0, 5.0]
 
-    def test_dividends_are_adjusted_for_later_splits(self, install_ticker):
-        # A dividend paid before the 2:1 split should be doubled to express
-        # it in post-split share units.
+    def test_dividends_stored_verbatim_from_yfinance(self, install_ticker):
+        # ``Ticker.dividends`` returns per-share values denominated in
+        # **post-all-splits** share units (yfinance back-adjusts the
+        # series at the source). The chained-TWR walk in ``summary``
+        # tracks ``quantity`` in the same current frame, so storing
+        # dividends verbatim means the per-share value and the share
+        # count agree without any retroactive multiplication step.
         install_ticker(_make_ticker(
             splits={_date_key(datetime(2022, 1, 1)): 2.0},
             dividends={
@@ -88,7 +109,7 @@ class TestSplitsAndDividendsBootstrap:
         holding = Holding("TST")
 
         by_date = {d["date"]: d["dividend"] for d in holding._dividends}
-        assert by_date[datetime(2021, 6, 1)] == pytest.approx(2.00)
+        assert by_date[datetime(2021, 6, 1)] == pytest.approx(1.00)
         assert by_date[datetime(2023, 6, 1)] == pytest.approx(1.00)
 
 
@@ -170,36 +191,94 @@ class TestSell:
         }
 
 
-class TestAddDividends:
+class TestSummaryDividends:
+    """Dividend handling now lives inside the chained-TWR walk in
+    :meth:`Holding.summary` rather than a standalone ``_add_dividends``
+    helper. Each test pins the close-on-div-date in the history mock so
+    the price-only sub-period return is a known value (typically 1.0)
+    and the assertions can isolate the dividend-yield contribution.
+    """
+
     def test_dividend_during_open_position_is_recorded_after_tax(
-        self, install_ticker, stub_exchange_rate
+        self, install_ticker, stub_exchange_rate, freeze_today
     ):
-        # 1.00 USD/share dividend, 10 shares held, 15% withholding.
+        # No price movement -- only contribution to TSR is the
+        # after-tax dividend yield: 5.00 USD * (1 - 0.15) / 100.
+        freeze_today(datetime(2025, 1, 1))
         install_ticker(_make_ticker(
             price=100.0,
-            dividends={_date_key(datetime(2024, 6, 1)): 1.00},
+            dividends={_date_key(datetime(2024, 6, 1)): 5.00},
+            history={
+                datetime(2024, 1, 1): 100.0,
+                datetime(2024, 6, 1): 100.0,
+            },
         ))
         holding = Holding("TST", fx=stub_exchange_rate)
-        holding.buy(Trade(datetime(2024, 1, 1), "TST", 10, 50.0, "BUY"))
+        holding.buy(Trade(datetime(2024, 1, 1), "TST", 10, 100.0, "BUY"))
 
-        outflows = holding._add_dividends()
-        # The dividend appended after-tax: 10 * 1.00 * (1 - 0.15).
-        div = [o for o in outflows if o["date"] == datetime(2024, 6, 1)]
-        assert len(div) == 1
-        assert div[0]["value"] == pytest.approx(10 * 1.00 * (1 - WITHHOLDING_TAX_RATE))
+        summary = holding.summary()
+
+        expected_yield_pct = 5.00 * (1.0 - WITHHOLDING_TAX_RATE) / 100.0 * 100
+        assert summary["tsr%"] == pytest.approx(expected_yield_pct)
 
     def test_dividend_before_first_buy_is_ignored(
-        self, install_ticker, stub_exchange_rate
+        self, install_ticker, stub_exchange_rate, freeze_today
     ):
+        # Holder didn't own shares on the dividend date, so the
+        # cash never reached them. With no other movement, TSR is 0%.
+        freeze_today(datetime(2025, 1, 1))
         install_ticker(_make_ticker(
             price=100.0,
-            dividends={_date_key(datetime(2023, 6, 1)): 1.00},
+            dividends={_date_key(datetime(2023, 6, 1)): 5.00},
+            history={
+                datetime(2023, 6, 1): 100.0,
+                datetime(2024, 1, 1): 100.0,
+            },
         ))
         holding = Holding("TST", fx=stub_exchange_rate)
-        holding.buy(Trade(datetime(2024, 1, 1), "TST", 10, 50.0, "BUY"))
+        holding.buy(Trade(datetime(2024, 1, 1), "TST", 10, 100.0, "BUY"))
 
-        outflows = holding._add_dividends()
-        assert outflows == []  # no sells either
+        summary = holding.summary()
+        assert summary["tsr%"] == pytest.approx(0.0, abs=1e-9)
+
+    def test_dividend_after_full_close_is_ignored(
+        self, install_ticker, stub_exchange_rate, freeze_today
+    ):
+        # The position was closed before the ex-div date; the dividend
+        # never landed in the holder's account and must not leak into
+        # the chained TWR.
+        freeze_today(datetime(2025, 1, 1))
+        install_ticker(_make_ticker(
+            price=100.0,
+            dividends={_date_key(datetime(2024, 6, 1)): 5.00},
+            history={
+                datetime(2024, 1, 1): 100.0,
+                datetime(2024, 3, 1): 100.0,
+                datetime(2024, 6, 1): 100.0,
+            },
+        ))
+        holding = Holding("TST", fx=stub_exchange_rate)
+        holding.buy(Trade(datetime(2024, 1, 1), "TST", 10, 100.0, "BUY"))
+        holding.sell(Trade(datetime(2024, 3, 1), "TST", 10, 100.0, "SELL"))
+
+        summary = holding.summary()
+        assert summary["tsr%"] == pytest.approx(0.0, abs=1e-9)
+
+    def test_capital_return_on_sell_is_untaxed(
+        self, install_ticker, stub_exchange_rate, freeze_today
+    ):
+        # 50% capital gain on a closed position -- the withholding
+        # tax must apply ONLY to dividend yields, never to the
+        # price-only sub-period return. A round-trip from $100 to
+        # $150 with no dividends should report exactly 50% TSR.
+        freeze_today(datetime(2025, 1, 1))
+        install_ticker(_make_ticker(price=999.0))  # current price irrelevant -- closed
+        holding = Holding("TST", fx=stub_exchange_rate)
+        holding.buy(Trade(datetime(2024, 1, 1), "TST", 10, 100.0, "BUY"))
+        holding.sell(Trade(datetime(2025, 1, 1), "TST", 10, 150.0, "SELL"))
+
+        summary = holding.summary()
+        assert summary["tsr%"] == pytest.approx(50.0)
 
 
 class TestSummary:
@@ -308,3 +387,32 @@ class TestSummary:
         # error -- the expected matches that full precision.
         expected_cagr = ((1.44) ** (DAYS_YEAR / length) - 1) * 100
         assert summary["cagr%"] == pytest.approx(expected_cagr)
+
+    def test_top_up_after_runup_does_not_break_chain(
+        self, install_ticker, stub_exchange_rate, freeze_today
+    ):
+        # Regression coverage for the Modified Dietz collapse:
+        # a small initial position 10x's, then the holder adds a
+        # large top-up near the live price, and finally we mark to
+        # market a smidge above. Modified Dietz computed
+        # ``avg_capital`` by weighting cashflows linearly through
+        # the period, which on a 10x runup followed by a near-end
+        # large top-up yields an average capital that under-counts
+        # the real exposure (or even goes negative under the right
+        # ordering), spitting out wildly inflated percentages.
+        # The chained TWR threads the run-up and top-up through
+        # multiplicative sub-period returns, so the final TSR is
+        # bounded by what the price actually did.
+        freeze_today(datetime(2025, 1, 1))
+        install_ticker(_make_ticker(price=1010.0))
+        holding = Holding("TST", fx=stub_exchange_rate)
+        # Buy 1 share at $100, ride to $1000, then top up 100 more
+        # shares at $1000. From the second buy to today the price
+        # only moves another 1%, so the holding's total return is
+        # the 10x leg compounded with the 1.01x leg = ~10.1x.
+        holding.buy(Trade(datetime(2023, 1, 1), "TST", 1, 100.0, "BUY"))
+        holding.buy(Trade(datetime(2024, 12, 1), "TST", 100, 1000.0, "BUY"))
+
+        summary = holding.summary()
+        # TWR = (1000/100) * (1010/1000) = 10.1 -> 910%.
+        assert summary["tsr%"] == pytest.approx(910.0)

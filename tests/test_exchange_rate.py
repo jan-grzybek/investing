@@ -132,14 +132,25 @@ class TestHistorical:
         fx("EUR", datetime(2024, 6, 1))
         assert ticker.history.call_count == 1
 
-    def test_empty_history_falls_back_to_current(self, monkeypatch):
+    def test_empty_history_falls_back_to_current(self, monkeypatch, caplog):
         ticker = MagicMock()
         ticker.history.return_value = _hist_for([])
         ticker.info = {"regularMarketPrice": 1.42}
         _stub_ticker(monkeypatch, {"EURUSD=X": ticker})
 
         fx = ExchangeRate()
-        assert fx("EUR", datetime(2024, 5, 1)) == pytest.approx(1.42)
+        with caplog.at_level("WARNING"):
+            assert fx("EUR", datetime(2024, 5, 1)) == pytest.approx(1.42)
+            # Repeat lookups for the same currency must not re-emit the
+            # warning -- the operator only needs to learn about the
+            # missing history once per process.
+            assert fx("EUR", datetime(2024, 6, 1)) == pytest.approx(1.42)
+
+        empty_warnings = [
+            rec for rec in caplog.records
+            if rec.levelname == "WARNING" and "FX history for EUR/USD is empty" in rec.message
+        ]
+        assert len(empty_warnings) == 1
 
     def test_gbp_minor_unit_is_scaled_for_historical(self, monkeypatch):
         fx = self._build_fx(monkeypatch, "GBp", [

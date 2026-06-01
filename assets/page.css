@@ -672,7 +672,16 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
   white-space: nowrap;
   vertical-align: middle;
 }
-.trades__col--price { text-align: right; }
+/* The header rule above sets ``text-align: left`` on every
+   ``.trades thead th`` (specificity 0,1,2). A bare
+   ``.trades__col--price`` (0,1,1) loses that cascade and the
+   ``Price`` header drifts back to the left while the cells below
+   stay right-aligned via ``.trades__cell--price``, breaking the
+   visual axis the price column reads on. Match the header
+   selector's specificity by anchoring on ``.trades thead th`` so
+   the BEM modifier wins, and keep the row-level rule by class for
+   the price cells. */
+.trades thead th.trades__col--price { text-align: right; }
 /* Sort buttons: visually identical to the surrounding header text
    so the table reads as a tight grid -- the interactive affordance
    is communicated by the indicator triangle plus the focus ring,

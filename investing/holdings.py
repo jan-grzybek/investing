@@ -15,7 +15,7 @@ from .errors import InvariantError
 from .formatting import _ts_to_datetime
 from .fx import FxRate, _fx_or_default
 from .market_data import _call_with_retry
-from .trades import TRADE_WINDOW_DAYS, Trade, _combine_trade_events
+from .trades import _BUY_CATEGORIES, TRADE_WINDOW_DAYS, Trade, _combine_trade_events
 from .types import HoldingSummary, TradeEvent  # noqa: F401 (re-exported as documentation)
 
 WITHHOLDING_TAX_RATE = 0.15
@@ -92,29 +92,32 @@ class Holding:
         self._split_factors = np.array(
             [s["split"] for s in self._splits], dtype=float,
         )
+        # Lazy daily-close cache used only by :meth:`_close_on` to
+        # resolve a sub-period's ex-dividend boundary in the chained
+        # TWR walk. ``None`` means "not fetched yet" -- a holding
+        # with no dividends never triggers the fetch.
+        self._history_cache: tuple[np.ndarray, np.ndarray] | None = None
 
     def _get_splits_dividends(self):
         """Bootstrap the per-ticker splits / dividends timelines.
 
         Splits are stored in chronological order with their raw
-        per-event factor; the *cumulative* factor used by the
-        dividend adjustment below is derived in one ``np.cumprod``
-        sweep over the reversed sequence (so each entry carries the
-        product of itself and every later split). The legacy
-        nested-loop version was O(K^2) in the number of splits and
-        mutated the accumulator in-place; the vectorised path is
-        O(K) and keeps the sidecar arrays we expose as
-        ``_split_dates`` / ``_split_factors`` consistent with the
-        original ``_splits`` list.
+        per-event factor; the chained-TWR walk in :meth:`summary`
+        rebases events into the current share frame on the fly via
+        :meth:`_split_factor_strictly_after`, so no separate
+        cumulative-product table is materialised here.
 
-        Dividend adjustment uses ``bisect_right`` to find the first
-        split strictly after the dividend's record date in O(log K)
-        per dividend, replacing the manually-walked ``split_idx``
-        cursor whose advancement only happened on certain branches
-        and was easy to misread.
+        Dividends are stored verbatim as yfinance reports them --
+        ``Ticker.dividends`` returns per-share values denominated
+        in **post-all-splits share units** (an empirically
+        verifiable claim: AAPL's pre-2014-7:1-and-pre-2020-4:1
+        dividends come back at ``raw_paid / 28``). The chained
+        walk's ``quantity`` is also tracked in the current share
+        frame, so multiplying the two gives the actual cash the
+        holder received without an intermediate "raw at time of
+        payment" hop.
         """
         splits: list[dict] = []
-        split_dates: list[datetime] = []
         # ``Ticker.splits`` is a cached attribute that triggers an
         # HTTP fetch on first access; wrap the iteration entry-point
         # so a transient 5xx / 429 is absorbed rather than aborting
@@ -125,18 +128,6 @@ class Holding:
         for ts, split in raw_splits.items():
             date = _ts_to_datetime(ts)
             splits.append({"date": date, "split": float(split)})
-            split_dates.append(date)
-        if splits:
-            factors = np.array([s["split"] for s in splits], dtype=float)
-            # Cumulative product walked from the future back to the
-            # past: ``cum_factor[i]`` is the multiplier that lifts
-            # share counts in effect right after split ``i`` into
-            # post-all-future-splits units. Equivalent to the legacy
-            # in-place ``_split *= split`` accumulation for every
-            # earlier entry, but in one numpy pass.
-            cum = np.flip(np.cumprod(np.flip(factors)))
-        else:
-            cum = np.empty(0, dtype=float)
 
         dividends: list[dict] = []
         raw_dividends = _call_with_retry(
@@ -144,21 +135,10 @@ class Holding:
             description="yfinance get_dividends",
         )
         for ts, dividend in raw_dividends.items():
-            date = _ts_to_datetime(ts)
-            dividend = float(dividend)
-            # Find the first split at or after the dividend's record
-            # date; any split strictly earlier than the dividend has
-            # already been baked into the live share count, so we
-            # only need to scale by the cumulative product of
-            # remaining splits to express the per-share dividend in
-            # post-all-splits units. ``bisect_left`` matches the
-            # legacy ``split.date >= dividend.date`` boundary -- a
-            # dividend that lands on a split date still picks up
-            # that split's factor. O(log K).
-            idx = bisect.bisect_left(split_dates, date)
-            if idx < len(cum):
-                dividend *= cum[idx]
-            dividends.append({"date": date, "dividend": dividend})
+            dividends.append({
+                "date": _ts_to_datetime(ts),
+                "dividend": float(dividend),
+            })
         return splits, dividends
 
     def _apply_splits_between(self, quantity, after_date, before_date):
@@ -208,6 +188,93 @@ class Holding:
             return quantity
         factor = float(self._split_factors[lo:hi].prod())
         return int(quantity * factor)
+
+    def _split_factor_strictly_after(self, date: datetime) -> float:
+        """Product of split factors for splits with ``split.date > date``.
+
+        Used by :meth:`summary` to lift a spreadsheet trade's raw
+        share count and per-share price into the **current**
+        (post-all-splits) share frame: ``current_qty = raw_qty *
+        f`` and ``current_price = raw_price / f``. The two
+        adjustments are inverses, so the trade's notional value is
+        invariant -- the conversion just re-denominates both sides
+        into the frame yfinance's ``Close`` column and the live
+        ``regularMarketPrice`` already report in.
+
+        Splits exactly on ``date`` are excluded because
+        :meth:`_apply_splits_between` already raises
+        ``InvariantError`` when a split coincides with a trade
+        boundary; the strictly-after slice would silently pick a
+        side without that explicit check.
+        """
+        if not self._split_dates:
+            return 1.0
+        idx = bisect.bisect_right(self._split_dates, date)
+        if idx >= len(self._split_factors):
+            return 1.0
+        return float(self._split_factors[idx:].prod())
+
+    def _ensure_history(self) -> tuple[np.ndarray, np.ndarray] | None:
+        """Lazily fetch + cache the ticker's daily ``Close`` series.
+
+        Returns parallel ``(dates, closes)`` numpy arrays in the
+        current (post-all-splits) share frame -- yfinance's
+        ``Close`` column with ``auto_adjust=False`` is split-
+        adjusted but not dividend-adjusted, which is exactly the
+        frame the chained TWR walk operates in.
+
+        Holdings with no dividends never call this method, so
+        the extra HTTPS round trip is paid only when the chain
+        genuinely needs an ex-dividend boundary close.
+        """
+        if self._history_cache is not None:
+            return self._history_cache
+        if not self._positions:
+            return None
+        start = self._positions[0]["date"].strftime("%Y-%m-%d")
+        history = self.fetch_market_history(start=start)
+        # ``ffill`` then ``bfill`` covers any NaN run in the response
+        # (a missing day inherits the previous trading day's close;
+        # a leading NaN inherits the first finite close). The
+        # downstream ``np.searchsorted`` then doesn't have to dodge
+        # NaNs at lookup time.
+        closes = history["Close"].ffill().bfill().to_numpy(dtype=float)
+        idx = history.index
+        # See the same dance in :class:`Benchmark.__init__` -- a
+        # tz-aware DatetimeIndex (LSE / NYSE / ...) collapsed via a
+        # naive ``.to_numpy().astype("datetime64[D]")`` would shift
+        # BST trading days back one calendar day in UTC. Drop the
+        # tz without converting so the date keys preserve the
+        # exchange-local calendar dates the bars actually represent.
+        if getattr(idx, "tz", None) is not None:
+            idx = idx.tz_localize(None)
+        dates = idx.to_numpy().astype("datetime64[D]")
+        self._history_cache = (dates, closes)
+        return self._history_cache
+
+    def _close_on(self, date: datetime) -> float:
+        """Return the ``Close`` on the trading day at-or-before ``date``.
+
+        Forward-fills across non-trading days (weekends / holidays)
+        so any calendar date the dividend timeline lands on resolves
+        to a usable close. The first available row is the floor;
+        a date earlier than every history row falls back to that
+        first close (vanishingly rare in practice -- the history
+        fetch starts from the earliest trade date).
+        """
+        cache = self._ensure_history()
+        if cache is None or cache[0].size == 0:
+            raise InvariantError(
+                "no daily-history rows available -- cannot resolve "
+                "close-on-date for the chained-TWR sub-period bounded "
+                "by a dividend event",
+            )
+        dates, closes = cache
+        target = np.datetime64(date.date(), "D")
+        idx = int(np.searchsorted(dates, target, side="right")) - 1
+        if idx < 0:
+            idx = 0
+        return float(closes[idx])
 
     def buy(self, trade: Trade) -> None:
         try:
@@ -283,78 +350,6 @@ class Holding:
                 "date": trade.date,
                 "quantity": current_quantity - trade.quantity,
             })
-
-    def _add_dividends(self):
-        """Compose the cashflow timeline for TSR/CAGR by appending each
-        in-position dividend (after withholding tax + FX) to the
-        outflows list.
-
-        For every dividend record, locate the position row that was
-        active on the dividend date via ``bisect`` (positions are
-        recorded in chronological order by ``buy``/``sell``), then
-        scale the live share count for any splits that landed
-        strictly between ``position.date`` and ``dividend.date``.
-        Same exclusive-both-ends contract as
-        :meth:`_apply_splits_between`; a split colliding with the
-        position date raises ``InvariantError`` so the operator can
-        spot the ambiguity rather than silently double the holding.
-        The legacy implementation walked positions and splits with
-        two manually-advanced cursors and was easy to misread; the
-        new code is one ``bisect`` per dividend (positions) plus
-        the same ``bisect`` slice the splits helper already uses.
-        """
-        outflows = list(self._outflows)
-        if not self._positions or not self._dividends:
-            return outflows
-        position_dates = [p["date"] for p in self._positions]
-        for dividend in self._dividends:
-            div_date = dividend["date"]
-            # ``bisect_right`` -> 1 + index of last position with
-            # date <= div_date. Any dividend strictly before the
-            # first position is skipped (no holding to attach to).
-            idx = bisect.bisect_right(position_dates, div_date) - 1
-            if idx < 0:
-                continue
-            position = self._positions[idx]
-            if div_date <= position["date"] or position["quantity"] <= 0:
-                # ``<=`` mirrors the legacy ``dividend.date >
-                # position.date`` boundary: a dividend recorded
-                # **on** the same day as a position write is
-                # ambiguous (was the new share count already
-                # entitled to the dividend?), so we drop it the
-                # same way the previous implementation did.
-                continue
-            quantity = position["quantity"]
-            # Walk every split strictly between the position date
-            # and the dividend date. ``bisect_right`` on the
-            # position end skips any same-day split (matches the
-            # legacy ``split.date > position.date`` test); the
-            # dividend end uses ``bisect_left`` so a split landing
-            # on the dividend record date is excluded as well
-            # (matches ``dividend.date <= split.date``).
-            lo = bisect.bisect_right(self._split_dates, position["date"])
-            hi = bisect.bisect_left(self._split_dates, div_date)
-            if self._split_dates[
-                bisect.bisect_left(self._split_dates, position["date"]) : lo
-            ]:
-                # ``bisect_left != bisect_right`` on the position
-                # date means at least one split sits exactly on it.
-                raise InvariantError(
-                    "stock split coincides with a position "
-                    "boundary -- cannot determine which "
-                    "side of the split receives the dividend",
-                )
-            if lo < hi:
-                quantity = int(
-                    quantity * float(self._split_factors[lo:hi].prod())
-                )
-            outflows.append({
-                "date": div_date,
-                "value": (quantity * dividend["dividend"]
-                          * (1.0 - WITHHOLDING_TAX_RATE)
-                          * self._fx(self._info["currency"], div_date)),
-            })
-        return outflows
 
     def trade_events(
         self,
@@ -441,58 +436,162 @@ class Holding:
         # Returns a :class:`investing.types.HoldingSummary`-shaped
         # dict; signature kept loose so mypy doesn't fight the
         # incremental dict construction below.
-        outflows = self._add_dividends()
-        tsr = 1.0
-        total_ownership_length = 0
-        # If the position is still open, walk forward through any
-        # splits that landed between the most recent bookkeeping
-        # write and right now. ``regularMarketPrice`` lives in the
-        # post-all-splits share frame (it's the live tape quote);
-        # ``self._positions[-1]["quantity"]`` lives in the share
-        # frame as of the last buy/sell, which only gets advanced
-        # for splits when a subsequent trade triggers
-        # :meth:`_apply_splits_between`. A position held through a
-        # split with no later trade would otherwise be marked to
-        # market against its pre-split share count and undervalued
-        # by the cumulative split factor -- both in the synthetic
-        # outflow that caps the open period (TSR) and in the
-        # ``current_value_usd`` we report.
-        last_quantity = self._positions[-1]["quantity"]
+        """Compute chained-TWR TSR/CAGR plus the renderer-facing payload.
+
+        Walks BUY / SELL / DIVIDEND events chronologically and
+        accumulates a multiplier across each sub-period bounded by
+        adjacent events. Within a sub-period nothing happens except
+        market motion; at a dividend event we add the after-tax
+        dividend yield (``per_share_after_tax / close_on_div_date``)
+        to the running multiplier. Closed-period gaps where the
+        position was fully sold pause the walk -- the next BUY
+        re-anchors a fresh sub-period at the actual trade price.
+
+        Withholding tax (``WITHHOLDING_TAX_RATE``) only applies to
+        the dividend-yield term; the price-only sub-period return
+        carries no tax drag (capital-gains tax is intentionally
+        not modelled in this report).
+
+        Real BUY / SELL prices come from the spreadsheet (via the
+        ``Trade`` records funnelled into ``_trade_events``); the
+        close-on-date for DIVIDEND boundaries comes from yfinance
+        daily history (fetched lazily on first use); the final
+        mark-to-market for an open position uses the live
+        ``regularMarketPrice``. All three sources are denominated
+        in the **current** (post-all-splits) share frame, so
+        spreadsheet trade prices/quantities are rebased on the fly
+        via :meth:`_split_factor_strictly_after` before they enter
+        the walk.
+        """
         now = self._now()
+        currency = self._info["currency"]
+
+        # Defensive guard mirrored from the old ``_add_dividends`` and
+        # ``_apply_splits_between`` checks: a split landing exactly on
+        # a trade date makes the share-frame conversion below
+        # ambiguous (was the trade in pre- or post-split units?).
+        # ``_apply_splits_between`` already raises in ``buy``/``sell``
+        # for any *subsequent* trade, but the very first trade has no
+        # earlier position to anchor that check against -- this guard
+        # closes that gap.
+        trade_dates = {ev["date"] for ev in self._trade_events}
+        collisions = trade_dates.intersection(set(self._split_dates))
+        if collisions:
+            raise InvariantError(
+                "stock split coincides with a trade boundary -- "
+                "cannot determine which side of the split owns the shares",
+            )
+
+        # Build the event timeline. Trades carry priority 0 (they
+        # come first within a calendar day so a same-day BUY-then-DIV
+        # records the new shares before the dividend is paid out);
+        # dividends carry priority 1. Splits aren't first-class
+        # events here -- ``_split_factor_strictly_after`` rebases
+        # every quantity / price into the current frame on the fly,
+        # so the chain reads as a single share-frame timeline.
+        events: list[tuple[datetime, int, str, dict]] = []
+        for ev in self._trade_events:
+            factor = self._split_factor_strictly_after(ev["date"])
+            kind = "BUY" if ev["category"] in _BUY_CATEGORIES else "SELL"
+            events.append((
+                ev["date"], 0, kind,
+                {
+                    "price_native": ev["price"] / factor,
+                    "quantity": ev["quantity"] * factor,
+                },
+            ))
+        for div in self._dividends:
+            events.append((
+                div["date"], 1, "DIV",
+                {"per_share_native": div["dividend"]},
+            ))
+        events.sort(key=lambda e: (e[0], e[1]))
+
+        twr = 1.0
+        quantity = 0.0
+        prev_price: float | None = None
+        total_ownership_length = 0
+        period_started: datetime | None = None
+
+        for date, _, kind, payload in events:
+            if kind in ("BUY", "SELL"):
+                event_price = payload["price_native"]
+            else:  # DIV
+                event_price = self._close_on(date)
+
+            # Sub-period price-only return -- only when shares were
+            # held for the whole stretch from ``prev_price`` (the
+            # previous event's marking price) to ``event_price``.
+            if quantity > 0 and prev_price is not None and prev_price > 0:
+                twr *= event_price / prev_price
+
+            if kind == "BUY":
+                if quantity == 0:
+                    period_started = date
+                quantity += payload["quantity"]
+                # Re-anchor at the actual trade price the user paid;
+                # the next sub-period measures appreciation from
+                # *that* price, not the close on the trade date.
+                prev_price = event_price
+            elif kind == "SELL":
+                quantity -= payload["quantity"]
+                if quantity <= 1e-9:
+                    if period_started is not None:
+                        total_ownership_length += max(
+                            (date - period_started).days, 1,
+                        )
+                        period_started = None
+                    quantity = 0.0
+                    # Reset so the next BUY (if any) starts a fresh
+                    # sub-period without compounding the gap's
+                    # market motion into TSR.
+                    prev_price = None
+                else:
+                    prev_price = event_price
+            elif kind == "DIV":
+                if quantity > 0 and event_price > 0:
+                    # Withholding tax applies *only* here: the
+                    # capital-return component of the chained walk
+                    # (price ratios across BUY/SELL/MTM boundaries)
+                    # is tax-free by design.
+                    div_after_tax = (
+                        payload["per_share_native"]
+                        * (1.0 - WITHHOLDING_TAX_RATE)
+                    )
+                    twr *= 1.0 + div_after_tax / event_price
+                    prev_price = event_price
+
+        # Final mark-to-market for an open position. Closes the
+        # currently-open ownership period with the live tape price
+        # so the chart reads ``Adj Close[start] -> regularMarketPrice``
+        # -- the same numerator + denominator the comparison
+        # benchmark uses for its capsule TSR.
+        last_quantity = quantity
         if last_quantity > 0:
-            live_quantity = self._apply_splits_between(
-                last_quantity, self._positions[-1]["date"], now,
+            live_price = float(self._info["regularMarketPrice"])
+            if prev_price is not None and prev_price > 0:
+                twr *= live_price / prev_price
+            if period_started is not None:
+                total_ownership_length += max(
+                    (now - period_started).days, 1,
+                )
+                period_started = None
+
+        if total_ownership_length > 0:
+            cagr = twr ** (DAYS_YEAR / total_ownership_length) - 1.0
+        else:
+            cagr = 0.0
+        tsr = twr - 1.0
+
+        if last_quantity > 0:
+            current_value_usd = (
+                last_quantity
+                * self._info["regularMarketPrice"]
+                * self._fx(currency)
             )
         else:
-            live_quantity = last_quantity
-        for period in self._periods:
-            start = period["start"]
-            if period["end"] is None:
-                end = now
-                outflows.append({
-                    "date": end,
-                    "value": (live_quantity * self._info["regularMarketPrice"] *
-                              self._fx(self._info["currency"])),
-                })
-            else:
-                end = period["end"]
-            length = max((end - start).days, 1)
-            total_ownership_length += length
-            gain = 0.0
-            avg_capital = 0.0
-            for inflow in self._inflows:
-                if start <= inflow["date"] < end:
-                    gain -= inflow["value"]
-                    avg_capital += (max((end - inflow["date"]).days, 1) / length) * inflow["value"]
-            for outflow in outflows:
-                if start < outflow["date"] <= end:
-                    gain += outflow["value"]
-                    avg_capital -= ((end - outflow["date"]).days / length) * outflow["value"]
-            tsr *= (1.0 + gain / avg_capital)
-        cagr = tsr ** (DAYS_YEAR / total_ownership_length) - 1.0
-        tsr -= 1.0
-        current_value_usd = (live_quantity * self._info["regularMarketPrice"] *
-                             self._fx(self._info["currency"]))
+            current_value_usd = 0.0
+
         return {
             "ticker": f"{self._info['exchange']}:{self._info['symbol']}",
             "name": self._info["longName"],
