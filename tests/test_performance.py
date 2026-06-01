@@ -240,8 +240,8 @@ class TestSummaryChartAgreement:
             (datetime(2025, 1, 5), 1.20),
         ]
         summary = benchmark.summary(ref_history)
-        # TSR is the modified-Dietz ratio on the single buy-and-hold
-        # synthetic trade: (regularMarketPrice / Adj Close[Jan 2]) - 1.
+        # TSR is the buy-and-hold ratio
+        # (regularMarketPrice / Adj Close[Jan 2]) - 1.
         expected_pct = (200.0 / 152.0 - 1.0) * 100.0
         assert summary["tsr%"] == pytest.approx(expected_pct)
         # Chart's rightmost sample is the same ratio.

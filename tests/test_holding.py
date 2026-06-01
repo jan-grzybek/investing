@@ -249,6 +249,32 @@ class TestSummary:
         assert summary["cagr%"] == pytest.approx(50.0, rel=0.02)
         assert summary["latest_sell"] == datetime(2025, 1, 1)
 
+    def test_open_position_through_split_is_marked_to_market_in_post_split_units(
+        self, install_ticker, stub_exchange_rate, freeze_today
+    ):
+        # Bought 100 shares at $100 each ($10,000 invested), then a
+        # 2:1 split happened with no subsequent trade. Live tape
+        # ``regularMarketPrice`` quotes in post-split units; if the
+        # underlying tracked the split flat, the post-split price is
+        # $50 and the position is now 200 shares worth $10,000 -- a
+        # 0% TSR. Without applying the split to the live quantity,
+        # ``current_value_usd`` and the synthetic outflow that caps
+        # the open period would multiply 100 (pre-split count) by
+        # $50 (post-split price) and report a phantom -50% loss.
+        freeze_today(datetime(2025, 1, 1))
+        install_ticker(_make_ticker(
+            price=50.0,
+            splits={_date_key(datetime(2024, 6, 1)): 2.0},
+        ))
+        holding = Holding("TST", fx=stub_exchange_rate)
+        holding.buy(Trade(datetime(2024, 1, 1), "TST", 100, 100.0, "BUY"))
+
+        summary = holding.summary()
+
+        assert summary["is_current"] is True
+        assert summary["current_value_usd"] == pytest.approx(200 * 50.0)
+        assert summary["tsr%"] == pytest.approx(0.0, abs=1e-9)
+
     def test_periods_are_returned_in_reverse_chronological_order(
         self, install_ticker, stub_exchange_rate, freeze_today
     ):

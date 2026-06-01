@@ -402,6 +402,19 @@ class Holding:
         """
         return float(self._info["regularMarketPrice"])
 
+    @property
+    def info(self) -> dict:
+        """Read-only view of the cached ``get_info`` snapshot.
+
+        Exposes the fields :class:`investing.performance.Benchmark`
+        needs to render its summary dict (``currency`` for FX
+        conversion, ``exchange`` / ``symbol`` for the ticker id,
+        ``longName`` for the display label) without reaching into
+        ``_info`` directly. The dict is the live cache, so callers
+        must not mutate it.
+        """
+        return self._info
+
     def fetch_market_history(self, *, start, interval: str = "1d",
                              auto_adjust: bool = False):
         """Return the underlying ticker's price history.
@@ -431,13 +444,34 @@ class Holding:
         outflows = self._add_dividends()
         tsr = 1.0
         total_ownership_length = 0
+        # If the position is still open, walk forward through any
+        # splits that landed between the most recent bookkeeping
+        # write and right now. ``regularMarketPrice`` lives in the
+        # post-all-splits share frame (it's the live tape quote);
+        # ``self._positions[-1]["quantity"]`` lives in the share
+        # frame as of the last buy/sell, which only gets advanced
+        # for splits when a subsequent trade triggers
+        # :meth:`_apply_splits_between`. A position held through a
+        # split with no later trade would otherwise be marked to
+        # market against its pre-split share count and undervalued
+        # by the cumulative split factor -- both in the synthetic
+        # outflow that caps the open period (TSR) and in the
+        # ``current_value_usd`` we report.
+        last_quantity = self._positions[-1]["quantity"]
+        now = self._now()
+        if last_quantity > 0:
+            live_quantity = self._apply_splits_between(
+                last_quantity, self._positions[-1]["date"], now,
+            )
+        else:
+            live_quantity = last_quantity
         for period in self._periods:
             start = period["start"]
             if period["end"] is None:
-                end = self._now()
+                end = now
                 outflows.append({
                     "date": end,
-                    "value": (self._positions[-1]["quantity"] * self._info["regularMarketPrice"] *
+                    "value": (live_quantity * self._info["regularMarketPrice"] *
                               self._fx(self._info["currency"])),
                 })
             else:
@@ -457,7 +491,7 @@ class Holding:
             tsr *= (1.0 + gain / avg_capital)
         cagr = tsr ** (DAYS_YEAR / total_ownership_length) - 1.0
         tsr -= 1.0
-        current_value_usd = (self._positions[-1]["quantity"] * self._info["regularMarketPrice"] *
+        current_value_usd = (live_quantity * self._info["regularMarketPrice"] *
                              self._fx(self._info["currency"]))
         return {
             "ticker": f"{self._info['exchange']}:{self._info['symbol']}",

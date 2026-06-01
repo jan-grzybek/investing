@@ -15,7 +15,7 @@ from .formatting import _fmt_pct
 from .fx import FxRate, _fx_or_default
 from .holdings import DAYS_YEAR, Holding
 from .log import logger
-from .trades import ACTIONS, Trade, combine_and_sort
+from .trades import ACTIONS, combine_and_sort
 from .types import (  # re-exported for type-aware callers; functions below
     BenchmarkSummary,  # noqa: F401
     CashBalance,
@@ -315,22 +315,17 @@ class Benchmark:
     """A reference index resampled onto the portfolio's TWR timeline.
 
     Wraps the awkward Yahoo Finance bootstrap that ``get_benchmarks``
-    used to inline. The previous code reached into ``Holding._ticker``
-    twice -- once with ``auto_adjust=False`` to discover the
-    first-day opening price (so a Trade could be planted at the
-    timeline start) and once with ``auto_adjust=True`` for the
-    cumulative return curve. Both reads now live on this class
-    behind well-named methods so a future change (different data
-    source, multiple benchmarks, currency-converted prices, ...)
-    has a single edit surface and ``Holding`` keeps its private
-    Yahoo Ticker handle to itself.
+    used to inline. Both the live-tape ``regularMarketPrice`` and
+    the historical ``Adj Close`` series live on this class behind
+    well-named methods so a future change (different data source,
+    multiple benchmarks, currency-converted prices, ...) has a
+    single edit surface and ``Holding`` keeps its private Yahoo
+    Ticker handle to itself.
 
-    The two history fetches collapsed into one: with
-    ``auto_adjust=False`` the response carries unadjusted
-    ``Open`` (the price we plant the synthetic Trade at) and
-    ``Adj Close`` (the dividend / split adjusted close used for
-    the cumulative return curve), so a single call satisfies
-    both code paths.
+    The history fetch returns a single DataFrame whose ``Adj Close``
+    column powers both the chart's cumulative-return curve and the
+    start-day basis price :meth:`summary` divides
+    ``regularMarketPrice`` by to produce the buy-and-hold TSR.
     """
 
     def __init__(
@@ -344,19 +339,21 @@ class Benchmark:
         self._start_date = start_date
         self._start_date_str = start_date.strftime("%Y-%m-%d")
         self._fx = _fx_or_default(fx)
+        # Stashed so :meth:`summary` can compute the period length
+        # for CAGR without reaching into ``_holding`` (which has its
+        # own clock plug for the same purpose).
+        self._now: NowFn = now if now is not None else datetime.today
         self._holding = Holding(ticker, fx=self._fx, now=now)
-        # Single fetch carries unadjusted ``Open`` (so we can plant
-        # the synthetic 1-share Trade at the real start-day market
-        # price) and ``Adj Close`` (the dividend / split adjusted
-        # close used for the cumulative-return curve). Pre-converting
-        # to numpy arrays here means ``cumulative_return_series``
-        # never has to pay the per-row pandas indexing tax the
-        # legacy implementation did.
+        # Single ``auto_adjust=False`` fetch carries the dividend /
+        # split adjusted ``Adj Close`` column we use as both the
+        # start-day basis (TSR denominator) and the cumulative-return
+        # curve. Pre-converting to a numpy array here means
+        # ``cumulative_return_series`` never has to pay the per-row
+        # pandas indexing tax the legacy implementation did.
         history = self._holding.fetch_market_history(
             start=self._start_date_str,
         )
         self._history = history
-        opens = history["Open"].to_numpy(dtype=float)
         adj_closes = history["Adj Close"].to_numpy(dtype=float)
         # Forward-fill any NaN runs so a missing day inherits the
         # last known close. ``bfill`` after handles a leading NaN
@@ -369,21 +366,18 @@ class Benchmark:
         # first day would have been silently filled with the most
         # recent close from years later -- the vectorised path here
         # closes that hole as a side-effect.
-        adj_closes = _ffill(adj_closes)
-        opens = _ffill(opens)
-        self._opens = opens
-        self._adj_closes = adj_closes
+        self._adj_closes = _ffill(adj_closes)
         # Yahoo returns a ``DatetimeIndex``; ``datetime64[D]``
         # collapses each timestamp to its date so the per-ref-date
         # ``np.searchsorted`` lookup compares apples to apples.
         self._dates = history.index.to_numpy().astype("datetime64[D]")
         # Stashed at construction so :meth:`cumulative_return_series`
         # can pin the chart's right-edge sample to the same number
-        # :meth:`Holding.summary` uses to mark the open position to
-        # market when it computes the TSR -- otherwise the chart
-        # endpoint clips to the latest adj-close already in the
-        # ``history()`` response and disagrees with the capsule by
-        # intraday / overnight movement against the live tape.
+        # :meth:`summary` uses to compute the buy-and-hold TSR --
+        # otherwise the chart endpoint clips to the latest adj-close
+        # already in the ``history()`` response and disagrees with
+        # the capsule by intraday / overnight movement against the
+        # live tape.
         self._current_market_price = self._holding.current_market_price
 
     @property
@@ -392,10 +386,10 @@ class Benchmark:
 
         The chart's cumulative-return resampler normalises every
         sample against this same starting basis
-        (``Adj Close[t] / Adj Close[0]``), and the modified-Dietz
-        TSR in :meth:`Holding.summary` plants its synthetic 1-share
-        trade at this price too -- so the two computations share a
-        single denominator and the chart's right edge equals
+        (``Adj Close[t] / Adj Close[0]``), and :meth:`summary`
+        divides today's ``regularMarketPrice`` by it to produce the
+        buy-and-hold TSR -- so the two computations share a single
+        denominator and the chart's right edge equals
         ``1 + tsr%/100`` by construction.
 
         Yahoo's ``Adj Close`` back-adjusts historical closes for any
@@ -459,16 +453,17 @@ class Benchmark:
         idx = np.clip(idx, 0, len(self._adj_closes) - 1)
         multipliers = self._adj_closes[idx] / start_price
         # Pin the right-edge sample to the same ``regularMarketPrice``
-        # numerator the TSR uses for the synthetic-trade outflow at
-        # ``now``. Without this override the chart's last point
-        # clips to the most recent adj-close in the Yahoo
-        # ``history()`` response, which disagrees with the live
-        # ``regularMarketPrice`` by an intraday move (when today is
-        # a trading day) or by a full session (when today is past
-        # the last trading day). Only kicks in when the chart's last
-        # reference date is at / past the last yahoo trading day --
-        # earlier ref dates legitimately want the in-history
-        # adjusted close at that earlier date, not a "today" stand-in.
+        # numerator :meth:`summary` divides ``start_basis_price`` by
+        # to compute the capsule TSR. Without this override the
+        # chart's last point clips to the most recent adj-close in
+        # the Yahoo ``history()`` response, which disagrees with the
+        # live ``regularMarketPrice`` by an intraday move (when
+        # today is a trading day) or by a full session (when today
+        # is past the last trading day). Only kicks in when the
+        # chart's last reference date is at / past the last yahoo
+        # trading day -- earlier ref dates legitimately want the
+        # in-history adjusted close at that earlier date, not a
+        # "today" stand-in.
         if (
             len(multipliers) > 1
             and ref_dates[-1] >= self._dates[-1]
@@ -489,29 +484,54 @@ class Benchmark:
     def summary(self, reference_history) -> dict:
         """Produce the per-benchmark dict the renderer consumes.
 
-        Bootstraps a synthetic Trade at the start date so
-        :meth:`Holding.summary` returns the TSR / CAGR / period
-        metadata, then attaches the resampled cumulative-return
-        series under ``history`` (the chart's data lane).
+        Computes a buy-and-hold TSR / CAGR from
+        :attr:`start_basis_price` (Yahoo's back-adjusted close on
+        the first trading day) to ``regularMarketPrice`` (the live
+        tape today). The same numerator + denominator pair anchors
+        the chart's resampler, so the capsule TSR and the chart's
+        right edge fall out of a single arithmetic source and agree
+        by construction.
 
-        The synthetic trade is planted at :attr:`start_basis_price`
-        (the split-adjusted close on the first trading day) and
-        :meth:`Holding.summary` marks it to market at
-        ``regularMarketPrice`` -- the same numerator + denominator
-        pair the chart's resampler uses for every sample -- so the
-        capsule TSR and the chart's right edge are computed from a
-        single arithmetic source and agree by construction.
+        Note we deliberately do NOT route this through
+        :meth:`Holding.summary`: that path is Modified-Dietz over
+        actual cashflows in the as-of-trade-date share frame, and
+        marks open positions to market by walking forward through
+        any intervening splits to translate the position quantity
+        into post-all-splits units. Our basis is already in
+        post-all-future-splits units (Yahoo back-adjusts ``Adj
+        Close``), so any further split-adjustment of a "1 share"
+        synthetic trade would double-count the split and overstate
+        the return. Computing the ratio directly here keeps the
+        Benchmark's price-frame contract local and unambiguous.
         """
-        self._holding.buy(Trade(
-            self._start_date,
-            self._ticker_symbol,
-            1,
-            self.start_basis_price,
-            "BUY",
-        ))
-        summary = self._holding.summary()
-        summary["history"] = self.cumulative_return_series(reference_history)
-        return summary
+        info = self._holding.info
+        currency = info["currency"]
+        invested_native = self.start_basis_price
+        current_native = self._holding.current_market_price
+        current_value_usd = current_native * self._fx(currency)
+        # Single buy-and-hold TSR: ``regularMarketPrice / Adj Close[start]
+        # - 1``. Reduces to the chart's rightmost sample minus 1 by
+        # construction (see :meth:`cumulative_return_series`).
+        tsr = current_native / invested_native - 1.0
+        length = max((self._now() - self._start_date).days, 1)
+        cagr = (1.0 + tsr) ** (DAYS_YEAR / length) - 1.0
+        return {
+            "ticker": f"{info['exchange']}:{info['symbol']}",
+            "name": info["longName"],
+            # Unrounded percentages so downstream callers (delta vs
+            # benchmark capsule, OG-image hero) can do further math
+            # without compounding rounding error -- display sites
+            # round at format time.
+            "tsr%": tsr * 100.0,
+            "cagr%": cagr * 100.0,
+            "is_current": True,
+            "current_weight%": None,
+            "current_value_usd": current_value_usd,
+            "periods": [{"start": self._start_date, "end": None}],
+            "latest_buy": self._start_date,
+            "latest_sell": None,
+            "history": self.cumulative_return_series(reference_history),
+        }
 
 
 def _ffill(arr: np.ndarray) -> np.ndarray:
