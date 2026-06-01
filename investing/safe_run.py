@@ -136,7 +136,6 @@ def _run_main_safely() -> None:
     # is idempotent: it only undoes work that actually happened, so
     # calling it on a half-built setup is safe.
     devnull_py: io.TextIOWrapper | None = None
-    devnull_fd = -1
     saved_stderr_fd = -1
     saved_stdout_fd = -1
     redirected = False
@@ -163,8 +162,11 @@ def _run_main_safely() -> None:
             os.close(saved_stderr_fd)
         if saved_stdout_fd != -1:
             os.close(saved_stdout_fd)
-        if devnull_fd != -1:
-            os.close(devnull_fd)
+        # ``devnull_py.close()`` releases the underlying fd that
+        # ``dup2`` cloned onto fds 1 / 2. Both clones were already
+        # overwritten by the ``dup2(saved_*_fd, ...)`` calls above,
+        # so the original ``/dev/null`` open file description has
+        # only ``devnull_py``'s reference left to drop.
         if devnull_py is not None:
             devnull_py.close()
 
@@ -172,15 +174,23 @@ def _run_main_safely() -> None:
         # Resources allocated incrementally so a failure midway
         # (``os.dup`` exhausting fds, for example) leaves the
         # tracking variables accurate; ``_restore`` then tears down
-        # exactly what was allocated and skips the rest.
+        # exactly what was allocated and skips the rest. A single
+        # Python-level handle on ``/dev/null`` covers both halves of
+        # the redaction: ``sys.stderr`` is rebound to it directly,
+        # and fds 1 / 2 are ``dup2``'d from ``devnull_py.fileno()``
+        # so non-Python writes (C extensions, raw ``os.write``)
+        # also disappear. Sharing one fd avoids a parallel
+        # ``os.open(os.devnull, ...)`` whose lifetime would have to
+        # be threaded through a closure -- the construct CodeQL's
+        # ``py/file-not-closed`` query (correctly) struggles to
+        # prove safe.
         devnull_py = open(os.devnull, "w")  # noqa: SIM115
-        devnull_fd = os.open(os.devnull, os.O_WRONLY)
         saved_stderr_fd = os.dup(2)
         saved_stdout_fd = os.dup(1)
 
         cli._REAL_STDOUT = real_stdout
-        os.dup2(devnull_fd, 2)
-        os.dup2(devnull_fd, 1)
+        os.dup2(devnull_py.fileno(), 2)
+        os.dup2(devnull_py.fileno(), 1)
         redirected = True
         sys.stderr = devnull_py
         sys.stdout = captured_stdout
