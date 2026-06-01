@@ -72,7 +72,7 @@ jobs:
         # enforces the ``fail_under`` floor declared in
         # ``[tool.coverage.report]`` so a coverage drop fails the
         # build.
-        run: python -m pytest -v --cov=investing --cov-report=term-missing --cov-report=xml
+        run: python -m pytest -v --cov=investing --cov-report=term-missing
 
       - name: HTML smoke parse
         # Render the page from synthetic fixtures and parse the result
@@ -100,32 +100,3 @@ jobs:
               print('missing closing tag'); sys.exit(1)
           print(f'OK -- {len(html)} bytes parsed')
           "
-
-      - name: Upload coverage report
-        # Only one matrix row needs to upload (avoid 3x duplicate
-        # artefacts); pick the version production runs on. ``if`` runs
-        # even when prior steps fail so a partial report is still
-        # available for inspection.
-        if: matrix.python-version == '3.13' && always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: coverage-xml
-          path: coverage.xml
-          if-no-files-found: ignore
-
-      - name: Upload coverage to Codecov
-        # Optional integration: when the repository is connected at
-        # codecov.io the README badge starts reporting the live
-        # percentage. Until then the step is a no-op upload (Codecov
-        # accepts the payload and returns 200 even for unlinked
-        # forks). Pick the matrix row that matches production so
-        # branch / line counts aren't double-counted.
-        if: matrix.python-version == '3.13' && success()
-        uses: codecov/codecov-action@v6
-        with:
-          files: coverage.xml
-          flags: pytest
-          # Tokenless uploads are supported for public repos. A
-          # private fork can set CODECOV_TOKEN as a secret and the
-          # action will pick it up automatically.
-          fail_ci_if_error: false

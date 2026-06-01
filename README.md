@@ -6,4 +6,3 @@
 [![Update and deploy webpage](https://github.com/jan-grzybek/investing/actions/workflows/main.yml/badge.svg?event=schedule)](https://github.com/jan-grzybek/investing/actions/workflows/main.yml)
 [![Tests](https://github.com/jan-grzybek/investing/actions/workflows/test.yml/badge.svg)](https://github.com/jan-grzybek/investing/actions/workflows/test.yml)
 [![Security scans](https://github.com/jan-grzybek/investing/actions/workflows/security.yml/badge.svg)](https://github.com/jan-grzybek/investing/actions/workflows/security.yml)
-[![Coverage](https://codecov.io/gh/jan-grzybek/investing/branch/main/graph/badge.svg)](https://codecov.io/gh/jan-grzybek/investing)
