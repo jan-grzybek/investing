@@ -21,6 +21,7 @@ import html
 
 from ..formatting import _fmt_quarter_range
 from ..trades import _BUY_CATEGORIES, _TRADE_ACTION_DISPLAY, _TRADE_DETAIL_LABELS
+from ..types import TradeEvent
 from .anchors import strip_exchange
 
 # Numeric sort indices for the Action and Details columns. The
@@ -63,7 +64,7 @@ SORTABLE_COLUMNS: tuple[tuple[str, str, str], ...] = (
 VISIBLE_DEFAULT: int = 10
 
 
-def _detail_text(event: dict) -> str:
+def _detail_text(event: TradeEvent) -> str:
     """Human-facing text for the "Details" column.
 
     OPEN / CLOSE return the static lifecycle labels (the
@@ -85,7 +86,7 @@ def _detail_text(event: dict) -> str:
     return f"{sign}{delta_pct:.0f}%"
 
 
-def build_row(event: dict) -> str:
+def build_row(event: TradeEvent) -> str:
     """Render one burst-aggregated trade as a ``<tr>``.
 
     Five columns: ticker (without exchange prefix), company

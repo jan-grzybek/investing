@@ -954,9 +954,7 @@ class TestSave:
         # and the portfolio-level TWR scope.
         assert 'class="footer__notes"' in out
         assert "<strong>USD</strong> as the <strong>base currency</strong>" in out
-        assert (
-            "portfolio-level <strong>time-weighted return (TWR)</strong>" in out
-        )
+        assert "portfolio-level <strong>time-weighted return (TWR)</strong>" in out
         # The frozen date appears in the footer, wrapped in a
         # machine-readable <time> element. The "Updated on X"
         # line reads as prose, so the human label uses the

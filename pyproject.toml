@@ -14,9 +14,10 @@ license-files = ["LICENSE"]
 # Minimum floors keep Dependabot's bumps reviewable: a major upgrade
 # that breaks the integration shape (e.g. yfinance dropping
 # ``Ticker.get_info``) will fail to install rather than fail at runtime
-# in CI. ``requirements.in`` carries the same floors so the resolver
-# sees them whether you build via ``pip install -e`` or compile a
-# lockfile with ``pip-compile requirements.in``.
+# in CI. ``pip-compile`` reads the floors below directly from this
+# ``pyproject.toml`` when regenerating the pinned lockfiles
+# (``requirements.txt`` / ``requirements-dev.txt``) -- see the
+# CONTRIBUTING guide for the one-liner.
 dependencies = [
   "gspread>=6",
   "yfinance>=0.2.40",
@@ -147,44 +148,29 @@ warn_redundant_casts = true
 warn_unused_ignores = true
 no_implicit_optional = true
 check_untyped_defs = true
-# Permissive by default for the partially-typed modules
-# (``investing.holdings``, ``investing.performance``,
-# ``investing.webpage._page``, ...) that still carry untyped
-# helpers from before the codebase grew its TypedDicts. The
-# override block below ratchets ``disallow_untyped_defs`` on for
-# every fully-typed module so a regression -- a freshly added
-# untyped helper inside one of them -- fails the build.
-disallow_untyped_defs = false
+# Strict by default: a freshly added module ships with type
+# annotations on every public surface, or mypy fails the build.
+# New modules therefore do NOT need to be added anywhere -- only
+# the legacy permissive holdouts below stay opt-out, and that list
+# is intended to shrink to zero over time.
+disallow_untyped_defs = true
 ignore_missing_imports = true
 
-# Modules that are fully annotated today. New code added here MUST
-# carry signatures; mypy will fail the build otherwise. To onboard a
-# module, type its public surface end-to-end, then move its name into
-# the list below. The remaining ``investing.*`` modules
-# (holdings, performance, sheets, webpage._page, webpage.og_image,
-# formatting, fx, pchip) stay permissive until their internal helpers
-# get the same treatment.
+# Permissive holdouts: modules that still carry untyped internal
+# helpers from before the codebase grew its TypedDicts. Each entry
+# is a known tech-debt item; deleting it (after typing the holdout's
+# public surface end-to-end) is the only direction this list should
+# move. Do NOT add new modules here -- the strict default catches
+# accidental regressions at lint time, and that's the contract.
 [[tool.mypy.overrides]]
 module = [
-  "investing.errors",
-  "investing.log",
-  "investing.paths",
-  "investing.types",
-  "investing.safehtml",
-  "investing.clock",
-  "investing.assets",
-  "investing.market_data",
-  "investing.safe_run",
-  "investing.cli",
-  "investing.logos",
-  "investing.trades",
-  "investing.webpage",
-  "investing.webpage.anchors",
-  "investing.webpage.sitemap",
-  "investing.webpage.head",
-  "investing.webpage.bars",
-  "investing.webpage.holdings_view",
-  "investing.webpage.trades_view",
-  "investing.webpage.return_chart",
+  "investing.holdings",
+  "investing.performance",
+  "investing.sheets",
+  "investing.webpage._page",
+  "investing.webpage.og_image",
+  "investing.formatting",
+  "investing.fx",
+  "investing.pchip",
 ]
-disallow_untyped_defs = true
+disallow_untyped_defs = false

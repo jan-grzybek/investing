@@ -41,6 +41,31 @@ class SiteMeta:
     social_image: str  # Absolute URL of the rendered OG image.
 
 
+# Cloudflare Web Analytics beacon. The token is a *write-only* identifier
+# (it grants the bearer permission to push pageviews into the dashboard
+# but reveals nothing about the dataset on its own), so committing it
+# in source is intentional. The matching CSP allowance lives in
+# :func:`build_csp` below; both must move together if a third-party
+# analytics provider is ever swapped.
+_CLOUDFLARE_ANALYTICS_TAG: SafeHtml = SafeHtml(
+    "<!-- Cloudflare Web Analytics -->"
+    "<script defer src='https://static.cloudflareinsights.com/beacon.min.js' "
+    'data-cf-beacon=\'{"token": "8f450af27c86439fb0e9ab0031c76d6e"}\'></script>'
+    "<!-- End Cloudflare Web Analytics -->"
+)
+
+
+def build_analytics_tag() -> SafeHtml:
+    """Return the Cloudflare Web Analytics beacon ``<script>`` tag.
+
+    Centralised so the only edit point for "what analytics does the
+    page run" is here, alongside the CSP that whitelists the same
+    domain. Returning :class:`SafeHtml` lets the renderer append the
+    fragment without an extra escape pass.
+    """
+    return _CLOUDFLARE_ANALYTICS_TAG
+
+
 def build_jsonld(meta: SiteMeta) -> SafeHtml:
     """Schema.org structured data identifying the site and its author.
 

@@ -54,6 +54,21 @@ world-readable** and act as a side channel for both classes of data.
   the build) and a CodeQL Python scan (`security-and-quality` query
   set) on every push, PR, and weekly cron sweep.
 
+## Third-party scripts on the deployed page
+
+The rendered page loads exactly one third-party asset: the Cloudflare
+Web Analytics beacon
+(`https://static.cloudflareinsights.com/beacon.min.js`). It is
+allow-listed in the page's `script-src` Content-Security-Policy
+directive (`investing/webpage/head.py`) and the matching `<script>`
+tag is composed by `investing.webpage.head.build_analytics_tag`.
+The embedded `data-cf-beacon` token is a write-only identifier
+(grants push access to the analytics dashboard but reveals nothing
+about the dataset on its own), so its presence in source is
+intentional. Removing or swapping the provider means editing both
+the CSP and the tag together; the matching `head.py` constants are
+the single edit surface.
+
 ## Reporting a vulnerability
 
 Please open a private security advisory via GitHub's "Security" tab

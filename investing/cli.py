@@ -14,6 +14,7 @@ import logging
 import sys
 from collections.abc import Callable
 from datetime import datetime
+from pathlib import Path
 
 from dateutil.relativedelta import relativedelta
 
@@ -29,7 +30,14 @@ from .performance import (
     get_holdings,
 )
 from .sheets import pull_data as _pull_data
-from .types import CashBalance, EquityTransaction, Valuation
+from .types import (
+    BenchmarkSummary,
+    CashBalance,
+    EquityTransaction,
+    HoldingsRollup,
+    TotalReturn,
+    Valuation,
+)
 from .webpage import generate_webpage
 
 
@@ -58,9 +66,9 @@ def _configure_logging(level: int = logging.INFO) -> None:
 
 
 def _print_summary(
-    total_return: dict,
-    holdings: dict,
-    benchmarks: list,
+    total_return: TotalReturn,
+    holdings: HoldingsRollup,
+    benchmarks: list[BenchmarkSummary],
     *,
     now: NowFn = datetime.today,
 ) -> None:
@@ -126,12 +134,15 @@ PullFn = Callable[
     tuple[list[EquityTransaction], list[Valuation], list[CashBalance]],
 ]
 
-# Rendering side-effect: takes the three dicts the page consumes and
-# writes the artefacts (``index.html``, ``og-image.png``, ...) to disk.
-# Defaulting to :func:`generate_webpage` keeps production behaviour
-# while letting the preview helper swap in a stub that targets a
-# different directory.
-SaveFn = Callable[[dict, list, dict], None]
+# Rendering side-effect: takes the three dicts the page consumes plus
+# an explicit output directory, and writes the artefacts
+# (``index.html``, ``og-image.png``, ``sitemap.xml``, ``robots.txt``)
+# under it. Defaulting to :func:`generate_webpage` keeps production
+# behaviour while letting the preview helper swap in a stub that
+# targets a different directory. ``output_dir`` is keyword-only so
+# the signature stays compatible with legacy callers that pass three
+# positional arguments and accept the CWD fallback.
+SaveFn = Callable[..., None]
 
 
 def build_page(
@@ -140,6 +151,7 @@ def build_page(
     fx: FxRate | None = None,
     now: NowFn | None = None,
     save: SaveFn | None = None,
+    output_dir: Path | None = None,
 ) -> None:
     """Run the data pipeline + renderer, with every IO step injectable.
 
@@ -150,7 +162,13 @@ def build_page(
     the orchestrator end-to-end against synthetic data, without
     rewriting the composition that production goes through.
 
-    All four arguments are keyword-only and default to the production
+    ``output_dir`` is forwarded to the renderer via the ``save``
+    callable's keyword argument; ``None`` falls back to the current
+    working directory so existing test paths and the production
+    workflow (which writes alongside the repo checkout) keep working
+    unchanged.
+
+    All arguments are keyword-only and default to the production
     wiring so a bare ``build_page()`` call matches what ``python -m
     investing`` did before this refactor.
     """
@@ -168,7 +186,7 @@ def build_page(
     apply_rollup(holdings, rollup)
     total_return = calc_twr(valuations, rollup.total_value_usd, now=_now)
     benchmarks = get_benchmarks(total_return["history"], fx=_fx, now=_now)
-    _save(total_return, benchmarks, holdings)
+    _save(total_return, benchmarks, holdings, output_dir=output_dir)
     _print_summary(total_return, holdings, benchmarks, now=_now)
 
 

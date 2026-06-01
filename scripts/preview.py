@@ -21,7 +21,6 @@ even if you point ``--out`` at the current directory.
 from __future__ import annotations
 
 import argparse
-import os
 import shutil
 import sys
 import webbrowser
@@ -65,16 +64,24 @@ def _build_logo_extension_map() -> dict[str, str]:
 
 def _make_stub_logo_url(
     extension_map: dict[str, str],
-) -> Callable[[object, str], str]:
-    """Build a stub for ``Webpage._get_logo_url`` that mirrors the
+) -> Callable[[str], str]:
+    """Build a stub ``LogoResolver`` callable that mirrors the
     production fallback chain without ever hitting the network.
 
-    The real method probes ``LOGOS_ADDRESS`` over HTTP for each
-    candidate extension and falls back to ``courage.png`` when none
-    match. We do the same shape of lookup against the repo's local
-    ``logos/`` directory, which is what GitHub Pages serves anyway."""
+    The real :class:`investing.logos.LogoCache` probes ``LOGOS_ADDRESS``
+    over HTTP for each candidate extension and falls back to
+    ``courage.png`` when none match. We do the same shape of lookup
+    against the repo's local ``logos/`` directory, which is what
+    GitHub Pages serves anyway. The returned callable satisfies
+    :class:`investing.logos.LogoResolver` (``(ticker) -> str``) and is
+    threaded into :class:`investing.webpage.Webpage` via the
+    ``logo_cache=`` constructor parameter so we no longer mutate the
+    class -- the previous ``Webpage._get_logo_url = ...`` assignment
+    polluted the class for any subsequent import in the same process,
+    which mattered as soon as the renderer started being driven from
+    tests in the same interpreter as the preview helper."""
 
-    def _stub(_self: object, ticker: str) -> str:
+    def _stub(ticker: str) -> str:
         ext = extension_map.get(ticker)
         if ext is None:
             return COURAGE_LOGO
@@ -335,32 +342,34 @@ def render(out_dir: Path) -> Path:
     """Render the page + companion artifacts into ``out_dir``.
 
     Returns the path to the generated ``index.html`` so callers can
-    print or open it. ``Webpage.save()`` writes to the current working
-    directory, so we ``chdir`` for the duration of the render."""
+    print or open it. ``Webpage.save`` now accepts an explicit
+    ``output_dir`` so we no longer need to ``chdir`` for the duration
+    of the render; the previous CWD juggling left a brief window
+    where exceptions in the renderer could leak the wrong CWD into
+    sibling tests / subsequent commands."""
     out_dir.mkdir(parents=True, exist_ok=True)
     data = _build_dataset()
 
     # Bypass HTTP HEAD probes: instead of hitting Pages, we resolve
     # each ticker against the repo's local ``logos/`` directory and
     # build the URL with the matching extension. Same fallback to
-    # ``courage.png`` as production when no logo is on file.
+    # ``courage.png`` as production when no logo is on file. The stub
+    # is now injected via the constructor's ``logo_cache=`` keyword
+    # rather than mutated onto the class, so re-rendering the preview
+    # twice in the same interpreter no longer leaves the renderer in
+    # a half-stubbed state for any sibling import.
     extension_map = _build_logo_extension_map()
-    Webpage._get_logo_url = _make_stub_logo_url(extension_map)  # type: ignore[method-assign]
+    stub_resolver = _make_stub_logo_url(extension_map)
 
-    cwd = Path.cwd()
-    try:
-        os.chdir(out_dir)
-        page = Webpage()
-        page.add_return(data["total_return"], data["benchmarks"])
-        page.add_allocations(data["allocation"], data["top_10"])
-        for h in data["current"]:
-            page.add_holding(h)
-        for h in data["historical"]:
-            page.add_holding(h)
-        page.add_trades(data["trades"])
-        page.save()
-    finally:
-        os.chdir(cwd)
+    page = Webpage(logo_cache=stub_resolver)
+    page.add_return(data["total_return"], data["benchmarks"])
+    page.add_allocations(data["allocation"], data["top_10"])
+    for h in data["current"]:
+        page.add_holding(h)
+    for h in data["historical"]:
+        page.add_holding(h)
+    page.add_trades(data["trades"])
+    page.save(out_dir)
     return out_dir / "index.html"
 
 

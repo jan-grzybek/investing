@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import html
 from datetime import datetime
+from pathlib import Path
 
 from dateutil.relativedelta import relativedelta
 
@@ -23,26 +24,62 @@ from ..formatting import (
     _format_duration,
     _value_class,
 )
-from ..logos import LogoCache
+from ..log import logger
+from ..logos import LogoCache, LogoResolver
 from ..paths import COURAGE_LOGO
 from ..paths import SITE_URL as _SITE_URL
 from ..paths import SOCIAL_IMAGE as _SOCIAL_IMAGE
 from ..performance import _BENCHMARK_DISPLAY_NAMES
 from ..trades import _TRADE_DETAIL_LABELS
+from ..types import (
+    BenchmarkSummary,
+    HoldingsRollup,
+    HoldingSummary,
+    TotalReturn,
+    TradeEvent,
+)
 from . import bars as _bars
 from . import holdings_view as _holdings_view
 from . import og_image as _og_image
 from . import return_chart as _return_chart
 from . import trades_view as _trades_view
 from .anchors import holding_anchor, strip_exchange
-from .head import SiteMeta, build_head, build_jsonld
+from .head import SiteMeta, build_analytics_tag, build_head, build_jsonld
 from .sitemap import write_robots_txt, write_sitemap
+
+
+def _write_if_changed(path: Path, body: str) -> bool:
+    """Write ``body`` to ``path`` only when it differs from what's on disk.
+
+    Returns ``True`` if a write happened, ``False`` if the existing file
+    already matched. The skip path avoids bumping mtime on no-op runs:
+    the bi-hourly CI schedule regenerates the page even when nothing
+    moved (markets closed, rounded display values steady), and the
+    deploy step downstream re-uploads artefacts whose mtimes changed.
+    Keeping the mtime stable on a no-op render therefore avoids a
+    visible "deployed at <new timestamp>" entry on the Pages dashboard
+    for runs that didn't change a single rendered byte.
+    """
+    try:
+        existing = path.read_text(encoding="utf-8")
+    except OSError:
+        existing = None
+    if existing == body:
+        logger.info("%s: content unchanged, skipping write", path.name)
+        return False
+    path.write_text(body, encoding="utf-8")
+    return True
 
 
 class Webpage:
     """Builds the JG Investing index page as a single responsive document."""
 
-    def __init__(self, *, now: NowFn | None = None, logo_cache: LogoCache | None = None):
+    def __init__(
+        self,
+        *,
+        now: NowFn | None = None,
+        logo_cache: LogoResolver | None = None,
+    ):
         self.return_html: str = ""
         self.current: list[str] = []
         self.historical: list[str] = []
@@ -53,17 +90,23 @@ class Webpage:
         # ``add_trades``; an empty list omits the whole section
         # (and its nav link) cleanly.
         self.trades: list[str] = []
-        # Logo URLs are looked up via HTTP HEAD; the resolver wraps
-        # a ``requests`` session with retry / timeout / negative-cache
-        # behaviour so an outage cannot hang the build. Tests inject
-        # a stub callable here instead.
-        self._logo_resolver: LogoCache = logo_cache if logo_cache is not None else LogoCache()
+        # Logo URL resolver. In production this is a
+        # :class:`investing.logos.LogoCache` instance that probes the
+        # local repo first and falls back to an HTTP HEAD against
+        # GitHub Pages -- the wrapping session has retry / timeout /
+        # negative-cache behaviour so an outage cannot hang the build.
+        # The constructor accepts anything satisfying
+        # :class:`investing.logos.LogoResolver` (typed callable shape
+        # ``(ticker: str) -> str``) so the local-preview script and
+        # tests can pass a plain function that resolves against a
+        # synthetic source without monkey-patching the class.
+        self._logo_resolver: LogoResolver = logo_cache if logo_cache is not None else LogoCache()
         # ``(ticker, name, logo_url)`` tuples for current holdings, in
         # the order they were added. Drives the marquee ticker.
         self._current_logos: list[tuple[str, str, str]] = []
         # Stashed for OG image generation in ``save()``.
-        self._total_return: dict | None = None
-        self._benchmarks: list | None = None
+        self._total_return: TotalReturn | None = None
+        self._benchmarks: list[BenchmarkSummary] | None = None
         # Wall-clock plug used in the footer / sitemap / "Since X"
         # captions. ``None`` falls through to ``datetime.today`` so
         # the legacy ``freeze_today`` fixture (which monkeypatches
@@ -73,12 +116,16 @@ class Webpage:
 
     # ------------------------------------------------------------------ API
 
-    def add_return(self, total_return, benchmarks):
+    def add_return(
+        self,
+        total_return: TotalReturn,
+        benchmarks: list[BenchmarkSummary],
+    ) -> None:
         self._total_return = total_return
         self._benchmarks = benchmarks
         self.return_html = self._build_return_section(total_return, benchmarks)
 
-    def add_holding(self, holding):
+    def add_holding(self, holding: HoldingSummary) -> None:
         if holding["is_current"]:
             self._current_logos.append(
                 (
@@ -91,11 +138,15 @@ class Webpage:
         bucket = self.current if holding["is_current"] else self.historical
         bucket.append(card)
 
-    def add_allocations(self, allocation_pct, top_10):
+    def add_allocations(
+        self,
+        allocation_pct: dict[str, float] | None,
+        top_10: dict[str, float] | None,
+    ) -> None:
         self.allocation_pct = allocation_pct
         self.top_10 = top_10
 
-    def add_trades(self, trade_events):
+    def add_trades(self, trade_events: list[TradeEvent]) -> None:
         """Render each burst-aggregated trade event into a table row.
 
         ``trade_events`` is the newest-first list produced by
@@ -106,7 +157,18 @@ class Webpage:
         ``<thead>`` and sortable column headers."""
         self.trades = [self._build_trade_row(event) for event in trade_events]
 
-    def save(self):
+    def save(self, output_dir: Path | None = None):
+        """Render the page and companion artefacts into ``output_dir``.
+
+        ``output_dir`` defaults to the current working directory so the
+        legacy ``chdir_tmp``-based test paths keep working unchanged;
+        new callers (production pipeline, preview script) pass an
+        explicit ``Path`` so the artefact write doesn't depend on
+        process-level state. The four artefacts produced are
+        ``index.html``, ``og-image.png`` (+ its sidecar),
+        ``sitemap.xml`` and ``robots.txt``."""
+        out_dir = output_dir if output_dir is not None else Path.cwd()
+        out_dir.mkdir(parents=True, exist_ok=True)
         now = self._now()
         # Long-form date here ("Updated on May 31, 2026") rather than
         # the page-wide DD/MM/YYYY -- the footer line reads as prose,
@@ -119,7 +181,7 @@ class Webpage:
         # Best-effort: generate the OG image first so its filename can
         # be referenced from <head>. If Pillow / fonts aren't available
         # the page still renders, just without a fresh social preview.
-        self._render_og_image()
+        self._render_og_image(out_dir)
         parts: list[str] = []
         parts.append("<!DOCTYPE html>")
         parts.append('<html lang="en">')
@@ -227,19 +289,28 @@ class Webpage:
 
         parts.append("</main>")
         parts.append(self._footer(update_date, update_iso))
-        parts.append(
-            "<!-- Cloudflare Web Analytics -->"
-            "<script defer src='https://static.cloudflareinsights.com/beacon.min.js' "
-            'data-cf-beacon=\'{"token": "8f450af27c86439fb0e9ab0031c76d6e"}\'></script>'
-            "<!-- End Cloudflare Web Analytics -->"
-        )
+        # Analytics beacon lives next to its CSP whitelist entry in
+        # :mod:`investing.webpage.head`; the renderer just splices in
+        # the pre-built fragment so adding / removing third-party
+        # scripts is a single-edit change.
+        parts.append(build_analytics_tag())
         parts.append("</body>")
         parts.append("</html>")
 
-        with open("index.html", "w") as f:
-            f.write("\n".join(parts))
-        write_sitemap(self.SITE_URL, now=self._now)
-        write_robots_txt(self.SITE_URL)
+        # Content-addressable short-circuit: on the bi-hourly schedule
+        # most regenerations produce byte-identical HTML (markets are
+        # closed, the page already shows today's data, or rounded
+        # display values haven't moved). Comparing the new bytes to
+        # what's on disk before writing avoids bumping ``index.html``'s
+        # mtime, which in turn lets ``actions/deploy-pages`` skip a
+        # no-op redeploy and lets the OG image's content cache stay
+        # valid alongside it. ``robots.txt`` is deterministic from the
+        # site URL so the same comparison short-circuits there; the
+        # sitemap intentionally embeds the daily ``<lastmod>`` so it
+        # still rewrites once a day.
+        _write_if_changed(out_dir / "index.html", "\n".join(parts))
+        write_sitemap(self.SITE_URL, out_dir, now=self._now)
+        write_robots_txt(self.SITE_URL, out_dir)
 
     # ----------------------------------------------------------- internals
 
@@ -414,7 +485,7 @@ class Webpage:
             h=h,
         )
 
-    def _render_og_image(self) -> None:
+    def _render_og_image(self, output_dir: Path | None = None) -> None:
         if self._total_return is None:
             return
         _og_image.render(
@@ -423,15 +494,17 @@ class Webpage:
             top_10=self.top_10,
             benchmark_display_names=_BENCHMARK_DISPLAY_NAMES,
             now=self._now(),
+            output_dir=output_dir,
         )
 
-    def _render_og_image_unsafe(self, total_return, benchmarks) -> None:
+    def _render_og_image_unsafe(self, total_return, benchmarks, output_dir=None) -> None:
         """Backwards-compatible thin wrapper around :func:`og_image.render`.
 
         The historical signature took ``(total_return, benchmarks)``;
         external callers (and earlier test snapshots) bind to that
         method directly, so we keep it as a delegator and forward
-        the renderer's other dependencies through ``self``.
+        the renderer's other dependencies through ``self``. ``output_dir``
+        defaults to ``None`` so the legacy CWD-based path keeps working.
         """
         _og_image._render_unsafe(
             total_return=total_return,
@@ -439,6 +512,7 @@ class Webpage:
             top_10=self.top_10,
             benchmark_display_names=_BENCHMARK_DISPLAY_NAMES,
             now=self._now(),
+            output_dir=output_dir,
         )
 
     # ``holding_anchor`` and ``strip_exchange`` are imported from
@@ -508,13 +582,14 @@ class Webpage:
             "</footer>"
         )
 
-    def _get_logo_url(self, ticker):
-        """Resolve a holding logo URL via :class:`investing.logos.LogoCache`.
+    def _get_logo_url(self, ticker: str) -> str:
+        """Resolve a holding logo URL via the injected resolver.
 
-        Delegates to the resolver wired in ``__init__`` so the HTTP
-        plumbing (session reuse, retry, timeout, negative cache)
-        lives in one place and tests can swap in a stub via the
-        ``logo_cache=`` constructor parameter.
+        Delegates to the :class:`investing.logos.LogoResolver` wired in
+        ``__init__`` so the HTTP plumbing (session reuse, retry,
+        timeout, negative cache) lives in one place and tests /
+        preview scripts can swap in a stub via the ``logo_cache=``
+        constructor parameter without monkey-patching the class.
         """
         return self._logo_resolver(ticker)
 
@@ -781,7 +856,20 @@ class Webpage:
         )
 
 
-def generate_webpage(total_return, benchmarks, holdings):
+def generate_webpage(
+    total_return: TotalReturn,
+    benchmarks: list[BenchmarkSummary],
+    holdings: HoldingsRollup,
+    *,
+    output_dir: Path | None = None,
+) -> None:
+    """Render ``Webpage`` from a pre-computed pipeline output bundle.
+
+    ``output_dir`` is forwarded through ``Webpage.save`` so production /
+    preview / test callers can pin an explicit destination directory;
+    ``None`` falls back to the current working directory to preserve
+    the historical ``chdir_tmp``-style fixture path.
+    """
     webpage = Webpage()
     webpage.add_return(total_return, benchmarks)
     webpage.add_allocations(holdings.get("allocation%"), holdings.get("top_10"))
@@ -790,4 +878,4 @@ def generate_webpage(total_return, benchmarks, holdings):
     for holding in holdings["historical"]:
         webpage.add_holding(holding)
     webpage.add_trades(holdings.get("trades") or [])
-    webpage.save()
+    webpage.save(output_dir)

@@ -17,13 +17,14 @@ from .fx import FxRate, _fx_or_default
 from .holdings import DAYS_YEAR, Holding
 from .log import logger
 from .trades import ACTIONS, combine_and_sort
-from .types import (  # re-exported for type-aware callers; functions below
-    BenchmarkSummary,  # noqa: F401
+from .types import (
+    BenchmarkSummary,
     CashBalance,
     EquityTransaction,
-    HoldingsRollup,  # noqa: F401
-    HoldingSummary,  # noqa: F401
-    TotalReturn,  # noqa: F401
+    HoldingsRollup,
+    HoldingSummary,
+    TotalReturn,
+    TradeEvent,
     Valuation,
 )
 
@@ -80,11 +81,7 @@ def get_holdings(
     *,
     fx: FxRate | None = None,
     now: NowFn | None = None,
-) -> dict:
-    # Returns a :class:`investing.types.HoldingsRollup`-shaped dict;
-    # kept as plain ``dict`` in the signature so the construction
-    # below (which incrementally builds the payload) doesn't have
-    # to satisfy ``mypy``'s strict-TypedDict narrowing.
+) -> HoldingsRollup:
     """Roll up transactions into per-ticker Holding summaries.
 
     ``fx`` is forwarded to every ``Holding`` so production can share a
@@ -139,9 +136,9 @@ def get_holdings(
         else:
             holdings[trade.ticker].sell(trade)
 
-    current_holdings: list[dict] = []
-    historical_holdings: list[dict] = []
-    trade_events: list[dict] = []
+    current_holdings: list[HoldingSummary] = []
+    historical_holdings: list[HoldingSummary] = []
+    trade_events: list[TradeEvent] = []
     for holding in holdings.values():
         summary = holding.summary()
         if summary["is_current"]:
@@ -154,10 +151,18 @@ def get_holdings(
         # portfolio.
         trade_events.extend(holding.trade_events())
 
-    return {
+    # ``latest_sell`` is typed ``datetime | None`` on the TypedDict
+    # because OPEN positions still have ``None`` -- but the
+    # ``historical`` bucket here was filtered on ``is_current=False``
+    # which only happens after a closing SELL, so every entry has a
+    # concrete date. The ``or _MIN_SORT_DATE`` fallback satisfies
+    # ``sorted`` typing without altering the runtime behaviour.
+    rollup: HoldingsRollup = {
         "current": sorted(current_holdings, key=lambda item: item["latest_buy"], reverse=True),
         "historical": sorted(
-            historical_holdings, key=lambda item: item["latest_sell"], reverse=True
+            historical_holdings,
+            key=lambda item: item["latest_sell"] or datetime.min,
+            reverse=True,
         ),
         # Sort by the burst's most recent event (so a multi-day burst
         # ranks by when it finished). Ties are broken by start date,
@@ -168,6 +173,7 @@ def get_holdings(
             reverse=True,
         ),
     }
+    return rollup
 
 
 # ---------------------------------------------------------------------------
@@ -180,10 +186,7 @@ def calc_twr(
     current_value: float,
     *,
     now: NowFn | None = None,
-) -> dict:  # ``TotalReturn``-shaped dict; see :class:`investing.types.TotalReturn`.
-    # Returns a :class:`investing.types.TotalReturn`-shaped dict;
-    # see ``get_holdings`` for the rationale on keeping the
-    # signature loose.
+) -> TotalReturn:
     """Bootstrap the portfolio's time-weighted return curve.
 
     ``now`` is the wall-clock plug; ``None`` falls through to
@@ -251,7 +254,7 @@ class PortfolioRollup:
 
 
 def compute_rollup(
-    holdings: dict,
+    holdings: HoldingsRollup,
     cash: list[CashBalance],
     *,
     fx: FxRate | None = None,
@@ -344,7 +347,7 @@ def compute_rollup(
     )
 
 
-def apply_rollup(holdings: dict, rollup: PortfolioRollup) -> None:
+def apply_rollup(holdings: HoldingsRollup, rollup: PortfolioRollup) -> None:
     """Write a :class:`PortfolioRollup` onto the carrier holdings dict.
 
     The renderer reads ``allocation%`` / ``top_10`` off the holdings
@@ -363,7 +366,7 @@ def apply_rollup(holdings: dict, rollup: PortfolioRollup) -> None:
 
 
 def summarize(
-    holdings: dict,
+    holdings: HoldingsRollup,
     cash: list[CashBalance],
     *,
     fx: FxRate | None = None,
@@ -570,7 +573,7 @@ class Benchmark:
             for (ref_date, _), m in zip(reference_history, multipliers, strict=True)
         ]
 
-    def summary(self, reference_history) -> dict:
+    def summary(self, reference_history) -> BenchmarkSummary:
         """Produce the per-benchmark dict the renderer consumes.
 
         Computes a buy-and-hold TSR / CAGR from
@@ -659,13 +662,10 @@ def get_benchmarks(
     *,
     fx: FxRate | None = None,
     now: NowFn | None = None,
-) -> list[dict]:
-    # Each entry is a :class:`investing.types.BenchmarkSummary`-
-    # shaped dict; signature uses ``list[dict]`` to keep call sites
-    # in :func:`cli.main` agnostic to mypy's TypedDict narrowing.
+) -> list[BenchmarkSummary]:
     fx = _fx_or_default(fx)
     start_date = total_return_history[0][0]
-    benchmarks: list[dict] = []
+    benchmarks: list[BenchmarkSummary] = []
     for cfg in BENCHMARKS:
         benchmark = Benchmark(cfg.ticker, start_date, fx=fx, now=now)
         summary = benchmark.summary(total_return_history)

@@ -38,6 +38,7 @@ from dateutil.relativedelta import relativedelta
 from ..formatting import _fmt_date, _fmt_pct, _format_duration
 from ..log import logger
 from ..paths import _REPO_LOGOS_DIR, LOGO_EXTENSIONS, SITE_DISPLAY
+from ..types import BenchmarkSummary, TotalReturn
 
 # Tickers in ``top_10`` keys that are not real holdings (e.g. the
 # synthetic "Other equities" bucket added when there are >11 current
@@ -231,7 +232,9 @@ def draw_top_holdings_strip(
         canvas.paste(logo, (paste_x, paste_y), logo)
 
 
-def _benchmark_label(benchmark: dict | None, display_names: dict[str, str]) -> str | None:
+def _benchmark_label(
+    benchmark: BenchmarkSummary | None, display_names: dict[str, str]
+) -> str | None:
     """Friendly display name for a benchmark, falling back gracefully."""
     if benchmark is None:
         return None
@@ -239,15 +242,27 @@ def _benchmark_label(benchmark: dict | None, display_names: dict[str, str]) -> s
     return display_names.get(ticker) or benchmark.get("name") or ticker or "Benchmark"
 
 
-OUTPUT_PATH = "og-image.png"
-_HASH_SIDECAR_PATH = OUTPUT_PATH + ".sha256"
+OUTPUT_FILENAME = "og-image.png"
+_HASH_SIDECAR_FILENAME = OUTPUT_FILENAME + ".sha256"
+# Historical module-level path constants used to be the source of truth
+# when the renderer always wrote to CWD. They're kept as aliases here so
+# any external code (and the test snapshots) that imported them by name
+# still resolves; the resolved write path now flows through
+# ``_resolve_output_dir`` from the call-site ``output_dir`` argument.
+OUTPUT_PATH = OUTPUT_FILENAME
+_HASH_SIDECAR_PATH = _HASH_SIDECAR_FILENAME
+
+
+def _resolve_output_dir(output_dir: Path | None) -> Path:
+    """Resolve ``output_dir`` against ``Path.cwd()`` when unspecified."""
+    return output_dir if output_dir is not None else Path.cwd()
 
 
 def _input_digest(
     *,
-    total_return: dict,
-    benchmarks: list[dict],
-    top_10: dict | None,
+    total_return: TotalReturn,
+    benchmarks: list[BenchmarkSummary],
+    top_10: dict[str, float] | None,
     benchmark_display_names: dict[str, str],
     now: datetime,
 ) -> str:
@@ -268,15 +283,14 @@ def _input_digest(
     differently and re-render needlessly.
     """
     bench = benchmarks[0] if benchmarks else None
+    history = total_return.get("history") or []
+    start_from_history = history[0][0] if history else None
     payload = {
         "cagr": _round(total_return.get("cagr%")),
         "bench_cagr": _round(bench.get("cagr%") if bench else None),
         "bench_label": _benchmark_label(bench, benchmark_display_names),
         "tickers": top_holdings_for_og(top_10, limit=10),
-        "start_date": _iso_day(
-            total_return.get("start_date")
-            or (total_return.get("history", [None])[0][0] if total_return.get("history") else None)
-        ),
+        "start_date": _iso_day(total_return.get("start_date") or start_from_history),
         "today": _iso_day(now),
     }
     encoded = json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
@@ -308,20 +322,20 @@ def _iso_day(value) -> str | None:
     return str(value)
 
 
-def _read_sidecar() -> str | None:
+def _read_sidecar(output_dir: Path) -> str | None:
     """Read the digest of the OG image on disk, if any.
 
     Missing file / unreadable / wrong size all return ``None`` so the
     caller treats the cache as cold and re-renders.
     """
     try:
-        text = Path(_HASH_SIDECAR_PATH).read_text(encoding="utf-8").strip()
+        text = (output_dir / _HASH_SIDECAR_FILENAME).read_text(encoding="utf-8").strip()
     except OSError:
         return None
     return text if len(text) == 64 else None
 
 
-def _write_sidecar(digest: str) -> None:
+def _write_sidecar(output_dir: Path, digest: str) -> None:
     """Persist ``digest`` next to the rendered PNG.
 
     Best-effort: a write failure is logged but never propagated, so
@@ -329,7 +343,7 @@ def _write_sidecar(digest: str) -> None:
     saved. The worst case is one extra rerender next run.
     """
     try:
-        Path(_HASH_SIDECAR_PATH).write_text(digest + "\n", encoding="utf-8")
+        (output_dir / _HASH_SIDECAR_FILENAME).write_text(digest + "\n", encoding="utf-8")
     except OSError as exc:
         # ``str(exc)`` would land on the safe-run-redacted stderr in
         # CI; logger.debug routes the same content through the
@@ -340,11 +354,12 @@ def _write_sidecar(digest: str) -> None:
 
 def render(
     *,
-    total_return: dict,
-    benchmarks: list[dict],
-    top_10: dict | None,
+    total_return: TotalReturn,
+    benchmarks: list[BenchmarkSummary],
+    top_10: dict[str, float] | None,
     benchmark_display_names: dict[str, str],
     now: datetime,
+    output_dir: Path | None = None,
 ) -> None:
     """Render a 1200x630 PNG with the headline numbers for sharing.
 
@@ -367,6 +382,7 @@ def render(
         from PIL import Image, ImageDraw  # noqa: F401  (used below)
     except ImportError:
         return
+    out_dir = _resolve_output_dir(output_dir)
     digest = _input_digest(
         total_return=total_return,
         benchmarks=benchmarks,
@@ -374,7 +390,8 @@ def render(
         benchmark_display_names=benchmark_display_names,
         now=now,
     )
-    if os.path.isfile(OUTPUT_PATH) and _read_sidecar() == digest:
+    output_path = out_dir / OUTPUT_FILENAME
+    if output_path.is_file() and _read_sidecar(out_dir) == digest:
         logger.info("og-image: cache hit, skipping render")
         return
     try:
@@ -384,22 +401,24 @@ def render(
             top_10=top_10,
             benchmark_display_names=benchmark_display_names,
             now=now,
+            output_dir=out_dir,
         )
     except Exception:
         # Best-effort: never fail the whole page build because the
         # OG image couldn't be drawn (e.g. on a system with no
         # truetype fonts at all).
         return
-    _write_sidecar(digest)
+    _write_sidecar(out_dir, digest)
 
 
 def _render_unsafe(
     *,
-    total_return: dict,
-    benchmarks: list[dict],
-    top_10: dict | None,
+    total_return: TotalReturn,
+    benchmarks: list[BenchmarkSummary],
+    top_10: dict[str, float] | None,
     benchmark_display_names: dict[str, str],
     now: datetime,
+    output_dir: Path | None = None,
 ) -> None:
     from PIL import Image, ImageDraw
 
@@ -503,4 +522,4 @@ def _render_unsafe(
     foot = f"Since {_fmt_date(start_date)}  \u00b7  {duration}  \u00b7  {SITE_DISPLAY}"
     draw.text((pad_l, H - 40), foot, font=f_foot, fill=MUTED)
 
-    img.save(OUTPUT_PATH, optimize=True)
+    img.save(_resolve_output_dir(output_dir) / OUTPUT_FILENAME, optimize=True)

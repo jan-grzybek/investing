@@ -23,3 +23,10 @@ updates:
       interval: "weekly"
     open-pull-requests-limit: 5
     labels: ["dependencies", "github-actions"]
+    # Collapse weekly action bumps into one PR rather than fanning out
+    # across five separate ones; the production deploy + tests + security
+    # workflows pin the same handful of actions so a synchronised bump is
+    # easier to review than five interleaved ones.
+    groups:
+      actions-minor:
+        update-types: ["minor", "patch"]

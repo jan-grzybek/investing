@@ -17,7 +17,7 @@ from .formatting import _ts_to_datetime
 from .fx import FxRate, _fx_or_default
 from .market_data import _call_with_retry
 from .trades import _BUY_CATEGORIES, TRADE_WINDOW_DAYS, Trade, _combine_trade_events
-from .types import HoldingSummary, TradeEvent  # noqa: F401 (re-exported as documentation)
+from .types import HoldingPeriod, HoldingSummary, TradeEvent
 
 WITHHOLDING_TAX_RATE = 0.15
 
@@ -143,7 +143,7 @@ class Holding:
         # cross-module monkeypatch.
         self._now: NowFn = now if now is not None else datetime.today
         self._positions: list[dict] = []
-        self._periods: list[dict] = []
+        self._periods: list[HoldingPeriod] = []
         self._inflows: list[dict] = []
         self._outflows: list[dict] = []
         # Per-trade events with their semantic category. Populated by
@@ -383,7 +383,7 @@ class Holding:
         self,
         *,
         window_days: int = TRADE_WINDOW_DAYS,
-    ) -> list[dict]:
+    ) -> list[TradeEvent]:
         """Return this ticker's burst-aggregated trades for the
         "Trades" section.
 
@@ -461,10 +461,7 @@ class Holding:
             description="yfinance ticker history",
         )
 
-    def summary(self) -> dict:
-        # Returns a :class:`investing.types.HoldingSummary`-shaped
-        # dict; signature kept loose so mypy doesn't fight the
-        # incremental dict construction below.
+    def summary(self) -> HoldingSummary:
         """Compute money-weighted return / IRR plus the renderer payload.
 
         The per-holding figures answer "how did *I* do on this

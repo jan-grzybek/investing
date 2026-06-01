@@ -21,7 +21,7 @@ than scattered through whatever module happens to need a logo URL.
 from __future__ import annotations
 
 import os
-from typing import Protocol
+from collections.abc import Callable
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -58,8 +58,14 @@ def _build_session() -> requests.Session:
     return session
 
 
-class LogoResolver(Protocol):
-    def __call__(self, ticker: str) -> str: ...
+# Type alias for "anything callable as ``resolver(ticker) -> str``".
+# A plain function, a :class:`LogoCache` instance and a test stub all
+# satisfy it; using a ``Callable`` alias rather than a ``Protocol``
+# means mypy accepts every shape of callable (lambda, function,
+# ``LogoCache``, partial, etc.) without each one having to name its
+# parameter ``ticker`` to match a protocol's positional-or-keyword
+# spelling.
+type LogoResolver = Callable[[str], str]
 
 
 class LogoCache:
