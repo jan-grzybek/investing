@@ -385,6 +385,23 @@ class Holding:
             for event in combined
         ]
 
+    @property
+    def current_market_price(self) -> float:
+        """The ticker's latest reported price in its native currency.
+
+        Reads ``regularMarketPrice`` straight off the ``get_info``
+        snapshot fetched in ``__init__`` -- the same value
+        :meth:`summary` uses to mark the open position to market.
+        Exposed so :class:`investing.performance.Benchmark` can pin
+        its chart curve's right-edge sample to the same number the
+        modified-Dietz TSR below the chart computes against, instead
+        of clipping to the latest adjusted close already in the
+        ``history()`` response (which lags by intraday / overnight
+        movement against the live tape ``regularMarketPrice``
+        reflects).
+        """
+        return float(self._info["regularMarketPrice"])
+
     def fetch_market_history(self, *, start, interval: str = "1d",
                              auto_adjust: bool = False):
         """Return the underlying ticker's price history.

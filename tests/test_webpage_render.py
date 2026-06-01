@@ -373,6 +373,40 @@ class TestReturnChartScrubber:
         assert bench["y"][0] == 1.0
         assert bench["y"][-1] == 1.05
 
+    def test_curve_faithfully_reproduces_input_history(self):
+        # The renderer is a pure projection of its inputs: the chart's
+        # right-edge sample IS whatever ``history[-1][1]`` says, with
+        # no rescale, clamp, or other in-renderer adjustment. The
+        # invariant that the chart's right edge equals
+        # ``1 + tsr%/100`` is upheld UPSTREAM in
+        # ``Benchmark.summary``, which feeds the chart a history
+        # whose last point is computed from the same
+        # ``regularMarketPrice / Adj Close[0]`` numerator the TSR
+        # uses (see ``tests/test_performance.py``). Here we just
+        # pin the projection invariant: whatever the caller hands
+        # us, the embedded scrubber payload mirrors it.
+        history = [
+            (datetime(2024, 1, 1), 1.0),
+            (datetime(2024, 6, 1), 1.1),
+            (datetime(2024, 12, 1), 1.2),
+        ]
+        benchmark = {"ticker": "LSE:VUAA.L",
+                     "tsr%": 5.7,  # intentionally inconsistent with history[-1]
+                     "history": [(datetime(2024, 1, 1), 1.0),
+                                 (datetime(2024, 6, 1), 1.02),
+                                 (datetime(2024, 12, 1), 1.05)]}
+        out = Webpage._render_return_chart(
+            {"history": history, "twr%": 18.4}, [benchmark]
+        )
+        data = self._parse_chart_attr(out)
+        jg, bench = data["series"]
+        # Even though ``tsr%`` / ``twr%`` are present and disagree
+        # with the histories, the chart projects the history as-is.
+        assert jg["y"][0] == 1.0
+        assert jg["y"][-1] == 1.2
+        assert bench["y"][0] == 1.0
+        assert bench["y"][-1] == 1.05
+
     def test_two_point_history_skips_dense_interpolation(self):
         # With only two samples there's nothing to spline through;
         # the renderer plots straight segments, so the embedded

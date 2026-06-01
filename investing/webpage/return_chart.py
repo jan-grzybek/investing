@@ -69,6 +69,18 @@ def render(
             ("bench", label, np.array([v for _, v in bh], dtype=float)),
         )
 
+    # The upstream contract is: each series' rightmost sample IS
+    # the cumulative return at "now", expressed as a multiplier
+    # (1 + twr%/100 for JG, 1 + tsr%/100 for each benchmark). JG
+    # gets there by construction in ``calc_twr`` (TWR's final
+    # entry IS its history's last point); ``Benchmark.summary``
+    # pins its chart sample at "now" to the same
+    # ``regularMarketPrice / Adj Close[0]`` numerator the TSR is
+    # computed from. So the chart's right edge, the hover
+    # scrubber's far-right value, and the comparison capsule
+    # below all read the same number arithmetically rather than
+    # being re-aligned at render time.
+
     min_y = min(float(s[2].min()) for s in series)
     max_y = max(float(s[2].max()) for s in series)
     # Add a little headroom so the curves don't sit on the frame.
@@ -215,15 +227,15 @@ def _build_delta_html(
     """Outperformance overlay: vertical bracket + percentage-point label."""
     jg_final = float(series[0][2][-1])
     bench_final = float(series[1][2][-1])
-    # Prefer the canonical TWR (JG) - TSR (benchmark) delta
-    # straight off ``total_return`` / ``benchmarks``: the
-    # comparison capsule directly below the chart shows the
-    # exact same delta, and we don't want the two numbers to
-    # drift apart. Modified-Dietz TWR/TSR are cashflow-aware
-    # over the exact period, while the chart's curves are
-    # sampled at discrete dates, so naively differencing the
-    # last-point values can disagree by several tenths of a
-    # percentage point.
+    # The series' rightmost samples are the same numbers
+    # ``total_return["twr%"]`` / ``benchmarks[0]["tsr%"]`` carry
+    # (see the long comment above the series loop in ``render``),
+    # so differencing them yields the same value the comparison
+    # capsule below the chart shows -- both reduce to
+    # ``twr% - tsr%``. We prefer the explicit canonical numbers
+    # when available so a single arithmetic source of truth feeds
+    # the label even when a test fixture passes a bare ``history``
+    # without ``twr%`` / ``tsr%``.
     twr_pct = total_return.get("twr%")
     tsr_pct = benchmarks[0].get("tsr%") if benchmarks else None
     if twr_pct is not None and tsr_pct is not None:

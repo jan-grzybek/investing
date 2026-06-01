@@ -377,15 +377,35 @@ class Benchmark:
         # collapses each timestamp to its date so the per-ref-date
         # ``np.searchsorted`` lookup compares apples to apples.
         self._dates = history.index.to_numpy().astype("datetime64[D]")
+        # Stashed at construction so :meth:`cumulative_return_series`
+        # can pin the chart's right-edge sample to the same number
+        # :meth:`Holding.summary` uses to mark the open position to
+        # market when it computes the TSR -- otherwise the chart
+        # endpoint clips to the latest adj-close already in the
+        # ``history()`` response and disagrees with the capsule by
+        # intraday / overnight movement against the live tape.
+        self._current_market_price = self._holding.current_market_price
 
     @property
-    def start_open_price(self) -> float:
-        """Opening price on the first trading day at / after start_date.
+    def start_basis_price(self) -> float:
+        """Split-adjusted close on the first trading day at / after start_date.
 
-        Used to plant a synthetic 1-share Trade so :meth:`Holding.summary`
-        can produce the TSR / CAGR numbers next to the benchmark name.
+        The chart's cumulative-return resampler normalises every
+        sample against this same starting basis
+        (``Adj Close[t] / Adj Close[0]``), and the modified-Dietz
+        TSR in :meth:`Holding.summary` plants its synthetic 1-share
+        trade at this price too -- so the two computations share a
+        single denominator and the chart's right edge equals
+        ``1 + tsr%/100`` by construction.
+
+        Yahoo's ``Adj Close`` back-adjusts historical closes for any
+        splits (and, for distributing tickers, dividends) that
+        happen after the sample date. For an accumulating ETF with
+        no distributions and no splits in the period (e.g.
+        ``VUAA.L``) the adjusted close equals the raw close on that
+        day, so the basis reduces to ``Close[start_day]``.
         """
-        return float(self._opens[0])
+        return float(self._adj_closes[0])
 
     def cumulative_return_series(self, reference_history):
         """Resample the benchmark's adjusted-close series onto the
@@ -438,7 +458,26 @@ class Benchmark:
         idx = np.searchsorted(self._dates, ref_dates, side="right") - 1
         idx = np.clip(idx, 0, len(self._adj_closes) - 1)
         multipliers = self._adj_closes[idx] / start_price
-        # Pin the first entry at 1.0 by convention.
+        # Pin the right-edge sample to the same ``regularMarketPrice``
+        # numerator the TSR uses for the synthetic-trade outflow at
+        # ``now``. Without this override the chart's last point
+        # clips to the most recent adj-close in the Yahoo
+        # ``history()`` response, which disagrees with the live
+        # ``regularMarketPrice`` by an intraday move (when today is
+        # a trading day) or by a full session (when today is past
+        # the last trading day). Only kicks in when the chart's last
+        # reference date is at / past the last yahoo trading day --
+        # earlier ref dates legitimately want the in-history
+        # adjusted close at that earlier date, not a "today" stand-in.
+        if (
+            len(multipliers) > 1
+            and ref_dates[-1] >= self._dates[-1]
+            and start_price > 0.0
+        ):
+            multipliers[-1] = self._current_market_price / start_price
+        # Pin the first entry at 1.0 by convention (the chart's
+        # normalising denominator is by definition the start basis,
+        # so the curve always starts at the reference line).
         multipliers[0] = 1.0
         # Materialise as a list of (datetime, float) tuples to
         # match the historical output type the renderer consumes.
@@ -454,12 +493,20 @@ class Benchmark:
         :meth:`Holding.summary` returns the TSR / CAGR / period
         metadata, then attaches the resampled cumulative-return
         series under ``history`` (the chart's data lane).
+
+        The synthetic trade is planted at :attr:`start_basis_price`
+        (the split-adjusted close on the first trading day) and
+        :meth:`Holding.summary` marks it to market at
+        ``regularMarketPrice`` -- the same numerator + denominator
+        pair the chart's resampler uses for every sample -- so the
+        capsule TSR and the chart's right edge are computed from a
+        single arithmetic source and agree by construction.
         """
         self._holding.buy(Trade(
             self._start_date,
             self._ticker_symbol,
             1,
-            self.start_open_price,
+            self.start_basis_price,
             "BUY",
         ))
         summary = self._holding.summary()
