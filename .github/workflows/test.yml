@@ -121,7 +121,7 @@ jobs:
         # forks). Pick the matrix row that matches production so
         # branch / line counts aren't double-counted.
         if: matrix.python-version == '3.13' && success()
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           files: coverage.xml
           flags: pytest
