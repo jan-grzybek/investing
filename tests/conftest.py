@@ -1,9 +1,9 @@
 """Shared pytest fixtures for the test suite.
 
-Import-path bootstrapping (``update.py`` and the ``investing/``
-package live at the repository root) is declared in
-``pyproject.toml`` under ``[tool.pytest.ini_options] pythonpath``;
-no ``sys.path`` mutation is needed here.
+Import-path bootstrapping (the ``investing/`` package lives at the
+repository root) is declared in ``pyproject.toml`` under
+``[tool.pytest.ini_options] pythonpath``; no ``sys.path`` mutation
+is needed here.
 
 The package no longer carries a mutable ``exchange_rate`` singleton --
 FX is threaded through the API as an explicit ``fx`` parameter on

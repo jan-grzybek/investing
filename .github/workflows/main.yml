@@ -79,27 +79,28 @@ jobs:
       - name: Generate new webpage
         env:
           # Service-account JSON passed directly to ``pull_data`` via the
-          # environment; ``update.py::_gspread_client`` reads it with
-          # ``gspread.service_account_from_dict(json.loads(...))`` so the
-          # secret never lands on the runner's filesystem and there's no
-          # ``/tmp/gsheet_creds.json`` left behind that a later debug step
-          # could `cat` into job logs.
+          # environment; ``investing.sheets._gspread_client`` reads it
+          # with ``gspread.service_account_from_dict(json.loads(...))``
+          # so the secret never lands on the runner's filesystem and
+          # there's no ``/tmp/gsheet_creds.json`` left behind that a
+          # later debug step could ``cat`` into job logs.
           GSHEET_CREDS: ${{ secrets.GSHEET_CREDS }}
           GSHEET_ID: ${{ secrets.GSHEET_ID }}
-        # ``update.py`` runs ``main()`` through a leak-safe wrapper
-        # (``_run_main_safely``) that silences both ``sys.stderr`` and
-        # the underlying file descriptor for the duration of the
-        # build, so library warnings and tracebacks cannot smuggle
-        # secrets (``GSHEET_ID``, the service-account credentials) or
-        # nominal portfolio values (share counts, cash balances, FX
-        # rates) into these public job logs. On failure the wrapper
-        # restores stderr and prints a hand-formatted summary made of
-        # only public identifiers (exception class plus per-frame
-        # file:lineno / function / source line), so we still get
-        # enough breadcrumbs to debug without a redirect that would
-        # mask everything. Do NOT reintroduce ``2>/dev/null`` here --
-        # it would defeat the visibility half of that contract.
-        run: python update.py
+        # ``python -m investing`` resolves to ``investing/__main__.py``
+        # which invokes the leak-safe wrapper (``_run_main_safely``).
+        # That wrapper silences both ``sys.stderr`` and the underlying
+        # file descriptor for the duration of the build, so library
+        # warnings and tracebacks cannot smuggle secrets (``GSHEET_ID``,
+        # the service-account credentials) or nominal portfolio values
+        # (share counts, cash balances, FX rates) into these public job
+        # logs. On failure the wrapper restores stderr and prints a
+        # hand-formatted summary made of only public identifiers
+        # (exception class plus per-frame file:lineno / function /
+        # source line), so we still get enough breadcrumbs to debug
+        # without a redirect that would mask everything. Do NOT
+        # reintroduce ``2>/dev/null`` here -- it would defeat the
+        # visibility half of that contract.
+        run: python -m investing
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v5

@@ -1,4 +1,5 @@
-# Direct runtime dependencies for update.py / preview.py.
+# Direct runtime dependencies for ``python -m investing`` and the
+# local-preview helper at ``scripts/preview.py``.
 # Source of truth for human edits. The companion ``requirements.txt``
 # next to this file holds the fully-pinned transitive lock (regenerated
 # via ``pip-compile requirements.in`` whenever this list changes); CI
@@ -15,4 +16,4 @@ requests>=2.32
 python-dateutil>=2.9
 Pillow>=10
 cairosvg>=2.7
-numpy>=1.26
+numpy>=2.0

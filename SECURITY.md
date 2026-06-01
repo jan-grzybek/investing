@@ -62,4 +62,4 @@ that runs around `main()`, please verify:
   builds the message from row coordinates only.
 * No `--no-redact` style escape hatch in CI; if a build fails and the
   sanitized summary isn't enough, reproduce locally with
-  `python update.py` instead.
+  `python -m investing` instead.

@@ -13,7 +13,8 @@ import yfinance as yf
 from .clock import NowFn
 from .errors import InvariantError
 from .formatting import _ts_to_datetime
-from .fx import _fx_or_default
+from .fx import FxRate, _fx_or_default
+from .market_data import _call_with_retry
 from .trades import TRADE_WINDOW_DAYS, Trade, _combine_trade_events
 from .types import HoldingSummary, TradeEvent  # noqa: F401 (re-exported as documentation)
 
@@ -38,9 +39,22 @@ CAGR_TBA_THRESHOLD = math.nextafter(1_000_000, 0)
 
 
 class Holding:
-    def __init__(self, ticker, *, fx=None, now: NowFn | None = None):
+    def __init__(
+        self,
+        ticker: str,
+        *,
+        fx: FxRate | None = None,
+        now: NowFn | None = None,
+    ):
+        # ``yf.Ticker(...)`` construction is cheap (no network); the
+        # subsequent ``get_info`` call is what crosses the wire and
+        # earns the retry wrapper. ``_get_splits_dividends`` reaches
+        # for ``self._ticker.splits`` / ``get_dividends`` which are
+        # the other two network round-trips on this critical path.
         self._ticker = yf.Ticker(ticker)
-        self._info = self._ticker.get_info()
+        self._info = _call_with_retry(
+            self._ticker.get_info, description="yfinance get_info",
+        )
         self._splits, self._dividends = self._get_splits_dividends()
         # FX callable: an ``ExchangeRate`` instance in production
         # (constructed once per ``main`` invocation and shared across
@@ -101,7 +115,14 @@ class Holding:
         """
         splits: list[dict] = []
         split_dates: list[datetime] = []
-        for ts, split in self._ticker.splits.items():
+        # ``Ticker.splits`` is a cached attribute that triggers an
+        # HTTP fetch on first access; wrap the iteration entry-point
+        # so a transient 5xx / 429 is absorbed rather than aborting
+        # the whole build.
+        raw_splits = _call_with_retry(
+            lambda: self._ticker.splits, description="yfinance splits",
+        )
+        for ts, split in raw_splits.items():
             date = _ts_to_datetime(ts)
             splits.append({"date": date, "split": float(split)})
             split_dates.append(date)
@@ -118,7 +139,11 @@ class Holding:
             cum = np.empty(0, dtype=float)
 
         dividends: list[dict] = []
-        for ts, dividend in self._ticker.get_dividends().items():
+        raw_dividends = _call_with_retry(
+            self._ticker.get_dividends,
+            description="yfinance get_dividends",
+        )
+        for ts, dividend in raw_dividends.items():
             date = _ts_to_datetime(ts)
             dividend = float(dividend)
             # Find the first split at or after the dividend's record
@@ -184,7 +209,7 @@ class Holding:
         factor = float(self._split_factors[lo:hi].prod())
         return int(quantity * factor)
 
-    def buy(self, trade: Trade):
+    def buy(self, trade: Trade) -> None:
         try:
             current_quantity = self._positions[-1]["quantity"]
         except IndexError:
@@ -225,7 +250,7 @@ class Holding:
                 "quantity": current_quantity + trade.quantity,
             })
 
-    def sell(self, trade: Trade):
+    def sell(self, trade: Trade) -> None:
         current_quantity = self._positions[-1]["quantity"]
         if trade.date > self._positions[-1]["date"]:
             current_quantity = self._apply_splits_between(
@@ -359,6 +384,28 @@ class Holding:
             }
             for event in combined
         ]
+
+    def fetch_market_history(self, *, start, interval: str = "1d",
+                             auto_adjust: bool = False):
+        """Return the underlying ticker's price history.
+
+        Public accessor used by :class:`investing.performance.Benchmark`
+        to pull the index's price series without reaching into the
+        private ``_ticker`` attribute. Wrapped in the standard retry
+        helper so transient yfinance failures get the same treatment
+        the rest of the package gets.
+
+        ``start`` is forwarded verbatim (yfinance accepts either an
+        ISO date string or a ``date``-shaped object). The other
+        keyword arguments default to the values the benchmark
+        codepath has used historically.
+        """
+        return _call_with_retry(
+            lambda: self._ticker.history(
+                start=start, interval=interval, auto_adjust=auto_adjust,
+            ),
+            description="yfinance ticker history",
+        )
 
     def summary(self) -> dict:
         # Returns a :class:`investing.types.HoldingSummary`-shaped

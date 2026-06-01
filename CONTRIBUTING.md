@@ -2,10 +2,12 @@
 
 ## Project layout
 
-The page generator lives in the [`investing/`](investing/) package.
-`update.py` at the repo root is a 7-line launcher used only by the
-GitHub Actions deploy workflow (it invokes the leak-safe wrapper);
-new code should `from investing.<module> import ...` directly.
+The page generator lives in the [`investing/`](investing/) package
+and is invoked as `python -m investing`. That dispatches through
+[`investing/__main__.py`](investing/__main__.py) into the leak-safe
+wrapper (`investing.safe_run._run_main_safely`); the GitHub Actions
+deploy workflow runs the same command. New code should
+`from investing.<module> import ...` directly.
 
 | Module | Responsibility |
 | --- | --- |
@@ -39,7 +41,7 @@ with `--check` to fail the build on drift.
 1. Install editable dev deps: `pip install -r requirements-dev.txt`
 2. Install pre-commit hooks: `pre-commit install`
 3. Run the suite: `pytest`
-4. Render synthetic preview locally: `python preview.py --out preview/`
+4. Render synthetic preview locally: `python scripts/preview.py --out preview/`
 
 The CI matrix runs against Python 3.12, 3.13 and 3.14, with branch
 coverage reported via `pytest-cov`. The production deployment workflow

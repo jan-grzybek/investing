@@ -12,7 +12,7 @@ import numpy as np
 from .clock import NowFn
 from .errors import InvariantError
 from .formatting import _fmt_pct
-from .fx import _fx_or_default
+from .fx import FxRate, _fx_or_default
 from .holdings import DAYS_YEAR, Holding
 from .log import logger
 from .trades import ACTIONS, Trade, combine_and_sort
@@ -31,11 +31,9 @@ from .types import (  # re-exported for type-aware callers; functions below
 class BenchmarkConfig:
     """Configuration for a single reference index rendered alongside the JG portfolio.
 
-    Bundling the upstream ticker with the human-facing display name
-    closes a small but recurring drift bug: previously the two were
-    kept in parallel data structures (``_BENCHMARK_TICKERS`` list +
-    ``_BENCHMARK_DISPLAY_NAMES`` dict keyed on the resolved Yahoo
-    symbol) and adding a new benchmark required editing both.
+    Bundles the upstream ticker with the human-facing display name so
+    adding a new benchmark is a single ``BenchmarkConfig(...)`` append
+    rather than a coordinated edit across parallel structures.
     """
 
     ticker: str
@@ -81,7 +79,7 @@ _BENCHMARK_DISPLAY_NAMES = _display_name_map()
 def get_holdings(
     transactions: list[EquityTransaction],
     *,
-    fx=None,
+    fx: FxRate | None = None,
     now: NowFn | None = None,
 ) -> dict:
     # Returns a :class:`investing.types.HoldingsRollup`-shaped dict;
@@ -183,7 +181,7 @@ def calc_twr(
     current_value: float,
     *,
     now: NowFn | None = None,
-) -> dict:
+) -> dict:  # ``TotalReturn``-shaped dict; see :class:`investing.types.TotalReturn`.
     # Returns a :class:`investing.types.TotalReturn`-shaped dict;
     # see ``get_holdings`` for the rationale on keeping the
     # signature loose.
@@ -240,7 +238,7 @@ def summarize(
     holdings: dict,
     cash: list[CashBalance],
     *,
-    fx=None,
+    fx: FxRate | None = None,
 ) -> float:
     """Compute allocations and weights, mutating ``holdings`` in place.
 
@@ -335,7 +333,13 @@ class Benchmark:
     both code paths.
     """
 
-    def __init__(self, ticker: str, start_date, fx=None, now: NowFn | None = None):
+    def __init__(
+        self,
+        ticker: str,
+        start_date: datetime,
+        fx: FxRate | None = None,
+        now: NowFn | None = None,
+    ):
         self._ticker_symbol = ticker
         self._start_date = start_date
         self._start_date_str = start_date.strftime("%Y-%m-%d")
@@ -348,8 +352,8 @@ class Benchmark:
         # to numpy arrays here means ``cumulative_return_series``
         # never has to pay the per-row pandas indexing tax the
         # legacy implementation did.
-        history = self._holding._ticker.history(
-            start=self._start_date_str, interval="1d", auto_adjust=False,
+        history = self._holding.fetch_market_history(
+            start=self._start_date_str,
         )
         self._history = history
         opens = history["Open"].to_numpy(dtype=float)
@@ -494,16 +498,10 @@ def _ffill(arr: np.ndarray) -> np.ndarray:
     return out
 
 
-# Backwards-compatible alias: the older ``_BENCHMARK_TICKERS`` name
-# is preserved as a derived view over ``BENCHMARKS`` so any external
-# consumers that imported it keep working.
-_BENCHMARK_TICKERS: list[str] = [cfg.ticker for cfg in BENCHMARKS]
-
-
 def get_benchmarks(
     total_return_history: list[tuple[datetime, float]],
     *,
-    fx=None,
+    fx: FxRate | None = None,
     now: NowFn | None = None,
 ) -> list[dict]:
     # Each entry is a :class:`investing.types.BenchmarkSummary`-

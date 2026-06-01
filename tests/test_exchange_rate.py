@@ -33,8 +33,6 @@ def _stub_ticker(monkeypatch, mapping):
 
     ``mapping`` is keyed by the FX symbol used by yfinance (e.g. "EURUSD=X").
     """
-    import update
-
     def _factory(symbol):
         if symbol not in mapping:
             raise AssertionError(f"Unexpected FX ticker requested: {symbol!r}")

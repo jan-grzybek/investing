@@ -24,7 +24,7 @@ dependencies = [
   "python-dateutil>=2.9",
   "Pillow>=10",
   "cairosvg>=2.7",
-  "numpy>=1.26",
+  "numpy>=2.0",
 ]
 
 [project.optional-dependencies]
@@ -41,19 +41,18 @@ dev = [
 ]
 
 [tool.setuptools]
-# The page generator lives in ``investing/``. ``update.py`` is a tiny
-# launcher that ``.github/workflows/main.yml`` invokes as ``python
-# update.py``; ``preview.py`` renders the page locally with synthetic
-# data. Listing both as ``py_modules`` keeps editable installs / lint
-# targets picking them up alongside the package.
+# The page generator lives in ``investing/``; ``python -m investing``
+# runs the leak-safe production entrypoint (used by
+# ``.github/workflows/main.yml``). The local-preview helper
+# (``scripts/preview.py``) is also picked up so editable installs
+# and lint targets see it alongside the package.
 packages = ["investing", "investing.webpage"]
-py-modules = ["update", "preview"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# ``pythonpath = ["."]`` lets the test suite resolve ``import
-# update`` / ``import investing`` without the historical ``sys.path``
-# mutation in ``tests/conftest.py``.
+# ``pythonpath = ["."]`` lets the test suite resolve
+# ``import investing`` without any ``sys.path`` mutation in
+# ``tests/conftest.py``.
 pythonpath = ["."]
 addopts = "-ra --strict-markers"
 filterwarnings = [
@@ -63,7 +62,7 @@ filterwarnings = [
 
 [tool.coverage.run]
 branch = true
-source = ["investing", "update", "preview"]
+source = ["investing"]
 omit = ["tests/*"]
 
 [tool.coverage.report]
@@ -131,5 +130,5 @@ disallow_untyped_defs = false
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = ["update", "preview", "investing.*"]
+module = ["investing.*"]
 disallow_untyped_defs = false

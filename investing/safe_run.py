@@ -19,9 +19,10 @@ from .cli import main  # noqa: F401  (re-bound; used via module namespace below)
 # Leak-safe entrypoint
 # ---------------------------------------------------------------------------
 #
-# The CI workflow that drives this script (``.github/workflows/main.yml``)
-# runs in a public repository, so its job logs are world-readable. The
-# run handles two classes of data that must not surface there:
+# The CI workflow that drives this entrypoint
+# (``.github/workflows/main.yml`` invokes ``python -m investing``) runs
+# in a public repository, so its job logs are world-readable. The run
+# handles two classes of data that must not surface there:
 #
 #   1. Secrets injected by GitHub Actions: ``GSHEET_ID`` and the
 #      service-account JSON written to ``/tmp/gsheet_creds.json``.
@@ -51,6 +52,13 @@ from .cli import main  # noqa: F401  (re-bound; used via module namespace below)
 # those are the channels through which runtime values normally surface.
 
 
+# Prefix used by the sanitized-failure summary. The historical
+# ``"update.py failed: "`` predates the package having a
+# ``__main__`` entrypoint; ``"investing failed: "`` matches what the
+# operator now sees in the workflow log (``python -m investing``).
+_FAILURE_PREFIX = "investing failed: "
+
+
 def _print_sanitized_failure(exc: BaseException) -> None:
     """Emit a leak-safe traceback for ``exc`` on the real stderr.
 
@@ -68,7 +76,7 @@ def _print_sanitized_failure(exc: BaseException) -> None:
             if frame.line:
                 sys.stderr.write(f"    {frame.line}\n")
 
-    _emit("update.py failed: ", exc)
+    _emit(_FAILURE_PREFIX, exc)
     # Walk the cause/context chain so the root cause isn't lost when an
     # outer frame just re-raises. ``seen`` guards against pathological
     # cycles (``raise X from X``) that would otherwise loop forever.

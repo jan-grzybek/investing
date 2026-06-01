@@ -34,12 +34,11 @@ repos:
     rev: v1.11.2
     hooks:
       - id: mypy
-        # Type-check the whole ``investing/`` package plus both
-        # top-level launchers. The previous scope was just
-        # ``^(update|preview)\.py$``, which only caught the ~150 lines
-        # of those launchers and skipped the ~1900-line package the
-        # generator actually lives in.
-        files: '^(investing/.*|update|preview)\.py$'
+        # Type-check the whole ``investing/`` package plus the local
+        # preview helper that imports from it. The build-asset script
+        # is intentionally excluded -- it's a tiny self-contained
+        # tool with no investing/ imports.
+        files: '^(investing/.*|scripts/preview)\.py$'
         additional_dependencies:
           - types-python-dateutil
           - types-requests

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import os
+from dataclasses import dataclass
 from datetime import datetime
 
 import gspread
@@ -84,30 +85,165 @@ def _to_int(value: str) -> int:
 _SHEET_DATA_OFFSET = 2
 
 
+@dataclass(frozen=True)
+class _ColSpec:
+    """One column in a worksheet's row schema.
 
-# Per-worksheet schema: the minimum number of columns we need to be able
-# to address. Used to validate row shape before extracting fields so a
-# truncated row produces a precise "row N has K columns, expected M"
-# error rather than an opaque IndexError deep inside the per-row parser.
-_SCHEMAS: dict[str, int] = {
-    "Equities": 7,
-    "Return": 5,
-    "Cash & Cash Equivalents": 5,
+    ``index`` is the 0-based column position in the raw list returned
+    by gspread; ``label`` is the human-facing field name used in
+    error messages and ``column`` is the 1-based sheet coordinate the
+    operator will see in the source spreadsheet (so "col 5" in an
+    error message lines up with the source row).
+    """
+
+    label: str
+    index: int
+
+    @property
+    def column(self) -> int:
+        return self.index + 1
+
+
+@dataclass(frozen=True)
+class _WorksheetSchema:
+    """Column layout for one worksheet.
+
+    The schema is the single source of truth for "which column carries
+    which field" -- every parser pulls cells through this object, so a
+    column move in the source spreadsheet is a one-line edit here
+    rather than a coordinated sweep across the parsers and their
+    matching error-message column / field strings.
+    """
+
+    name: str
+    columns: tuple[_ColSpec, ...]
+
+    @property
+    def width(self) -> int:
+        """Minimum row length required to safely address every column."""
+        return len(self.columns)
+
+    def check_shape(self, row_index: int, row: list[str]) -> None:
+        """Raise ``SheetParseError`` if ``row`` is narrower than the schema."""
+        if len(row) < self.width:
+            raise SheetParseError(
+                worksheet=self.name,
+                row=row_index,
+                reason=(
+                    f"row has {len(row)} columns, "
+                    f"expected at least {self.width}"
+                ),
+            )
+
+    def cell(self, row: list[str], spec: _ColSpec) -> str:
+        return row[spec.index]
+
+
+# Per-worksheet schemas. Each ``_ColSpec`` carries the field name we
+# use in error messages so a renamed column never goes out of sync
+# with the diagnostic strings the legacy implementation hand-coded
+# at every raise site.
+class _EquitiesCols:
+    DATE = _ColSpec("date", 1)
+    TICKER = _ColSpec("ticker", 2)
+    QUANTITY = _ColSpec("quantity", 3)
+    PRICE = _ColSpec("price_per_share", 4)
+    ACTION = _ColSpec("action", 5)
+    INCLUDE = _ColSpec("include", 6)
+
+
+class _ReturnCols:
+    DATE = _ColSpec("date", 1)
+    VALUE = _ColSpec("value", 2)
+    FLOW = _ColSpec("flow", 3)
+    INCLUDE = _ColSpec("include", 4)
+
+
+class _CashCols:
+    CURRENCY = _ColSpec("currency_code", 2)
+    AMOUNT = _ColSpec("amount", 3)
+    INCLUDE = _ColSpec("include", 4)
+
+
+_EQUITIES_SCHEMA = _WorksheetSchema(
+    name="Equities",
+    columns=(
+        _ColSpec("(unused)", 0),
+        _EquitiesCols.DATE,
+        _EquitiesCols.TICKER,
+        _EquitiesCols.QUANTITY,
+        _EquitiesCols.PRICE,
+        _EquitiesCols.ACTION,
+        _EquitiesCols.INCLUDE,
+    ),
+)
+
+
+_RETURN_SCHEMA = _WorksheetSchema(
+    name="Return",
+    columns=(
+        _ColSpec("(unused)", 0),
+        _ReturnCols.DATE,
+        _ReturnCols.VALUE,
+        _ReturnCols.FLOW,
+        _ReturnCols.INCLUDE,
+    ),
+)
+
+
+_CASH_SCHEMA = _WorksheetSchema(
+    name="Cash & Cash Equivalents",
+    columns=(
+        _ColSpec("(unused)", 0),
+        _ColSpec("(unused)", 1),
+        _CashCols.CURRENCY,
+        _CashCols.AMOUNT,
+        _CashCols.INCLUDE,
+    ),
+)
+
+
+_SCHEMAS_BY_NAME: dict[str, _WorksheetSchema] = {
+    s.name: s for s in (_EQUITIES_SCHEMA, _RETURN_SCHEMA, _CASH_SCHEMA)
 }
 
 
+# Public alias preserved so the batched-path padding can look up the
+# expected width by worksheet name without reaching into the schema
+# object. ``_pad_rows`` consumes this mapping.
+_SCHEMAS: dict[str, int] = {name: s.width for name, s in _SCHEMAS_BY_NAME.items()}
 
 
-def _check_row_shape(worksheet: str, row_index: int, row: list[str]) -> None:
-    expected = _SCHEMAS[worksheet]
-    if len(row) < expected:
+
+
+def _parse_number_cell(
+    schema: _WorksheetSchema,
+    spec: _ColSpec,
+    *,
+    row_index: int,
+    row: list[str],
+    convert: type[int] | type[float],
+) -> int | float:
+    """Pull a numeric cell through the schema, raising with full context.
+
+    Bundles the two recurring patterns -- index into the row, strip
+    thousands separators, convert via ``int`` / ``float`` -- so the
+    parser bodies below stay focused on the per-worksheet field
+    layout instead of restating the same try/except/raise dance for
+    every numeric field.
+    """
+    raw = schema.cell(row, spec)
+    try:
+        return _to_int(raw) if convert is int else _to_float(raw)
+    except ValueError as exc:
+        kind = "an integer" if convert is int else "a number"
         raise SheetParseError(
-            worksheet=worksheet,
+            worksheet=schema.name,
             row=row_index,
-            reason=f"row has {len(row)} columns, expected at least {expected}",
-        )
-
-
+            column=spec.column,
+            field=spec.label,
+            reason=f"not {kind} ({exc})",
+        ) from None
 
 
 def _parse_equity_row(row_index: int, row: list[str]) -> EquityTransaction | None:
@@ -119,40 +255,34 @@ def _parse_equity_row(row_index: int, row: list[str]) -> EquityTransaction | Non
     validation failure so the caller knows precisely what to fix in
     the source sheet.
     """
-    _check_row_shape("Equities", row_index, row)
-    include = row[6]
-    if include not in _YES_TOKENS:
+    schema = _EQUITIES_SCHEMA
+    schema.check_shape(row_index, row)
+    if schema.cell(row, _EquitiesCols.INCLUDE) not in _YES_TOKENS:
         return None
-    action_token = row[5]
+    action_token = schema.cell(row, _EquitiesCols.ACTION)
     if action_token in _BUY_TOKENS:
         action = "BUY"
     elif action_token in _SELL_TOKENS:
         action = "SELL"
     else:
         raise SheetParseError(
-            worksheet="Equities",
+            worksheet=schema.name,
             row=row_index,
-            column=6,
-            field="action",
+            column=_EquitiesCols.ACTION.column,
+            field=_EquitiesCols.ACTION.label,
             reason=f"unknown action token {action_token!r}",
         )
-    try:
-        quantity = _to_int(row[3])
-    except ValueError as exc:
-        raise SheetParseError(
-            worksheet="Equities", row=row_index, column=4,
-            field="quantity", reason=f"not an integer ({exc})",
-        ) from None
-    try:
-        price = _to_float(row[4])
-    except ValueError as exc:
-        raise SheetParseError(
-            worksheet="Equities", row=row_index, column=5,
-            field="price_per_share", reason=f"not a number ({exc})",
-        ) from None
+    quantity = int(_parse_number_cell(
+        schema, _EquitiesCols.QUANTITY,
+        row_index=row_index, row=row, convert=int,
+    ))
+    price = float(_parse_number_cell(
+        schema, _EquitiesCols.PRICE,
+        row_index=row_index, row=row, convert=float,
+    ))
     return {
-        "date": row[1],
-        "ticker": row[2],
+        "date": schema.cell(row, _EquitiesCols.DATE),
+        "ticker": schema.cell(row, _EquitiesCols.TICKER),
         "quantity": quantity,
         "price_per_share": price,
         "action": action,
@@ -162,22 +292,32 @@ def _parse_equity_row(row_index: int, row: list[str]) -> EquityTransaction | Non
 
 
 def _parse_return_row(row_index: int, row: list[str]) -> Valuation | None:
-    _check_row_shape("Return", row_index, row)
-    if row[4] not in _YES_TOKENS:
+    schema = _RETURN_SCHEMA
+    schema.check_shape(row_index, row)
+    if schema.cell(row, _ReturnCols.INCLUDE) not in _YES_TOKENS:
         return None
+    raw_date = schema.cell(row, _ReturnCols.DATE)
     try:
-        date = datetime.strptime(row[1], "%d-%m-%Y")
+        date = datetime.strptime(raw_date, "%d-%m-%Y")
     except ValueError as exc:
         raise SheetParseError(
-            worksheet="Return", row=row_index, column=2, field="date",
+            worksheet=schema.name,
+            row=row_index,
+            column=_ReturnCols.DATE.column,
+            field=_ReturnCols.DATE.label,
             reason=f"expected DD-MM-YYYY ({exc})",
         ) from None
+    # ``value`` and ``flow`` share a single error surface: the legacy
+    # parser raised "value/flow" for either failure rather than
+    # pinpointing the offending column. Preserve that contract so the
+    # tests asserting on ``field == "value/flow"`` keep working; the
+    # individual cell labels are still discoverable via the schema.
     try:
-        value = _to_float(row[2])
-        flow = _to_float(row[3])
+        value = _to_float(schema.cell(row, _ReturnCols.VALUE))
+        flow = _to_float(schema.cell(row, _ReturnCols.FLOW))
     except ValueError as exc:
         raise SheetParseError(
-            worksheet="Return", row=row_index, field="value/flow",
+            worksheet=schema.name, row=row_index, field="value/flow",
             reason=f"not a number ({exc})",
         ) from None
     return {"date": date, "value": value, "flow": flow}
@@ -186,17 +326,18 @@ def _parse_return_row(row_index: int, row: list[str]) -> Valuation | None:
 
 
 def _parse_cash_row(row_index: int, row: list[str]) -> CashBalance | None:
-    _check_row_shape("Cash & Cash Equivalents", row_index, row)
-    if row[4] not in _YES_TOKENS:
+    schema = _CASH_SCHEMA
+    schema.check_shape(row_index, row)
+    if schema.cell(row, _CashCols.INCLUDE) not in _YES_TOKENS:
         return None
-    try:
-        amount = _to_float(row[3])
-    except ValueError as exc:
-        raise SheetParseError(
-            worksheet="Cash & Cash Equivalents", row=row_index, column=4,
-            field="amount", reason=f"not a number ({exc})",
-        ) from None
-    return {"currency_code": row[2], "amount": amount}
+    amount = float(_parse_number_cell(
+        schema, _CashCols.AMOUNT,
+        row_index=row_index, row=row, convert=float,
+    ))
+    return {
+        "currency_code": schema.cell(row, _CashCols.CURRENCY),
+        "amount": amount,
+    }
 
 
 

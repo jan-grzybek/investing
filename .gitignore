@@ -10,12 +10,13 @@ __pycache__/
 coverage.xml
 htmlcov/
 *.pyc
-# Generated at build time by update.py (and uploaded as Pages artifact).
+# Generated at build time by ``python -m investing`` (uploaded as the
+# GitHub Pages artifact).
 index.html
 sitemap.xml
 robots.txt
 og-image.png
-# Local debug renders produced by preview.py.
+# Local debug renders produced by ``scripts/preview.py``.
 preview/
 # CI smoke-parse output (HTML smoke test in test.yml).
 ci-smoke/

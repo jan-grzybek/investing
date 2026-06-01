@@ -67,12 +67,12 @@ jobs:
 
       - name: Run pytest with coverage
         # ``--cov`` enables the coverage plugin from ``pytest-cov``;
-        # the config in ``pyproject.toml`` selects ``update`` /
-        # ``preview`` / the ``investing`` package as the source set,
-        # turns on branch coverage, and enforces the
-        # ``fail_under`` floor declared in ``[tool.coverage.report]``
-        # so a coverage drop fails the build.
-        run: python -m pytest -v --cov=investing --cov=update --cov=preview --cov-report=term-missing --cov-report=xml
+        # the config in ``pyproject.toml`` selects the ``investing``
+        # package as the source set, turns on branch coverage, and
+        # enforces the ``fail_under`` floor declared in
+        # ``[tool.coverage.report]`` so a coverage drop fails the
+        # build.
+        run: python -m pytest -v --cov=investing --cov-report=term-missing --cov-report=xml
 
       - name: HTML smoke parse
         # Render the page from synthetic fixtures and parse the result
@@ -83,7 +83,7 @@ jobs:
         # emits broken markup fails the build here instead of in the
         # browser.
         run: |
-          python preview.py --out ci-smoke
+          python scripts/preview.py --out ci-smoke
           python -c "
           import html5lib
           import sys

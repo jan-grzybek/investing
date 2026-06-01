@@ -23,10 +23,10 @@ _REPO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 # Local mirror of ``LOGOS_ADDRESS`` -- the same files served at the URL
-# above live next to ``update.py`` in the repo (and ship as part of the
-# Pages artifact). The OG image renderer rasterises logos for the
-# top-10 strip and reads them straight from disk so it doesn't depend
-# on the previous deploy being reachable.
+# above live at the repo root and ship as part of the Pages artifact.
+# The OG image renderer rasterises logos for the top-10 strip and
+# reads them straight from disk so it doesn't depend on the previous
+# deploy being reachable.
 _REPO_LOGOS_DIR = os.path.join(_REPO_DIR, "logos")
 
 

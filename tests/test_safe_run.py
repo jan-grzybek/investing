@@ -1,11 +1,12 @@
-"""Tests for the leak-safe entrypoint wrapping ``update.main``.
+"""Tests for the leak-safe entrypoint wrapping ``investing.cli.main``.
 
-The CI workflow's logs are world-readable, and ``update.main`` handles
-two classes of data that must never reach them: GitHub Actions secrets
-(``GSHEET_ID``, the service-account JSON) and nominal portfolio values
-(share counts, cash balances, dividend payouts, FX rates) used to
-derive the percentages we publish. Library code and exception
-messages routinely embed both, so ``update._run_main_safely``:
+The CI workflow's logs are world-readable, and
+``investing.cli.main`` handles two classes of data that must never
+reach them: GitHub Actions secrets (``GSHEET_ID``, the
+service-account JSON) and nominal portfolio values (share counts,
+cash balances, dividend payouts, FX rates) used to derive the
+percentages we publish. Library code and exception messages
+routinely embed both, so ``investing.safe_run._run_main_safely``:
 
 * silences stderr -- both ``sys.stderr`` and the underlying fd -- for
   the duration of the run, and
@@ -150,7 +151,7 @@ class TestFailingRun:
 
         _, captured = _run_safely_capturing(monkeypatch, fake_main, capfd)
 
-        assert "update.py failed: _BoomError" in captured.err
+        assert "investing failed: _BoomError" in captured.err
 
     def test_summary_does_not_contain_exception_message(
         self, monkeypatch, capfd
@@ -218,7 +219,7 @@ class TestFailingRun:
 
         _, captured = _run_safely_capturing(monkeypatch, fake_main, capfd)
 
-        assert "update.py failed: _BoomError" in captured.err
+        assert "investing failed: _BoomError" in captured.err
         assert "caused by: ValueError" in captured.err
         assert _LEAK_CANARY not in captured.err
 
@@ -238,7 +239,7 @@ class TestFailingRun:
 
         _, captured = _run_safely_capturing(monkeypatch, fake_main, capfd)
 
-        assert "update.py failed: _BoomError" in captured.err
+        assert "investing failed: _BoomError" in captured.err
         assert "caused by: KeyError" in captured.err
         assert runtime_secret not in captured.err
 
@@ -259,7 +260,7 @@ class TestFailingRun:
         assert exit_code == 1
         # Only the top-level entry should appear; the cycle must be
         # detected and broken before we recurse on ``exc`` again.
-        assert captured.err.count("update.py failed: _BoomError") == 1
+        assert captured.err.count("investing failed: _BoomError") == 1
         assert "caused by:" not in captured.err
 
     def test_systemexit_nonzero_is_treated_as_failure(
@@ -271,7 +272,7 @@ class TestFailingRun:
         exit_code, captured = _run_safely_capturing(monkeypatch, fake_main, capfd)
 
         assert exit_code == 1
-        assert "update.py failed: SystemExit" in captured.err
+        assert "investing failed: SystemExit" in captured.err
 
     def test_keyboard_interrupt_is_treated_as_failure(
         self, monkeypatch, capfd
@@ -282,7 +283,7 @@ class TestFailingRun:
         exit_code, captured = _run_safely_capturing(monkeypatch, fake_main, capfd)
 
         assert exit_code == 1
-        assert "update.py failed: KeyboardInterrupt" in captured.err
+        assert "investing failed: KeyboardInterrupt" in captured.err
 
     def test_stderr_is_restored_after_a_failed_run(self, monkeypatch, capfd):
         sentinel = "POST_FAIL_VISIBLE_SENTINEL"

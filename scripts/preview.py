@@ -1,17 +1,17 @@
 """Render the page locally with synthetic data, for visual debugging.
 
-The production pipeline (``update.py``) needs real Google Sheets
-credentials and live market data to run. This helper short-circuits
-both and feeds ``Webpage`` plausible-looking synthetic data so you can
-inspect the rendered HTML / OG image / sitemap / robots in a browser
-without touching production secrets.
+The production pipeline (``python -m investing``) needs real Google
+Sheets credentials and live market data to run. This helper
+short-circuits both and feeds ``Webpage`` plausible-looking synthetic
+data so you can inspect the rendered HTML / OG image / sitemap /
+robots in a browser without touching production secrets.
 
-Usage::
+Usage (run from the repo root)::
 
-    python preview.py                      # writes to ./preview/
-    python preview.py --out /tmp/jg        # custom output directory
-    python preview.py --open               # also open index.html in
-                                           # the default browser
+    python scripts/preview.py                  # writes to ./preview/
+    python scripts/preview.py --out /tmp/jg    # custom output directory
+    python scripts/preview.py --open           # also open index.html
+                                               # in the default browser
 
 All artifacts (``index.html``, ``og-image.png``, ``sitemap.xml``,
 ``robots.txt``) are gitignored so they will not pollute the repo
@@ -27,13 +27,23 @@ import webbrowser
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from investing.paths import COURAGE_LOGO, LOGOS_ADDRESS
-from investing.webpage import Webpage
+# When invoked as ``python scripts/preview.py`` Python prepends
+# ``scripts/`` (not the repo root) to ``sys.path``, so ``import
+# investing`` would otherwise fail. Bootstrap the repo root onto
+# ``sys.path`` before the package import below so the script can be
+# launched directly from the repo root without an editable install.
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
-# ``logos/`` lives next to this file in the repo and is uploaded as
-# part of the Pages artifact, so any extension that exists locally
-# also resolves under ``LOGOS_ADDRESS`` once deployed.
-_REPO_LOGOS_DIR = Path(__file__).parent / "logos"
+from investing.paths import COURAGE_LOGO, LOGOS_ADDRESS  # noqa: E402
+from investing.webpage import Webpage  # noqa: E402
+
+# ``logos/`` lives at the repo root (one level above ``scripts/``)
+# and is uploaded as part of the Pages artifact, so any extension
+# that exists locally also resolves under ``LOGOS_ADDRESS`` once
+# deployed.
+_REPO_LOGOS_DIR = _REPO_ROOT / "logos"
 
 
 def _build_logo_extension_map() -> dict[str, str]:
