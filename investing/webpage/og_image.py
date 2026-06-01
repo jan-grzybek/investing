@@ -244,13 +244,14 @@ def _benchmark_label(
 
 OUTPUT_FILENAME = "og-image.png"
 _HASH_SIDECAR_FILENAME = OUTPUT_FILENAME + ".sha256"
-# Historical module-level path constants used to be the source of truth
-# when the renderer always wrote to CWD. They're kept as aliases here so
-# any external code (and the test snapshots) that imported them by name
-# still resolves; the resolved write path now flows through
-# ``_resolve_output_dir`` from the call-site ``output_dir`` argument.
+# Historical module-level path constant kept as an alias for any
+# external code (and test snapshots) that imported it by name; the
+# resolved write path now flows through ``_resolve_output_dir`` from
+# the call-site ``output_dir`` argument. The matching
+# ``_HASH_SIDECAR_PATH`` alias was removed because nothing imported
+# it -- the live sidecar path is built from ``_HASH_SIDECAR_FILENAME``
+# and the resolved output directory wherever it's needed.
 OUTPUT_PATH = OUTPUT_FILENAME
-_HASH_SIDECAR_PATH = _HASH_SIDECAR_FILENAME
 
 
 def _resolve_output_dir(output_dir: Path | None) -> Path:

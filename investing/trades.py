@@ -9,7 +9,25 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from .errors import InvariantError
-from .types import EquityTransaction, TradeEvent  # noqa: F401 (re-exported as documentation)
+from .types import EquityTransaction
+
+# Public surface of this module. The leading-underscore display tables
+# (``_BUY_CATEGORIES`` / ``_TRADE_ACTION_DISPLAY`` / ``_TRADE_DETAIL_LABELS``)
+# are imported by ``investing.webpage.trades_view`` and
+# ``investing.webpage._page``; ``__all__`` is the canonical opt-in
+# that tells CodeQL's ``py/unused-global-variable`` query they're
+# cross-module exports rather than module-local bindings the leading
+# underscore would otherwise imply.
+__all__ = [
+    "ACTIONS",
+    "TRADE_WINDOW_DAYS",
+    "_BUY_CATEGORIES",
+    "_TRADE_ACTION_DISPLAY",
+    "_TRADE_DETAIL_LABELS",
+    "Trade",
+    "_combine_trade_events",
+    "combine_and_sort",
+]
 
 
 @dataclass

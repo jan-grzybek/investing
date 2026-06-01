@@ -28,6 +28,27 @@ from .types import (
     Valuation,
 )
 
+# Public surface of this module. ``_BENCHMARK_DISPLAY_NAMES`` is the
+# only leading-underscore name advertised here -- the renderer
+# (``investing.webpage._page`` / ``return_chart``) consumes it
+# directly. Listing it in ``__all__`` is the canonical opt-in that
+# tells CodeQL's ``py/unused-global-variable`` query the binding is a
+# cross-module export rather than a module-local helper its
+# leading underscore would otherwise imply.
+__all__ = [
+    "BENCHMARKS",
+    "_BENCHMARK_DISPLAY_NAMES",
+    "Benchmark",
+    "BenchmarkConfig",
+    "PortfolioRollup",
+    "apply_rollup",
+    "calc_twr",
+    "compute_rollup",
+    "get_benchmarks",
+    "get_holdings",
+    "summarize",
+]
+
 
 @dataclass(frozen=True)
 class BenchmarkConfig:
@@ -68,6 +89,9 @@ def _display_name_map() -> dict[str, str]:
 # Backwards-compatible alias for the renderer; preserved so existing
 # ``from .performance import _BENCHMARK_DISPLAY_NAMES`` imports continue
 # to work while callers migrate to ``BENCHMARKS`` / ``BenchmarkConfig``.
+# Listed in ``__all__`` further down so CodeQL's
+# ``py/unused-global-variable`` query recognises this leading-underscore
+# binding as an intentional cross-module export.
 _BENCHMARK_DISPLAY_NAMES = _display_name_map()
 
 

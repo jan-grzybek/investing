@@ -8,9 +8,6 @@ import math
 from datetime import datetime
 from unittest.mock import MagicMock
 
-import pytest
-
-from investing.paths import LOGOS_ADDRESS
 from investing.webpage import Webpage
 from tests._webpage_support import (
     _benchmark,

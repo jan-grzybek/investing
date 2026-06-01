@@ -3,15 +3,12 @@ pointer interaction styles, and the end-to-end ``save()`` flow."""
 
 from __future__ import annotations
 
-import math
 from datetime import datetime
-from unittest.mock import MagicMock
 
 import pytest
 
 from investing.assets import _NAV_SCROLL_SCRIPT, _RETURN_CHART_SCRIPT
 from investing.formatting import _sha256_b64
-from investing.paths import LOGOS_ADDRESS
 from investing.webpage import Webpage
 from tests._webpage_support import (
     _benchmark,

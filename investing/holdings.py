@@ -95,7 +95,6 @@ def _xirr(
             return mid
         if f_low * f_mid < 0:
             high = mid
-            f_high = f_mid
         else:
             low = mid
             f_low = f_mid
@@ -628,7 +627,6 @@ class Holding:
                     (now - period_started).days,
                     1,
                 )
-                period_started = None
 
         # MoIC - 1, in percent. Reuses the historical ``tsr%`` key
         # so the renderer / sort attrs / OG image / capsule layout

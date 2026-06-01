@@ -3,17 +3,13 @@ the allocation chart, and the sticky site header."""
 
 from __future__ import annotations
 
-import math
 from datetime import datetime
 from unittest.mock import MagicMock
-
-import pytest
 
 from investing.logos import LogoCache
 from investing.paths import COURAGE_LOGO, LOGOS_ADDRESS
 from investing.webpage import Webpage
 from tests._webpage_support import (
-    _benchmark,
     _holding,
     _total_return,
     stub_logo_lookup,

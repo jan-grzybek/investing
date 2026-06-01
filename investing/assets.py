@@ -8,6 +8,21 @@ from __future__ import annotations
 
 from .paths import _read_asset
 
+# Names imported by ``investing.webpage.head`` to assemble the inline
+# CSS / JS payloads of the rendered page. Declaring ``__all__`` keeps
+# the leading-underscore ``private to this module`` convention honest
+# (CodeQL's ``py/unused-global-variable`` query treats the underscore
+# prefix as a hard hint that the binding is module-local; ``__all__``
+# is the canonical opt-in to advertise these as cross-module exports).
+__all__ = [
+    "_HASH_CLEAR_SCRIPT",
+    "_HOLDINGS_SORT_SCRIPT",
+    "_NAV_SCROLL_SCRIPT",
+    "_PAGE_STYLES",
+    "_RETURN_CHART_SCRIPT",
+    "_TRADES_SORT_SCRIPT",
+]
+
 # ---------------------------------------------------------------------------
 # Webpage renderer
 # ---------------------------------------------------------------------------

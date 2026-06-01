@@ -10,7 +10,6 @@ from datetime import datetime
 
 import pytest
 
-import investing.holdings as _holdings
 from investing.holdings import DAYS_YEAR, WITHHOLDING_TAX_RATE, Holding
 from investing.trades import Trade
 
@@ -69,8 +68,7 @@ def _make_ticker(
 def install_ticker(monkeypatch):
     def _install(ticker_mock):
         monkeypatch.setattr(
-            _holdings.yf,
-            "Ticker",
+            "investing.holdings.yf.Ticker",
             lambda symbol: ticker_mock,  # noqa: ARG005
         )
         return ticker_mock

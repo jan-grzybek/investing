@@ -13,6 +13,24 @@ from __future__ import annotations
 
 import os
 
+# Public surface of this module. The leading-underscore entries are
+# imported by sibling modules (``investing.webpage.og_image`` /
+# ``investing.logos`` reach into ``_REPO_LOGOS_DIR``); ``__all__`` is
+# the canonical opt-in that tells CodeQL's
+# ``py/unused-global-variable`` query they're cross-module exports
+# rather than module-local bindings the leading underscore would
+# otherwise imply.
+__all__ = [
+    "COURAGE_LOGO",
+    "LOGOS_ADDRESS",
+    "LOGO_EXTENSIONS",
+    "SITE_DISPLAY",
+    "SITE_URL",
+    "SOCIAL_IMAGE",
+    "_REPO_LOGOS_DIR",
+    "_read_asset",
+]
+
 # ---------------------------------------------------------------------------
 # Site URL configuration
 # ---------------------------------------------------------------------------

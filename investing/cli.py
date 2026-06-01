@@ -15,6 +15,7 @@ import sys
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
+from typing import TextIO
 
 from dateutil.relativedelta import relativedelta
 
@@ -39,6 +40,37 @@ from .types import (
     Valuation,
 )
 from .webpage import generate_webpage
+
+# Stashed reference to the operator's real stdout while the leak-safe
+# wrapper (:func:`investing.safe_run._run_main_safely`) is active. The
+# wrapper assigns this attribute before redirecting ``sys.stdout`` to a
+# StringIO and clears it after restoring stdout. :func:`emit_summary`
+# consults the stash to write the curated build line directly to the
+# original terminal / job log, bypassing the StringIO that's currently
+# masquerading as ``sys.stdout``. Outside the wrapper (e.g. unit tests)
+# it stays ``None`` and :func:`emit_summary` writes to whatever
+# ``sys.stdout`` happens to be, which lets ``capsys`` capture summary
+# output normally. Lives in ``cli`` (rather than ``safe_run``) so the
+# render path doesn't have to import back into ``safe_run`` -- breaking
+# the historical ``cli`` <-> ``safe_run`` import cycle.
+_REAL_STDOUT: TextIO | None = None
+
+
+def emit_summary(line: str) -> None:
+    """Write the curated build-summary line to the real stdout.
+
+    Routes around the redaction in
+    :func:`investing.safe_run._run_main_safely`: when the wrapper is
+    active, writes land on the stashed real stdout (visible in the job
+    log); when the wrapper is inactive, writes follow ``sys.stdout`` so
+    ``capsys``-style test capture continues to work. ``flush`` is
+    unconditional because job-log streams are line-buffered against a
+    pipe and a missing flush could swallow the line on a fast process
+    exit.
+    """
+    stream = _REAL_STDOUT if _REAL_STDOUT is not None else sys.stdout
+    stream.write(line)
+    stream.flush()
 
 
 def _configure_logging(level: int = logging.INFO) -> None:
@@ -113,16 +145,14 @@ def _print_summary(
         f"Build OK: {twr_part} / {cagr_part}{period}{bench_part}; "
         f"{current_count} current / {historical_count} historical holdings.\n"
     )
-    # Route the curated summary through the leak-safe wrapper's
-    # :func:`emit_summary` so it lands on the real stdout while
-    # the redaction is active (stray ``print`` calls from
-    # transitive dependencies go to a discarded StringIO during
+    # Route the curated summary through :func:`emit_summary` so it
+    # lands on the real stdout while the leak-safe wrapper's
+    # redaction is active (stray ``print`` calls from transitive
+    # dependencies go to a discarded StringIO during
     # ``_run_main_safely``). Outside the wrapper (tests / direct
     # callers) this falls through to ``sys.stdout`` so existing
     # ``capsys`` consumers continue to see the line.
-    from . import safe_run as _safe_run
-
-    _safe_run.emit_summary(line)
+    emit_summary(line)
 
 
 # Pure data-source signature: ``pull()`` returns the same triple as

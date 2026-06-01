@@ -12,10 +12,20 @@ import traceback
 
 # Module-level binding so the test suite can swap ``main`` for a fake
 # via ``monkeypatch.setattr(investing.safe_run, "main", fake_main)``.
-# ``_run_main_safely`` reads this attribute through the module
-# namespace (``main()``), not a locally-captured reference, so the
-# patch is visible at call time.
-from .cli import main  # noqa: F401  (re-bound; used via module namespace below)
+# ``_run_main_safely`` resolves ``main`` through this module's globals
+# at call time (Python's ``LOAD_GLOBAL``), so the patch is visible.
+# We also keep a reference to the ``cli`` module so the wrapper can
+# park the real stdout on :data:`investing.cli._REAL_STDOUT` -- the
+# render path's :func:`emit_summary` reads it from there to bypass
+# the redaction. Importing ``cli`` only in this direction (and not the
+# other way around) keeps the module DAG acyclic.
+from . import cli
+from .cli import main
+
+# Re-export ``emit_summary`` so existing ``investing.safe_run.emit_summary``
+# call sites (and the dedicated test in ``tests/test_safe_run.py``)
+# keep working after the helper moved into ``investing.cli``.
+emit_summary = cli.emit_summary
 
 # ---------------------------------------------------------------------------
 # Leak-safe entrypoint
@@ -90,33 +100,6 @@ def _print_sanitized_failure(exc: BaseException) -> None:
     sys.stderr.flush()
 
 
-# Stashed reference to the operator's real stdout while the redaction
-# is active. ``investing.cli._print_summary`` consults this via
-# :func:`emit_summary` to write its curated build line directly to the
-# original terminal / job log, bypassing the StringIO that's currently
-# masquerading as ``sys.stdout``. Outside :func:`_run_main_safely`
-# (e.g. in unit tests) it stays ``None`` and :func:`emit_summary`
-# writes to whatever ``sys.stdout`` happens to be, which lets
-# ``capsys`` capture summary output normally.
-_REAL_STDOUT = None
-
-
-def emit_summary(line: str) -> None:
-    """Write the curated build-summary line to the real stdout.
-
-    Routes around the redaction in :func:`_run_main_safely`: when the
-    wrapper is active, writes land on the stashed real stdout
-    (visible in the job log); when the wrapper is inactive, writes
-    follow ``sys.stdout`` so ``capsys``-style test capture continues
-    to work. ``flush`` is unconditional because job-log streams are
-    line-buffered against a pipe and a missing flush could swallow
-    the line on a fast process exit.
-    """
-    stream = _REAL_STDOUT if _REAL_STDOUT is not None else sys.stdout
-    stream.write(line)
-    stream.flush()
-
-
 def _run_main_safely() -> None:
     """Run :func:`main` with stderr fully redacted and stdout buffered.
 
@@ -128,73 +111,98 @@ def _run_main_safely() -> None:
     smuggle nominal portfolio values into the public job log
     either. The captured stdout is discarded on completion; the
     build's curated summary line is emitted by
-    ``investing.cli._print_summary`` via :func:`emit_summary`,
-    which writes directly to the stashed real stdout while the
-    redaction is in place.
+    ``investing.cli._print_summary`` via
+    :func:`investing.cli.emit_summary`, which writes directly to the
+    stashed real stdout (parked on :data:`investing.cli._REAL_STDOUT`)
+    while the redaction is in place.
 
     The function exits the process with status 1 on any exception
-    (including ``KeyboardInterrupt`` / ``SystemExit`` with a non-zero
+    (including ``KeyboardInterrupt`` and ``SystemExit`` with a non-zero
     code) after printing a sanitized failure summary; on success it
     returns normally so the caller can chain further work if it ever
-    needs to.
+    needs to. ``BaseException`` itself is never caught directly --
+    we enumerate the two non-``Exception`` classes we care about
+    (``SystemExit`` / ``KeyboardInterrupt``) so the wrapper still
+    surfaces the *truly* exceptional control-flow paths Python
+    reserves for itself (asyncio's ``CancelledError`` on 3.8+,
+    e.g.) instead of swallowing them.
     """
-    global _REAL_STDOUT
     real_stderr = sys.stderr
     real_stdout = sys.stdout
-    # Lifecycle is deliberately spread across the function: opened
-    # here, closed inside ``_restore`` so it stays alive for the
-    # duration of ``main()`` while ``sys.stderr`` / ``sys.stdout``
-    # are pointed at the redacted sinks. A ``with`` block would
-    # close them on early returns inside the function, defeating
-    # the whole point of the redaction.
-    devnull_py = open(os.devnull, "w")  # noqa: SIM115
-    devnull_fd = os.open(os.devnull, os.O_WRONLY)
-    saved_stderr_fd = os.dup(2)
-    # Stdout capture: a StringIO buffer for the Python-level stream
-    # plus a devnull on fd 1 so non-Python writes (C extensions, raw
-    # ``os.write(1, ...)``) also disappear. The StringIO contents
-    # are discarded on restore; the curated summary line writes
-    # directly to the stashed real stdout via :func:`emit_summary`.
+
+    # All resources are allocated *inside* the outer try/finally so a
+    # failure in any single allocation step (e.g. ``os.dup`` running
+    # out of fds) doesn't leak the ones already opened. ``_restore``
+    # is idempotent: it only undoes work that actually happened, so
+    # calling it on a half-built setup is safe.
+    devnull_py: io.TextIOWrapper | None = None
+    devnull_fd = -1
+    saved_stderr_fd = -1
+    saved_stdout_fd = -1
+    redirected = False
+    restored = False
     captured_stdout = io.StringIO()
-    saved_stdout_fd = os.dup(1)
 
     def _restore() -> None:
-        global _REAL_STDOUT
+        # Idempotent so the try/finally below can call it
+        # unconditionally for the rare setup-failure path without
+        # double-closing fds the inner branch already cleaned up.
+        nonlocal restored
+        if restored:
+            return
+        restored = True
+        cli._REAL_STDOUT = None
         sys.stderr = real_stderr
         sys.stdout = real_stdout
-        _REAL_STDOUT = None
-        try:
-            devnull_py.close()
-        finally:
-            os.dup2(saved_stderr_fd, 2)
+        if redirected:
+            if saved_stderr_fd != -1:
+                os.dup2(saved_stderr_fd, 2)
+            if saved_stdout_fd != -1:
+                os.dup2(saved_stdout_fd, 1)
+        if saved_stderr_fd != -1:
             os.close(saved_stderr_fd)
-            os.dup2(saved_stdout_fd, 1)
+        if saved_stdout_fd != -1:
             os.close(saved_stdout_fd)
+        if devnull_fd != -1:
             os.close(devnull_fd)
+        if devnull_py is not None:
+            devnull_py.close()
 
-    # Read ``main`` through the module namespace so a test-time
-    # ``monkeypatch.setattr(_safe_run, "main", fake)`` is honoured.
-    from . import safe_run as _self
-
-    _REAL_STDOUT = real_stdout
-    os.dup2(devnull_fd, 2)
-    os.dup2(devnull_fd, 1)
-    sys.stderr = devnull_py
-    sys.stdout = captured_stdout
     try:
-        _self.main()
-    except SystemExit as exc:
-        _restore()
-        # Preserve an explicit ``sys.exit(0)`` from inside ``main``; only
-        # synthesise a sanitized report when the exit signals failure.
-        code = exc.code if isinstance(exc.code, int) else 1
-        if code != 0:
+        # Resources allocated incrementally so a failure midway
+        # (``os.dup`` exhausting fds, for example) leaves the
+        # tracking variables accurate; ``_restore`` then tears down
+        # exactly what was allocated and skips the rest.
+        devnull_py = open(os.devnull, "w")  # noqa: SIM115
+        devnull_fd = os.open(os.devnull, os.O_WRONLY)
+        saved_stderr_fd = os.dup(2)
+        saved_stdout_fd = os.dup(1)
+
+        cli._REAL_STDOUT = real_stdout
+        os.dup2(devnull_fd, 2)
+        os.dup2(devnull_fd, 1)
+        redirected = True
+        sys.stderr = devnull_py
+        sys.stdout = captured_stdout
+
+        try:
+            main()
+        except SystemExit as exc:
+            _restore()
+            # Preserve an explicit ``sys.exit(0)`` from inside
+            # ``main``; only synthesise a sanitized report when the
+            # exit signals failure.
+            code = exc.code if isinstance(exc.code, int) else 1
+            if code != 0:
+                _print_sanitized_failure(exc)
+                sys.exit(1)
+            return
+        except (Exception, KeyboardInterrupt) as exc:
+            _restore()
             _print_sanitized_failure(exc)
             sys.exit(1)
-        return
-    except BaseException as exc:
-        _restore()
-        _print_sanitized_failure(exc)
-        sys.exit(1)
-    else:
+    finally:
+        # Belt-and-braces cleanup for the setup-failure path (the
+        # inner ``except`` blocks already restored on the handled
+        # paths, and ``_restore`` is idempotent).
         _restore()

@@ -6,8 +6,7 @@ from datetime import datetime
 
 import pytest
 
-import investing.trades as _trades
-from investing.trades import Trade, combine_and_sort
+from investing.trades import ACTIONS, Trade, combine_and_sort
 
 
 def _txn(date, ticker, qty, price, action):
@@ -119,4 +118,4 @@ class TestCombineAndSort:
     def test_actions_constant_is_well_formed(self):
         # combine_and_sort relies on this; an explicit check guards against
         # accidental edits that would silently break the sort order.
-        assert _trades.ACTIONS == ["BUY", "SELL"]
+        assert ACTIONS == ["BUY", "SELL"]

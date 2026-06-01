@@ -15,7 +15,6 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
-import investing.fx as _fx
 from investing.fx import ExchangeRate
 
 
@@ -29,7 +28,7 @@ def _stub_ticker(monkeypatch, mapping):
             raise AssertionError(f"Unexpected FX ticker requested: {symbol!r}")
         return mapping[symbol]
 
-    monkeypatch.setattr(_fx.yf, "Ticker", _factory)
+    monkeypatch.setattr("investing.fx.yf.Ticker", _factory)
 
 
 def test_disk_cache_disabled_by_default(monkeypatch, tmp_path):

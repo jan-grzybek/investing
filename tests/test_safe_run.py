@@ -25,10 +25,7 @@ from __future__ import annotations
 import os
 import sys
 
-import pytest
-
 import investing.safe_run as _safe_run
-from investing import safe_run as _safe_run_mod  # noqa: F401 (alias used below)
 
 # Distinctive leak canaries we plant inside fake ``main`` bodies so
 # the assertions can prove the leak-safe wrapper either suppressed

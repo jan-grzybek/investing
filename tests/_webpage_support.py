@@ -6,14 +6,11 @@ duplicating them.
 
 from __future__ import annotations
 
-import math
 from datetime import datetime
-from unittest.mock import MagicMock
 
 import pytest
 
 from investing.paths import LOGOS_ADDRESS
-from investing.webpage import Webpage
 
 
 def _holding(

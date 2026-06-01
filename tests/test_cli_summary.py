@@ -12,8 +12,6 @@ from __future__ import annotations
 
 from datetime import datetime
 
-import pytest
-
 from investing.cli import _print_summary
 
 

@@ -11,8 +11,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import investing.sheets as _sheets
-from investing.sheets import SheetParseError, pull_data
+from investing.sheets import SheetParseError, _pad_rows, pull_data
 
 
 def _equities_header():
@@ -66,7 +65,10 @@ def patch_gspread(monkeypatch):
     def _install(sh):
         gc = MagicMock()
         gc.open_by_key.return_value = sh
-        monkeypatch.setattr(_sheets.gspread, "service_account", lambda filename: gc)  # noqa: ARG005
+        monkeypatch.setattr(
+            "investing.sheets.gspread.service_account",
+            lambda filename: gc,  # noqa: ARG005
+        )
         monkeypatch.setenv("GSHEET_ID", "fake-sheet-id")
         return gc
 
@@ -275,7 +277,10 @@ def patch_gspread_batched(monkeypatch):
         )
         gc = MagicMock()
         gc.open_by_key.return_value = sh
-        monkeypatch.setattr(_sheets.gspread, "service_account", lambda filename: gc)  # noqa: ARG005
+        monkeypatch.setattr(
+            "investing.sheets.gspread.service_account",
+            lambda filename: gc,  # noqa: ARG005
+        )
         monkeypatch.setenv("GSHEET_ID", "fake-sheet-id")
         return sh
 
@@ -366,17 +371,17 @@ class TestPadRows:
     """
 
     def test_short_row_is_padded_to_target_width(self):
-        assert _sheets._pad_rows([["a", "b"]], 4) == [["a", "b", "", ""]]
+        assert _pad_rows([["a", "b"]], 4) == [["a", "b", "", ""]]
 
     def test_already_wide_row_is_passed_through(self):
-        assert _sheets._pad_rows([["a", "b", "c", "d"]], 3) == [["a", "b", "c", "d"]]
+        assert _pad_rows([["a", "b", "c", "d"]], 3) == [["a", "b", "c", "d"]]
 
     def test_zero_width_returns_input_copy(self):
         rows = [["a"], ["b"]]
-        assert _sheets._pad_rows(rows, 0) == rows
+        assert _pad_rows(rows, 0) == rows
 
     def test_mixed_widths_normalise_to_target(self):
-        assert _sheets._pad_rows([["a"], ["a", "b", "c"], []], 2) == [
+        assert _pad_rows([["a"], ["a", "b", "c"], []], 2) == [
             ["a", ""],
             ["a", "b", "c"],
             ["", ""],
