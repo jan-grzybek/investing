@@ -8,9 +8,12 @@ from datetime import datetime
 
 import yfinance as yf
 
+from .clock import NowFn
+from .errors import InvariantError
 from .formatting import _ts_to_datetime
 from .fx import _fx_or_default
 from .trades import TRADE_WINDOW_DAYS, Trade, _combine_trade_events
+from .types import HoldingSummary, TradeEvent  # noqa: F401 (re-exported as documentation)
 
 WITHHOLDING_TAX_RATE = 0.15
 
@@ -33,7 +36,7 @@ CAGR_TBA_THRESHOLD = math.nextafter(1_000_000, 0)
 
 
 class Holding:
-    def __init__(self, ticker, *, fx=None):
+    def __init__(self, ticker, *, fx=None, now: NowFn | None = None):
         self._ticker = yf.Ticker(ticker)
         self._info = self._ticker.get_info()
         self._splits, self._dividends = self._get_splits_dividends()
@@ -44,6 +47,13 @@ class Holding:
         # keeps ad-hoc construction working without leaking state
         # across tests via a module-level singleton.
         self._fx = _fx_or_default(fx)
+        # ``now`` is the "what time is it?" plug used by
+        # :meth:`summary` to bound any open-ended period at the
+        # current moment. ``None`` falls back to ``datetime.today``
+        # (which the legacy ``freeze_today`` fixture still patches);
+        # new tests can pass an explicit closure to avoid the
+        # cross-module monkeypatch.
+        self._now: NowFn = now if now is not None else datetime.today
         self._positions: list[dict] = []
         self._periods: list[dict] = []
         self._inflows: list[dict] = []
@@ -79,12 +89,21 @@ class Holding:
 
     def _apply_splits_between(self, quantity, after_date, before_date):
         """Adjust ``quantity`` for every split strictly between ``after_date``
-        and ``before_date`` (exclusive both ends)."""
+        and ``before_date`` (exclusive both ends).
+
+        Raises ``InvariantError`` if a split lands exactly on either
+        boundary -- the surrounding code splits by ``trade.date`` and
+        relies on the exclusive-both-ends contract to avoid double-
+        counting; a same-day split would silently double the holding.
+        """
         for split in self._splits:
             if before_date <= split["date"]:
                 break
-            assert after_date != split["date"]
-            assert before_date != split["date"]
+            if after_date == split["date"] or before_date == split["date"]:
+                raise InvariantError(
+                    "stock split coincides with a trade boundary -- "
+                    "cannot determine which side of the split owns the shares",
+                )
             if split["date"] > after_date:
                 quantity = int(quantity * split["split"])
         return quantity
@@ -182,7 +201,12 @@ class Holding:
                         for split in self._splits[split_idx:]:
                             if dividend["date"] <= split["date"]:
                                 break
-                            assert split["date"] != position["date"]
+                            if split["date"] == position["date"]:
+                                raise InvariantError(
+                                    "stock split coincides with a position "
+                                    "boundary -- cannot determine which "
+                                    "side of the split receives the dividend",
+                                )
                             if split["date"] > position["date"]:
                                 quantity = int(quantity * split["split"])
                             else:
@@ -228,14 +252,17 @@ class Holding:
             for event in combined
         ]
 
-    def summary(self):
+    def summary(self) -> dict:
+        # Returns a :class:`investing.types.HoldingSummary`-shaped
+        # dict; signature kept loose so mypy doesn't fight the
+        # incremental dict construction below.
         outflows = self._add_dividends()
         tsr = 1.0
         total_ownership_length = 0
         for period in self._periods:
             start = period["start"]
             if period["end"] is None:
-                end = datetime.today()
+                end = self._now()
                 outflows.append({
                     "date": end,
                     "value": (self._positions[-1]["quantity"] * self._info["regularMarketPrice"] *

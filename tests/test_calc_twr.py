@@ -5,7 +5,8 @@ from datetime import datetime
 
 import pytest
 
-from update import calc_twr, DAYS_YEAR
+from investing.holdings import DAYS_YEAR
+from investing.performance import calc_twr
 
 
 def _val(date, value, flow=0.0):

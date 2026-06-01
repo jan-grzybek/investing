@@ -10,8 +10,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import update
-from update import pull_data
+import investing.sheets as _sheets
+from investing.sheets import SheetParseError, pull_data
 
 
 def _equities_header():
@@ -65,7 +65,7 @@ def patch_gspread(monkeypatch):
     def _install(sh):
         gc = MagicMock()
         gc.open_by_key.return_value = sh
-        monkeypatch.setattr(update.gspread, "service_account", lambda filename: gc)  # noqa: ARG005
+        monkeypatch.setattr(_sheets.gspread, "service_account", lambda filename: gc)  # noqa: ARG005
         monkeypatch.setenv("GSHEET_ID", "fake-sheet-id")
         return gc
 
@@ -185,7 +185,7 @@ class TestPullData:
         # original failure-mode contract being upgraded from
         # ``AssertionError`` to a structured error type with row /
         # column context.
-        with pytest.raises(update.SheetParseError) as excinfo:
+        with pytest.raises(SheetParseError) as excinfo:
             pull_data()
         # The error must point at the offending sheet location so an
         # operator editing the source Google Sheet can find the bad
@@ -205,7 +205,7 @@ class TestPullData:
             cash=[["", "", "USD", "100.0"]],
         )
         patch_gspread(sh)
-        with pytest.raises(update.SheetParseError) as excinfo:
+        with pytest.raises(SheetParseError) as excinfo:
             pull_data()
         assert excinfo.value.worksheet == "Cash & Cash Equivalents"
         assert excinfo.value.row == 3
@@ -218,7 +218,7 @@ class TestPullData:
             cash=[],
         )
         patch_gspread(sh)
-        with pytest.raises(update.SheetParseError) as excinfo:
+        with pytest.raises(SheetParseError) as excinfo:
             pull_data()
         assert excinfo.value.worksheet == "Equities"
         assert excinfo.value.field == "quantity"

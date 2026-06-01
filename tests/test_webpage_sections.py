@@ -9,9 +9,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import update
-from update import Webpage, LOGOS_ADDRESS
-
+from investing.paths import LOGOS_ADDRESS
+from investing.webpage import Webpage
 from tests._webpage_support import (
     _benchmark,
     _holding,
@@ -733,21 +732,26 @@ class TestTicker:
         anchor_block = slice_.split("</a>", 1)[0]
         assert '<img class="ticker__logo"' in anchor_block
 
-    def test_logo_lookups_are_cached(self, monkeypatch):
+    def test_logo_lookups_are_cached(self):
         # Adding the same ticker twice (e.g. both a current and a past
         # position for the same instrument under different test setups)
-        # should only HEAD-probe its logo extensions once.
+        # should only HEAD-probe its logo extensions once. The cache
+        # now lives on the injectable ``LogoCache`` rather than as a
+        # per-Webpage dict, so we plant a session-level stub and
+        # check the call count there.
+        from investing.logos import LogoCache
+
         calls = []
 
-        def fake_head(url):
+        def fake_head(url, timeout=None):  # noqa: ARG001
             calls.append(url)
             resp = MagicMock()
             resp.status_code = 200  # First extension wins immediately.
             return resp
 
-        monkeypatch.setattr(update.requests, "head", fake_head)
-
-        w = Webpage()
+        session = MagicMock()
+        session.head.side_effect = fake_head
+        w = Webpage(logo_cache=LogoCache(session=session))
         w._get_logo_url("NMS:AAA")
         w._get_logo_url("NMS:AAA")
         w._get_logo_url("NMS:AAA")
@@ -818,7 +822,7 @@ class TestAddTrades:
         # (We can't measure actual pixel widths from a static-HTML
         # test, but holding the CSS rule in place is what guarantees
         # the visual invariant downstream.)
-        from update import _PAGE_STYLES
+        from investing.assets import _PAGE_STYLES
         # Locate the ``.trade__badge`` declaration block and assert
         # both ``width`` and ``text-align: center`` survive in it.
         block = _PAGE_STYLES.split(".trade__badge {", 1)[1].split("}", 1)[0]
@@ -1143,7 +1147,7 @@ class TestAddTrades:
         # The render-chart script uses the same defer pattern;
         # asserting the gate explicitly keeps a regression from
         # quietly re-introducing the issue.
-        from update import _TRADES_SORT_SCRIPT
+        from investing.assets import _TRADES_SORT_SCRIPT
         assert "DOMContentLoaded" in _TRADES_SORT_SCRIPT
         assert "document.readyState===\'loading\'" in _TRADES_SORT_SCRIPT
 
@@ -1156,7 +1160,7 @@ class TestAddTrades:
         # stays clean and no inert button confuses a screen-reader
         # user. The threshold lives on the ``Webpage`` class so this
         # test reads it rather than hard-coding 10.
-        from update import Webpage as _Webpage
+        from investing.webpage import Webpage as _Webpage
         threshold = _Webpage._TRADES_VISIBLE_DEFAULT
         w = Webpage()
         w.add_trades([
@@ -1183,7 +1187,7 @@ class TestAddTrades:
         # ``data-expanded`` start out closed so the page paints in
         # the collapsed state without the JS having to "fix it up"
         # post-DOMContentLoaded.
-        from update import Webpage as _Webpage
+        from investing.webpage import Webpage as _Webpage
         threshold = _Webpage._TRADES_VISIBLE_DEFAULT
         w = Webpage()
         w.add_trades([
@@ -1213,7 +1217,8 @@ class TestAddTrades:
         # coordination -- which is the whole point of doing it in
         # CSS instead of building a paging layer. Assert the rule
         # is present so a future refactor can't quietly drop it.
-        from update import _PAGE_STYLES, Webpage as _Webpage
+        from investing.assets import _PAGE_STYLES
+        from investing.webpage import Webpage as _Webpage
         threshold = _Webpage._TRADES_VISIBLE_DEFAULT
         # Threshold + 1 is the first row hidden, which matches the
         # ``:nth-of-type(n+11)`` index in the stylesheet rule.
@@ -1233,7 +1238,7 @@ class TestAddTrades:
         # textual presence rather than running the script -- the
         # browser-level smoke test in /tmp/check_sort.py exercises
         # the full state machine end-to-end.
-        from update import _TRADES_SORT_SCRIPT
+        from investing.assets import _TRADES_SORT_SCRIPT
         for needle in (
             ".trades__toggle",
             "data-expanded",

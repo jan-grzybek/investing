@@ -4,5 +4,15 @@ pytest-cov>=5
 ruff>=0.6
 mypy>=1.10
 beautifulsoup4>=4.12
+# Strict HTML5 parser used by the CI smoke step in ``.github/workflows/test.yml``
+# to catch markup regressions ``html.parser`` would tolerate (unclosed
+# tags inside template branches, missing quotes, etc.).
+html5lib>=1.1
 pre-commit>=3.7
 pip-tools>=7
+# Asset minifiers. The page generator reads the minified outputs at
+# import time; ``scripts/build_assets.py`` regenerates them from the
+# readable sources under ``assets/src/`` and the pre-commit hook
+# guarantees the two stay in sync.
+rjsmin>=1.2
+csscompressor>=0.9

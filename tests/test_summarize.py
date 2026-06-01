@@ -5,8 +5,7 @@ from datetime import datetime
 
 import pytest
 
-import update
-from update import summarize
+from investing.performance import summarize
 
 
 def _holding(ticker, value, name=None):

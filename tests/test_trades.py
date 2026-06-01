@@ -20,13 +20,9 @@ from datetime import datetime
 
 import pytest
 
-from update import (
-    Holding,
-    Trade,
-    _combine_trade_events,
-    get_holdings,
-)
-
+from investing.holdings import Holding
+from investing.performance import get_holdings
+from investing.trades import Trade, _combine_trade_events
 
 # ---------------------------------------------------------------------------
 # _combine_trade_events

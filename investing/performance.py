@@ -4,16 +4,69 @@ weights, benchmark fetch.
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from datetime import datetime
 
+from .clock import NowFn
+from .errors import InvariantError
 from .formatting import _fmt_pct
 from .fx import _fx_or_default
 from .holdings import DAYS_YEAR, Holding
 from .log import logger
 from .trades import ACTIONS, Trade, combine_and_sort
+from .types import (  # re-exported for type-aware callers; functions below
+    BenchmarkSummary,  # noqa: F401
+    CashBalance,
+    EquityTransaction,
+    HoldingsRollup,  # noqa: F401
+    HoldingSummary,  # noqa: F401
+    TotalReturn,  # noqa: F401
+    Valuation,
+)
 
-# Display labels for benchmarks whose ticker is not user-friendly.
-_BENCHMARK_DISPLAY_NAMES = {"LSE:VUAA.L": "S&P 500"}
+
+@dataclass(frozen=True)
+class BenchmarkConfig:
+    """Configuration for a single reference index rendered alongside the JG portfolio.
+
+    Bundling the upstream ticker with the human-facing display name
+    closes a small but recurring drift bug: previously the two were
+    kept in parallel data structures (``_BENCHMARK_TICKERS`` list +
+    ``_BENCHMARK_DISPLAY_NAMES`` dict keyed on the resolved Yahoo
+    symbol) and adding a new benchmark required editing both.
+    """
+
+    ticker: str
+    display_name: str
+
+
+# Module-level registry of reference indices the page renders next to
+# the JG portfolio curve. A future second-benchmark experiment is just
+# an append away; the renderer reads display names through the
+# ``_BENCHMARK_DISPLAY_NAMES`` mapping below so existing call sites
+# continue to work.
+BENCHMARKS: tuple[BenchmarkConfig, ...] = (
+    BenchmarkConfig(ticker="VUAA.L", display_name="S&P 500"),
+)
+
+
+def _display_name_map() -> dict[str, str]:
+    """Build the ``EXCH:SYMBOL`` -> display-name mapping the renderer reads.
+
+    Yahoo normalises ``VUAA.L`` to ``LSE:VUAA.L`` at fetch time, so the
+    map key carries the exchange prefix to match what
+    ``Holding.summary()`` emits.
+    """
+    return {
+        f"LSE:{cfg.ticker}" if "." in cfg.ticker else cfg.ticker: cfg.display_name
+        for cfg in BENCHMARKS
+    }
+
+
+# Backwards-compatible alias for the renderer; preserved so existing
+# ``from .performance import _BENCHMARK_DISPLAY_NAMES`` imports continue
+# to work while callers migrate to ``BENCHMARKS`` / ``BenchmarkConfig``.
+_BENCHMARK_DISPLAY_NAMES = _display_name_map()
 
 
 
@@ -23,12 +76,24 @@ _BENCHMARK_DISPLAY_NAMES = {"LSE:VUAA.L": "S&P 500"}
 # ---------------------------------------------------------------------------
 
 
-def get_holdings(transactions, *, fx=None):
+def get_holdings(
+    transactions: list[EquityTransaction],
+    *,
+    fx=None,
+    now: NowFn | None = None,
+) -> dict:
+    # Returns a :class:`investing.types.HoldingsRollup`-shaped dict;
+    # kept as plain ``dict`` in the signature so the construction
+    # below (which incrementally builds the payload) doesn't have
+    # to satisfy ``mypy``'s strict-TypedDict narrowing.
     """Roll up transactions into per-ticker Holding summaries.
 
     ``fx`` is forwarded to every ``Holding`` so production can share a
     single ``ExchangeRate`` cache across the whole portfolio rather
-    than re-fetching the same currency per ticker.
+    than re-fetching the same currency per ticker. ``now`` is the
+    wall-clock plug used by :meth:`Holding.summary` to anchor any
+    open-ended period; ``None`` keeps the legacy
+    ``datetime.today`` behaviour.
     """
     fx = _fx_or_default(fx)
     trades = combine_and_sort(transactions)
@@ -36,15 +101,18 @@ def get_holdings(transactions, *, fx=None):
     holdings: dict[str, Holding] = {}
     for trade in trades:
         if trade.ticker not in holdings:
-            holdings[trade.ticker] = Holding(trade.ticker, fx=fx)
-        assert trade.action in ACTIONS
+            holdings[trade.ticker] = Holding(trade.ticker, fx=fx, now=now)
+        if trade.action not in ACTIONS:
+            raise InvariantError(
+                f"trade action {trade.action!r} is not one of {ACTIONS}",
+            )
         if trade.action == "BUY":
             holdings[trade.ticker].buy(trade)
         else:
             holdings[trade.ticker].sell(trade)
 
-    current_holdings = []
-    historical_holdings = []
+    current_holdings: list[dict] = []
+    historical_holdings: list[dict] = []
     trade_events: list[dict] = []
     for holding in holdings.values():
         summary = holding.summary()
@@ -79,44 +147,70 @@ def get_holdings(transactions, *, fx=None):
 # ---------------------------------------------------------------------------
 
 
-def calc_twr(valuations, current_value):
+def calc_twr(
+    valuations: list[Valuation],
+    current_value: float,
+    *,
+    now: NowFn | None = None,
+) -> dict:
+    # Returns a :class:`investing.types.TotalReturn`-shaped dict;
+    # see ``get_holdings`` for the rationale on keeping the
+    # signature loose.
+    """Bootstrap the portfolio's time-weighted return curve.
+
+    ``now`` is the wall-clock plug; ``None`` falls through to
+    ``datetime.today`` so the legacy ``freeze_today`` fixture (which
+    monkeypatches this module's bound ``datetime`` symbol) keeps
+    working. New callers can pass an explicit closure to inject a
+    fixed timestamp without the cross-module patch.
+    """
+    _now: NowFn = now if now is not None else datetime.today
     if not valuations:
-        return {"start_date": datetime.today(), "history": [], "twr%": 0.0, "cagr%": 0.0}
+        return {"start_date": _now(), "history": [], "twr%": 0.0, "cagr%": 0.0}
     valuations = sorted(valuations, key=lambda item: item["date"])
-    total_return = {
-        "start_date": valuations[0]["date"],
-        "history": [],
-    }
+    start_date = valuations[0]["date"]
+    history: list[tuple[datetime, float]] = []
     start_value = valuations[0]["value"] + valuations[0]["flow"]
     twr = 1.0
-    total_return["history"].append((valuations[0]["date"], twr))
+    history.append((valuations[0]["date"], twr))
     for valuation in valuations[1:]:
         twr *= (valuation["value"] / start_value)
         start_value = valuation["value"] + valuation["flow"]
-        total_return["history"].append((valuation["date"], twr))
-    if datetime.today().date() > valuations[-1]["date"].date():
+        history.append((valuation["date"], twr))
+    today = _now()
+    if today.date() > valuations[-1]["date"].date():
         twr *= (current_value / start_value)
-        total_return["history"].append((datetime.today(), twr))
-    cagr = twr ** (DAYS_YEAR / max((datetime.today() - total_return["start_date"]).days, 1)) - 1.0
+        history.append((today, twr))
+    cagr = twr ** (DAYS_YEAR / max((today - start_date).days, 1)) - 1.0
     twr -= 1.0
     # Store unrounded percentages; consumers (capsule delta vs
     # benchmark, chart pp-delta overlay, OG-image headline) require
     # the full precision so subtraction doesn't compound the 0.05 pp
     # error of single-decimal rounding. Display sites round at
     # format time with ``:.1f``.
-    total_return["twr%"] = twr * 100
-    total_return["cagr%"] = cagr * 100
+    twr_pct = twr * 100
+    cagr_pct = cagr * 100
     logger.info(
         "JG - Jan Grzybek - TWR: %s%% - CAGR: %s%%",
-        _fmt_pct(total_return["twr%"]),
-        _fmt_pct(total_return["cagr%"]),
+        _fmt_pct(twr_pct),
+        _fmt_pct(cagr_pct),
     )
-    return total_return
+    return {
+        "start_date": start_date,
+        "history": history,
+        "twr%": twr_pct,
+        "cagr%": cagr_pct,
+    }
 
 
 
 
-def summarize(holdings, cash, *, fx=None):
+def summarize(
+    holdings: dict,
+    cash: list[CashBalance],
+    *,
+    fx=None,
+) -> float:
     """Compute allocations and weights, mutating ``holdings`` in place.
 
     Accepts an explicit ``fx`` rather than reaching for a module global
@@ -127,7 +221,15 @@ def summarize(holdings, cash, *, fx=None):
     total_equity_value_usd = 0.0
     total_cash_value_usd = 0.0
     for holding in holdings["current"]:
-        assert holding["current_value_usd"] > 0.0
+        if holding["current_value_usd"] <= 0.0:
+            # A current holding with zero/negative USD valuation is a
+            # data fault upstream (yfinance returning no price, FX
+            # collapsing to zero, ...). Bail out loudly so the build
+            # stops rather than silently shipping a degenerate page.
+            raise InvariantError(
+                f"current holding {holding['ticker']!r} has non-positive "
+                f"USD valuation: {holding['current_value_usd']!r}",
+            )
         total_equity_value_usd += holding["current_value_usd"]
     for currency in cash:
         total_cash_value_usd += currency["amount"] * fx(currency["currency_code"])
@@ -195,7 +297,7 @@ class Benchmark:
     Yahoo Ticker handle to itself.
     """
 
-    def __init__(self, ticker: str, start_date, fx=None):
+    def __init__(self, ticker: str, start_date, fx=None, now: NowFn | None = None):
         self._ticker_symbol = ticker
         self._start_date = start_date
         self._start_date_str = start_date.strftime("%Y-%m-%d")
@@ -204,7 +306,7 @@ class Benchmark:
         # adjusted (for the cumulative-return curve) histories. Two
         # separate Yahoo calls are unavoidable -- auto_adjust=True
         # rewrites the Open series, losing the actual trade price.
-        self._holding = Holding(ticker, fx=self._fx)
+        self._holding = Holding(ticker, fx=self._fx, now=now)
         self._unadj_history = self._holding._ticker.history(
             start=self._start_date_str, interval="1d", auto_adjust=False,
         )
@@ -241,7 +343,11 @@ class Benchmark:
             close_price = float(history["Close"].iloc[idx])
             prev_close_price = float(history["Close"].iloc[idx - 1])
             if math.isnan(close_price):
-                assert not math.isnan(prev_close_price)
+                if math.isnan(prev_close_price):
+                    raise InvariantError(
+                        "benchmark history has two consecutive NaN closes "
+                        f"around index {idx} -- cannot interpolate",
+                    )
                 close_price = prev_close_price
             ref_date = reference_history[ref_idx][0]
             date = row.Index.to_pydatetime()
@@ -261,10 +367,18 @@ class Benchmark:
             close_price = float(history["Close"].iloc[-1])
             if math.isnan(close_price):
                 close_price = float(history["Close"].iloc[-2])
-                assert not math.isnan(close_price)
+                if math.isnan(close_price):
+                    raise InvariantError(
+                        "benchmark history ends with two consecutive NaN "
+                        "closes -- cannot back-fill the final reference point",
+                    )
             series.append((reference_history[-1][0], close_price / start_price))
-        assert len(series) == len(reference_history), (
-            len(series), len(reference_history))
+        if len(series) != len(reference_history):
+            raise InvariantError(
+                "benchmark resampling lost data: produced "
+                f"{len(series)} points for a {len(reference_history)}-point "
+                "reference timeline",
+            )
         return series
 
     def summary(self, reference_history) -> dict:
@@ -287,20 +401,26 @@ class Benchmark:
         return summary
 
 
-# Benchmark tickers the page renders alongside the JG portfolio
-# curve. Kept module-level so the renderer can look up display
-# labels via ``_BENCHMARK_DISPLAY_NAMES`` without re-deriving the
-# list, and so a future second-benchmark experiment is just an
-# append away.
-_BENCHMARK_TICKERS: list[str] = ["VUAA.L"]
+# Backwards-compatible alias: the older ``_BENCHMARK_TICKERS`` name
+# is preserved as a derived view over ``BENCHMARKS`` so any external
+# consumers that imported it keep working.
+_BENCHMARK_TICKERS: list[str] = [cfg.ticker for cfg in BENCHMARKS]
 
 
-def get_benchmarks(total_return_history, *, fx=None):
+def get_benchmarks(
+    total_return_history: list[tuple[datetime, float]],
+    *,
+    fx=None,
+    now: NowFn | None = None,
+) -> list[dict]:
+    # Each entry is a :class:`investing.types.BenchmarkSummary`-
+    # shaped dict; signature uses ``list[dict]`` to keep call sites
+    # in :func:`cli.main` agnostic to mypy's TypedDict narrowing.
     fx = _fx_or_default(fx)
     start_date = total_return_history[0][0]
     benchmarks: list[dict] = []
-    for ticker in _BENCHMARK_TICKERS:
-        benchmark = Benchmark(ticker, start_date, fx=fx)
+    for cfg in BENCHMARKS:
+        benchmark = Benchmark(cfg.ticker, start_date, fx=fx, now=now)
         summary = benchmark.summary(total_return_history)
         benchmarks.append(summary)
         logger.info(

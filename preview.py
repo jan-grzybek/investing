@@ -27,7 +27,8 @@ import webbrowser
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from update import COURAGE_LOGO, LOGOS_ADDRESS, Webpage
+from investing.paths import COURAGE_LOGO, LOGOS_ADDRESS
+from investing.webpage import Webpage
 
 # ``logos/`` lives next to this file in the repo and is uploaded as
 # part of the Pages artifact, so any extension that exists locally

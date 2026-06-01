@@ -1,6 +1,12 @@
 """The ``Webpage`` renderer plus the ``generate_webpage``
 entrypoint that wires per-section content into a single
 rendered ``index.html`` + companion artefacts.
+
+This module hosts the main :class:`Webpage` class. The renderer is
+intentionally kept together because most of its sections share
+internal state through the instance; the self-contained helpers
+(anchors, sitemap/robots, logo cache) live next to it in the
+``investing.webpage`` package.
 """
 from __future__ import annotations
 
@@ -11,38 +17,34 @@ import os
 from datetime import datetime
 
 import numpy as np
-import requests
 from dateutil.relativedelta import relativedelta
-from scipy.interpolate import PchipInterpolator
 
-from .assets import (
-    _HASH_CLEAR_SCRIPT,
-    _HOLDINGS_SORT_SCRIPT,
-    _NAV_SCROLL_SCRIPT,
-    _PAGE_STYLES,
-    _RETURN_CHART_SCRIPT,
-    _TRADES_SORT_SCRIPT,
-)
-from .formatting import (
+from ..clock import NowFn
+from ..errors import InvariantError
+from ..formatting import (
     _fmt_date,
     _fmt_date_long,
     _fmt_pct,
     _fmt_quarter_range,
     _format_duration,
     _format_sort_number,
-    _sha256_b64,
     _value_class,
 )
-from .holdings import CAGR_TBA_THRESHOLD
-from .paths import _REPO_LOGOS_DIR, COURAGE_LOGO, LOGO_EXTENSIONS, LOGOS_ADDRESS
-from .performance import _BENCHMARK_DISPLAY_NAMES
-from .trades import _BUY_CATEGORIES, _TRADE_ACTION_DISPLAY, _TRADE_DETAIL_LABELS
+from ..holdings import CAGR_TBA_THRESHOLD
+from ..logos import LogoCache
+from ..paths import _REPO_LOGOS_DIR, COURAGE_LOGO, LOGO_EXTENSIONS
+from ..pchip import Pchip
+from ..performance import _BENCHMARK_DISPLAY_NAMES
+from ..trades import _BUY_CATEGORIES, _TRADE_ACTION_DISPLAY, _TRADE_DETAIL_LABELS
+from .anchors import holding_anchor, strip_exchange
+from .head import SiteMeta, build_head, build_jsonld
+from .sitemap import write_robots_txt, write_sitemap
 
 
 class Webpage:
     """Builds the JG Investing index page as a single responsive document."""
 
-    def __init__(self):
+    def __init__(self, *, now: NowFn | None = None, logo_cache: LogoCache | None = None):
         self.return_html: str = ""
         self.current: list[str] = []
         self.historical: list[str] = []
@@ -53,16 +55,23 @@ class Webpage:
         # ``add_trades``; an empty list omits the whole section
         # (and its nav link) cleanly.
         self.trades: list[str] = []
-        # Logo URLs are looked up via HTTP HEAD; cache them so the
-        # ticker and the holding card don't probe the same ticker
-        # twice.
-        self._logo_cache: dict[str, str] = {}
+        # Logo URLs are looked up via HTTP HEAD; the resolver wraps
+        # a ``requests`` session with retry / timeout / negative-cache
+        # behaviour so an outage cannot hang the build. Tests inject
+        # a stub callable here instead.
+        self._logo_resolver: LogoCache = logo_cache if logo_cache is not None else LogoCache()
         # ``(ticker, name, logo_url)`` tuples for current holdings, in
         # the order they were added. Drives the marquee ticker.
         self._current_logos: list[tuple[str, str, str]] = []
         # Stashed for OG image generation in ``save()``.
         self._total_return: dict | None = None
         self._benchmarks: list | None = None
+        # Wall-clock plug used in the footer / sitemap / "Since X"
+        # captions. ``None`` falls through to ``datetime.today`` so
+        # the legacy ``freeze_today`` fixture (which monkeypatches
+        # this module's bound ``datetime``) keeps working; new code
+        # can inject a fixed closure directly.
+        self._now: NowFn = now if now is not None else datetime.today
 
     # ------------------------------------------------------------------ API
 
@@ -100,7 +109,7 @@ class Webpage:
         ]
 
     def save(self):
-        now = datetime.now()
+        now = self._now()
         # Long-form date here ("Updated on May 31, 2026") rather than
         # the page-wide DD/MM/YYYY -- the footer line reads as prose,
         # not as tabular data, so slashes break the sentence the same
@@ -231,50 +240,8 @@ class Webpage:
 
         with open("index.html", "w") as f:
             f.write("\n".join(parts))
-        self._write_sitemap()
-        self._write_robots_txt()
-
-    def _write_sitemap(self) -> None:
-        """Emit a single-URL ``sitemap.xml`` next to ``index.html``.
-
-        Search engines use ``<lastmod>`` as a hint to recrawl pages
-        whose content has changed; bumping it on every regeneration
-        means new holdings/returns surface in indexes faster than they
-        otherwise would on a static GitHub Pages site."""
-        last_mod = datetime.now().strftime("%Y-%m-%d")
-        url = html.escape(self.SITE_URL)
-        sitemap = (
-            '<?xml version="1.0" encoding="UTF-8"?>\n'
-            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
-            '  <url>\n'
-            f'    <loc>{url}</loc>\n'
-            f'    <lastmod>{last_mod}</lastmod>\n'
-            '    <changefreq>daily</changefreq>\n'
-            '    <priority>1.0</priority>\n'
-            '  </url>\n'
-            '</urlset>\n'
-        )
-        with open("sitemap.xml", "w") as f:
-            f.write(sitemap)
-
-    def _write_robots_txt(self) -> None:
-        """Emit ``robots.txt`` alongside ``index.html``.
-
-        Generating this at build time (rather than committing a static
-        file) keeps the canonical URL and sitemap location in sync
-        with ``Webpage.SITE_URL`` -- a single source of truth -- and
-        lines up with how ``index.html``, ``sitemap.xml`` and
-        ``og-image.png`` are also produced."""
-        sitemap_url = f"{self.SITE_URL.rstrip('/')}/sitemap.xml"
-        body = (
-            "# Allow all well-behaved crawlers to index everything.\n"
-            "User-agent: *\n"
-            "Allow: /\n"
-            "\n"
-            f"Sitemap: {sitemap_url}\n"
-        )
-        with open("robots.txt", "w") as f:
-            f.write(body)
+        write_sitemap(self.SITE_URL, now=self._now)
+        write_robots_txt(self.SITE_URL)
 
     # ----------------------------------------------------------- internals
 
@@ -368,157 +335,39 @@ class Webpage:
         )
 
     @classmethod
-    def _head(cls) -> str:
-        title = html.escape(cls.SEO_TITLE)
-        desc = html.escape(cls.SITE_DESCRIPTION)
-        site = html.escape(cls.SITE_TITLE)
-        url = html.escape(cls.SITE_URL)
-        image = html.escape(cls.SOCIAL_IMAGE)
-        # Hash the inline JSON-LD payload so we can pin it in CSP
-        # without ``unsafe-inline`` -- this is where actual XSS would
-        # live and the hash makes any drift fail loudly.
-        #
-        # Styles are split using the CSP3 directives:
-        #   - ``style-src-elem`` hashes the single inline <style> block
-        #     (the only stylesheet container we emit).
-        #   - ``style-src-attr 'unsafe-inline'`` permits inline
-        #     ``style="..."`` attributes -- bar widths, delta
-        #     positions, legend swatch colours -- which are
-        #     programmatically generated and can't all be hashed.
-        # The ``style-src`` line is the CSP2 fallback for browsers
-        # that don't understand the CSP3 directives; it's intentionally
-        # permissive on inline styles since the script-src lock is what
-        # actually blocks XSS.
-        jsonld_str = cls._jsonld()
-        style_hash = _sha256_b64(_PAGE_STYLES)
-        jsonld_hash = _sha256_b64(jsonld_str)
-        hash_clear_hash = _sha256_b64(_HASH_CLEAR_SCRIPT)
-        nav_scroll_hash = _sha256_b64(_NAV_SCROLL_SCRIPT)
-        return_chart_hash = _sha256_b64(_RETURN_CHART_SCRIPT)
-        trades_sort_hash = _sha256_b64(_TRADES_SORT_SCRIPT)
-        holdings_sort_hash = _sha256_b64(_HOLDINGS_SORT_SCRIPT)
-        csp = (
-            "default-src 'self'; "
-            f"script-src 'self' 'sha256-{jsonld_hash}' "
-            f"'sha256-{hash_clear_hash}' "
-            f"'sha256-{nav_scroll_hash}' "
-            f"'sha256-{return_chart_hash}' "
-            f"'sha256-{trades_sort_hash}' "
-            f"'sha256-{holdings_sort_hash}' "
-            "https://static.cloudflareinsights.com; "
-            "style-src 'self' 'unsafe-inline'; "
-            f"style-src-elem 'self' 'sha256-{style_hash}'; "
-            "style-src-attr 'unsafe-inline'; "
-            "img-src 'self' https: data:; "
-            "connect-src 'self' https://cloudflareinsights.com; "
-            "font-src 'self'; "
-            "base-uri 'self'; "
-            "form-action 'none'; "
-            "frame-ancestors 'none'"
-        )
-        return (
-            '<head>\n'
-            '<meta charset="UTF-8">\n'
-            '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n'
-            f'<title>{title}</title>\n'
-            f'<meta name="description" content="{desc}">\n'
-            '<meta name="author" content="Jan Grzybek">\n'
-            # Explicitly invite indexing and large preview images in
-            # SERPs. ``max-image-preview:large`` is the Google-recommended
-            # opt-in for thumbnail-rich results.
-            '<meta name="robots" content="index,follow,max-image-preview:large">\n'
-            f'<link rel="canonical" href="{url}">\n'
-            # GitHub Pages can't set HTTP security headers, so the next
-            # best thing is the ``http-equiv`` meta variants. CSP locks
-            # down what scripts/styles/etc. can load. Referrer-Policy
-            # avoids leaking the URL of pages users came from.
-            f'<meta http-equiv="Content-Security-Policy" content="{csp}">\n'
-            '<meta name="referrer" content="strict-origin-when-cross-origin">\n'
-            # Tints the mobile browser chrome (Safari/Chrome address bar) so it
-            # blends with the page background in both colour schemes.
-            '<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">\n'
-            '<meta name="theme-color" content="#111418" media="(prefers-color-scheme: dark)">\n'
-            '<link rel="icon" type="image/svg+xml" href="favicon.svg">\n'
-            '<link rel="icon" type="image/png" href="favicon.png">\n'
-            '<link rel="apple-touch-icon" href="apple-touch-icon.png">\n'
-            '<link rel="icon" href="favicon.ico">\n'
-            # Open Graph -- powers rich previews on Facebook, LinkedIn,
-            # Slack, Discord, etc. ``og:image:width/height`` are used by
-            # platforms to reserve preview space without a HEAD probe.
-            f'<meta property="og:title" content="{title}">\n'
-            f'<meta property="og:description" content="{desc}">\n'
-            f'<meta property="og:image" content="{image}">\n'
-            '<meta property="og:image:type" content="image/png">\n'
-            '<meta property="og:image:width" content="1200">\n'
-            '<meta property="og:image:height" content="630">\n'
-            f'<meta property="og:image:alt" content="{title}">\n'
-            f'<meta property="og:url" content="{url}">\n'
-            '<meta property="og:type" content="website">\n'
-            '<meta property="og:locale" content="en_US">\n'
-            f'<meta property="og:site_name" content="{site}">\n'
-            # Twitter Card -- ``summary_large_image`` shows the OG image
-            # at full width in the X/Twitter timeline preview.
-            '<meta name="twitter:card" content="summary_large_image">\n'
-            f'<meta name="twitter:title" content="{title}">\n'
-            f'<meta name="twitter:description" content="{desc}">\n'
-            f'<meta name="twitter:image" content="{image}">\n'
-            f'<meta name="twitter:image:alt" content="{title}">\n'
-            # JSON-LD structured data -- Google parses this to enrich
-            # the SERP entry (knowledge-graph signals, sitelinks, etc.).
-            f'<script type="application/ld+json">{jsonld_str}</script>\n'
-            # Drops the URL hash on the first user-initiated scroll
-            # so refresh restores the actual scroll position instead
-            # of re-jumping to the last-clicked nav section. See the
-            # ``_HASH_CLEAR_SCRIPT`` docstring for the full rationale.
-            f'<script>{_HASH_CLEAR_SCRIPT}</script>\n'
-            # Custom smooth-scroll for the in-page nav links: cubic
-            # easing across the section gap, plus the iOS Safari
-            # ``backdrop-filter`` flicker workaround in
-            # ``.site-header``. Falls back to instant scroll when
-            # ``prefers-reduced-motion`` is set.
-            f'<script>{_NAV_SCROLL_SCRIPT}</script>\n'
-            # Pointer-driven scrubber for the return chart: a vertical
-            # guide line + per-curve markers + tooltip card show the
-            # date and JG/benchmark return at any x-coordinate as the
-            # user slides a finger or cursor across the plot. See
-            # ``_RETURN_CHART_SCRIPT`` for the data-attribute contract.
-            f'<script>{_RETURN_CHART_SCRIPT}</script>\n'
-            # Click-to-sort for the "Trades" table. See
-            # ``_TRADES_SORT_SCRIPT`` for the data-attribute contract.
-            f'<script>{_TRADES_SORT_SCRIPT}</script>\n'
-            # Click-to-sort for the "Current holdings" / "Historical
-            # holdings" capsule lists. See ``_HOLDINGS_SORT_SCRIPT``
-            # for the data-attribute contract.
-            f'<script>{_HOLDINGS_SORT_SCRIPT}</script>\n'
-            f'<style>{_PAGE_STYLES}</style>\n'
-            '</head>'
+    def _site_meta(cls) -> SiteMeta:
+        """The class-attribute bundle :func:`build_head` consumes.
+
+        Subclasses (e.g. a hypothetical staging build pointing at a
+        different domain) can override the constants individually
+        and keep the head builder honest -- the assembly happens off
+        a single ``SiteMeta`` instance rather than five separate
+        ``cls.SITE_X`` reads scattered through the head module.
+        """
+        return SiteMeta(
+            title=cls.SITE_TITLE,
+            seo_title=cls.SEO_TITLE,
+            description=cls.SITE_DESCRIPTION,
+            url=cls.SITE_URL,
+            social_image=cls.SOCIAL_IMAGE,
         )
 
     @classmethod
-    def _jsonld(cls) -> str:
-        """Schema.org structured data identifying the site and its author.
+    def _head(cls) -> str:
+        """Delegate to :func:`investing.webpage.head.build_head`."""
+        return build_head(cls._site_meta())
 
-        We emit a ``WebSite`` graph with a nested ``Person`` so search
-        engines can attribute the portfolio to Jan Grzybek and use the
-        description/title in knowledge-graph cards. The output is
-        JSON-encoded with ``ensure_ascii=False`` so unicode (e.g.
-        en-dashes) round-trips cleanly, and ``</`` is escaped so the
-        payload can't accidentally close the surrounding ``<script>``."""
-        payload = {
-            "@context": "https://schema.org",
-            "@type": "WebSite",
-            "name": cls.SITE_TITLE,
-            "alternateName": "JG Investing",
-            "url": cls.SITE_URL,
-            "description": cls.SITE_DESCRIPTION,
-            "inLanguage": "en",
-            "author": {
-                "@type": "Person",
-                "name": "Jan Grzybek",
-                "url": cls.SITE_URL,
-            },
-        }
-        return json.dumps(payload, ensure_ascii=False).replace("</", "<\\/")
+    @classmethod
+    def _jsonld(cls) -> str:
+        """Delegate to :func:`investing.webpage.head.build_jsonld`."""
+        return build_jsonld(cls._site_meta())
+
+    # The original in-class ``_head`` / ``_jsonld`` implementations
+    # (~130 lines of head meta + CSP assembly + JSON-LD payload)
+    # moved to :mod:`investing.webpage.head`. The classmethods
+    # above are thin delegators so the historical
+    # ``Webpage._head()`` / ``Webpage._jsonld()`` call surface used
+    # by the test suite still works.
 
     # ----------------------------------------------------- OG image
 
@@ -640,9 +489,9 @@ class Webpage:
         history = list(total_return.get("history") or [])
         start_date = (
             total_return.get("start_date")
-            or (history[0][0] if history else datetime.today())
+            or (history[0][0] if history else self._now())
         )
-        duration = _format_duration(relativedelta(datetime.today(), start_date))
+        duration = _format_duration(relativedelta(self._now(), start_date))
 
         f_name = self._load_font("bold", 96)
         f_hero = self._load_font("bold", 140)
@@ -735,19 +584,12 @@ class Webpage:
     # current positions). Skipped when picking logos for the strip.
     _NON_TICKER_TOP10_KEYS = frozenset({"Other equities"})
 
-    @staticmethod
-    def _holding_anchor(ticker: str) -> str:
-        """Stable in-page anchor for a holding's capsule.
-
-        Tickers carry exchange-prefixed punctuation (``NMS:AAPL``,
-        ``LSE:VUAA.L``) that's awkward inside a URL fragment, so we
-        slugify down to alphanumerics-and-dashes. The same slug is
-        emitted as the ``id`` on the card and as the ``href`` on every
-        link that targets it (marquee logos, equities-bar rows), which
-        keeps the contract symmetric and the slug independent of the
-        ticker's surface form."""
-        slug = "".join(c if c.isalnum() else "-" for c in ticker).strip("-")
-        return f"holding-{slug}"
+    # ``holding_anchor`` and ``strip_exchange`` are imported from
+    # :mod:`investing.webpage.anchors`; the static-method wrappers
+    # below preserve the historical ``Webpage._holding_anchor`` /
+    # ``Webpage._strip_exchange`` callsites used by the renderer and
+    # the test suite.
+    _holding_anchor = staticmethod(holding_anchor)
 
     def _top_holdings_for_og(self, limit: int = 10) -> list[str]:
         """Return up to ``limit`` ticker symbols for the OG logo strip.
@@ -954,18 +796,14 @@ class Webpage:
         )
 
     def _get_logo_url(self, ticker):
-        cached = self._logo_cache.get(ticker)
-        if cached is not None:
-            return cached
-        encoded = ticker.replace(":", "%3A")
-        for extension in LOGO_EXTENSIONS:
-            url = LOGOS_ADDRESS + encoded + extension
-            response = requests.head(url)
-            if response.status_code == 200:
-                self._logo_cache[ticker] = url
-                return url
-        self._logo_cache[ticker] = COURAGE_LOGO
-        return COURAGE_LOGO
+        """Resolve a holding logo URL via :class:`investing.logos.LogoCache`.
+
+        Delegates to the resolver wired in ``__init__`` so the HTTP
+        plumbing (session reuse, retry, timeout, negative cache)
+        lives in one place and tests can swap in a stub via the
+        ``logo_cache=`` constructor parameter.
+        """
+        return self._logo_resolver(ticker)
 
     # ---- per-section builders ------------------------------------------
 
@@ -1033,7 +871,7 @@ class Webpage:
         period_html = ""
         if include_period:
             start_date = total_return["start_date"]
-            duration = _format_duration(relativedelta(datetime.today(), start_date))
+            duration = _format_duration(relativedelta(self._now(), start_date))
             # Long-form date here -- the caption reads as prose
             # ("Since Jan 1, 2024 . 2 years, 1 month"), not as a
             # tabular slot, so the slash-separated DD/MM/YYYY
@@ -1175,21 +1013,15 @@ class Webpage:
         for category in _TRADE_ACTION_DISPLAY
     }
 
-    @staticmethod
-    def _strip_exchange(ticker: str) -> str:
-        """Trim the ``EXCHANGE:`` prefix off a ticker.
-
-        The "Trades" table lists tickers without the exchange
-        prefix -- the page already groups trades by security and the
-        exchange is redundant noise for a reader scanning the column
-        for a familiar symbol like ``AAPL`` or ``GOOGL``. Tickers
-        without a colon (synthetic / test data) pass through
-        unchanged. Only the first colon splits; any colon-bearing
-        ticker symbol (none today, but defensive) keeps the rest of
-        the symbol intact.
-        """
-        _, sep, rest = ticker.partition(":")
-        return rest if sep else ticker
+    # ``_strip_exchange`` trims the ``EXCHANGE:`` prefix off a
+    # ticker -- the "Trades" table renders tickers without the prefix
+    # because the page already groups by security and the exchange
+    # is redundant noise for a reader scanning for a familiar symbol
+    # like ``AAPL``. The implementation lives in
+    # :mod:`investing.webpage.anchors`; the static-method wrapper
+    # below preserves the historical ``Webpage._strip_exchange``
+    # callsites used by the renderer and the test suite.
+    _strip_exchange = staticmethod(strip_exchange)
 
     @classmethod
     def _trade_detail_text(cls, event) -> str:
@@ -1522,8 +1354,13 @@ class Webpage:
         else:
             stats.append(("CAGR:", f"{_fmt_pct(holding['cagr%'])}%", holding["cagr%"]))
         if holding["is_current"]:
-            assert holding["current_weight%"] is not None
-            stats.append(("Weight:", f"{_fmt_pct(holding['current_weight%'])}%", None))
+            weight = holding["current_weight%"]
+            if weight is None:
+                raise InvariantError(
+                    f"current holding {holding['ticker']!r} reached the "
+                    "renderer with no weight -- summarize() did not run",
+                )
+            stats.append(("Weight:", f"{_fmt_pct(weight)}%", None))
 
         periods = [(p["start"], p["end"]) for p in holding["periods"]]
 
@@ -1797,7 +1634,7 @@ class Webpage:
         if len(time_x) >= 3:
             dense = np.linspace(time_x.min(), time_x.max(), 200)
             interp_x = dense
-            interp_targets = {id(s[2]): np.exp(PchipInterpolator(time_x, np.log(s[2]))(dense)) for s in series}
+            interp_targets = {id(s[2]): np.exp(Pchip(time_x, np.log(s[2]))(dense)) for s in series}
         else:
             interp_x = time_x
             interp_targets = {id(s[2]): s[2] for s in series}

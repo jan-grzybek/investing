@@ -9,8 +9,9 @@ from datetime import datetime
 
 import pytest
 
-import update
-from update import Holding, Trade, DAYS_YEAR
+import investing.holdings as _holdings
+from investing.holdings import DAYS_YEAR, WITHHOLDING_TAX_RATE, Holding
+from investing.trades import Trade
 
 
 def _date_key(d: datetime) -> str:
@@ -50,7 +51,7 @@ def _make_ticker(
 def install_ticker(monkeypatch):
     def _install(ticker_mock):
         monkeypatch.setattr(
-            update.yf,
+            _holdings.yf,
             "Ticker",
             lambda symbol: ticker_mock,  # noqa: ARG005
         )
@@ -185,7 +186,7 @@ class TestAddDividends:
         # The dividend appended after-tax: 10 * 1.00 * (1 - 0.15).
         div = [o for o in outflows if o["date"] == datetime(2024, 6, 1)]
         assert len(div) == 1
-        assert div[0]["value"] == pytest.approx(10 * 1.00 * (1 - update.WITHHOLDING_TAX_RATE))
+        assert div[0]["value"] == pytest.approx(10 * 1.00 * (1 - WITHHOLDING_TAX_RATE))
 
     def test_dividend_before_first_buy_is_ignored(
         self, install_ticker, stub_exchange_rate

@@ -8,13 +8,14 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import update
-from update import Webpage, LOGOS_ADDRESS
-
+from investing.assets import _NAV_SCROLL_SCRIPT, _RETURN_CHART_SCRIPT
+from investing.formatting import _sha256_b64
+from investing.paths import LOGOS_ADDRESS
+from investing.webpage import Webpage
 from tests._webpage_support import (
+    _benchmark,
     _holding,
     _total_return,
-    _benchmark,
     stub_logo_lookup,
 )
 
@@ -485,9 +486,9 @@ class TestReturnChartScript:
         w.add_return(_total_return(), [_benchmark()])
         head = Webpage._head()
         # The script body itself is in the head.
-        assert update._RETURN_CHART_SCRIPT in head
+        assert _RETURN_CHART_SCRIPT in head
         # And its SHA-256 hash is referenced from the CSP meta tag.
-        digest = update._sha256_b64(update._RETURN_CHART_SCRIPT)
+        digest = _sha256_b64(_RETURN_CHART_SCRIPT)
         assert f"sha256-{digest}" in head
 
     def test_script_initialises_pointer_event_handlers(self):
@@ -495,7 +496,7 @@ class TestReturnChartScript:
         # it has to react to pointer movement and project values onto
         # the curves. The exact wiring is JS, so we sanity-check the
         # payload references the key DOM hooks and APIs.
-        script = update._RETURN_CHART_SCRIPT
+        script = _RETURN_CHART_SCRIPT
         # Reads its data from the figure attribute.
         assert "data-chart" in script
         # Wires up the unified pointer events (covers mouse + touch).
@@ -523,7 +524,7 @@ class TestNavScrollScript:
         # as in-page anchors, the selector is broadened to cover every
         # same-page link -- minus ``.skip-link``, which assistive-tech
         # users expect to jump instantly.
-        script = update._NAV_SCROLL_SCRIPT
+        script = _NAV_SCROLL_SCRIPT
         assert 'a[href^="#"]:not(.skip-link)' in script
         # And the old narrow selector is gone (regression guard).
         assert ".site-nav a[" not in script
@@ -536,7 +537,7 @@ class TestNavScrollScript:
         # the page lagged at the start and then "caught up" through
         # an accelerating middle, which is what the user-reported
         # "accelerates with lag" complaint was describing.
-        script = update._NAV_SCROLL_SCRIPT
+        script = _NAV_SCROLL_SCRIPT
         # The new curve uses a quartic decay over ``1 - t``.
         assert "var u=1-t;return 1-u*u*u*u;" in script
         # And the old cubic-in-out branches are gone.
@@ -549,7 +550,7 @@ class TestNavScrollScript:
         # dist*0.45))``. Tight enough that even a top-of-page-to-
         # bottom slide completes in ~650ms while a same-section
         # hop is nearly instantaneous (280ms).
-        script = update._NAV_SCROLL_SCRIPT
+        script = _NAV_SCROLL_SCRIPT
         assert "Math.min(650,Math.max(280,dist*0.30))" in script
         # Sanity-check the old window isn't still hiding somewhere.
         assert "Math.max(450" not in script
@@ -564,7 +565,7 @@ class TestNavScrollScript:
         # focus highlight (e.g. on the equities-allocation rows
         # on touch) and is robust to a future CSS regression that
         # accidentally re-introduces a focus-within pause.
-        script = update._NAV_SCROLL_SCRIPT
+        script = _NAV_SCROLL_SCRIPT
         # ``a`` is the local variable holding the closest matching
         # anchor; blur is wrapped in a try/catch so an environment
         # without a blur method never crashes the handler.
@@ -577,7 +578,7 @@ class TestNavScrollScript:
         # header. The renderer relies on this contract when it
         # plumbs ``scroll-margin-top`` onto ``.holding`` /
         # ``.section__subtitle``.
-        script = update._NAV_SCROLL_SCRIPT
+        script = _NAV_SCROLL_SCRIPT
         assert "scrollMarginTop" in script
 
     def test_target_is_locked_at_slide_start(self):
@@ -590,7 +591,7 @@ class TestNavScrollScript:
         # only re-reads ``targetY`` once more at the very end (the
         # "settle") to catch any pixel-level shift without
         # contaminating the easing curve.
-        script = update._NAV_SCROLL_SCRIPT
+        script = _NAV_SCROLL_SCRIPT
         # Both the start scroll position and the start target are
         # captured at slide entry.
         assert "var sy0=sy(),ty0=targetY(el)" in script
@@ -614,7 +615,7 @@ class TestNavScrollScript:
         # ``TestPageStyles`` regression guard), the script still
         # opts out of any future / inherited smooth-scroll by
         # passing ``behavior: 'auto'`` explicitly.
-        script = update._NAV_SCROLL_SCRIPT
+        script = _NAV_SCROLL_SCRIPT
         assert "behavior:'auto'" in script
         # A graceful fallback to the legacy positional form is
         # in place for engines that don't accept the options
@@ -630,7 +631,7 @@ class TestNavScrollScript:
         # extensions could re-introduce the double-scroll glitch.
         # Blurring before the slide guarantees the rAF loop runs
         # with focus already off the anchor.
-        script = update._NAV_SCROLL_SCRIPT
+        script = _NAV_SCROLL_SCRIPT
         blur_idx = script.index("a.blur")
         slide_idx = script.index("slide(el,dur)")
         assert blur_idx < slide_idx

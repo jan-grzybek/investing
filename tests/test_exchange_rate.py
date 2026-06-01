@@ -10,7 +10,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from update import ExchangeRate
+import investing.fx as _fx
+from investing.fx import ExchangeRate
 
 
 def _close_series(items):
@@ -28,7 +29,7 @@ def _hist_for(items):
 
 
 def _stub_ticker(monkeypatch, mapping):
-    """Patch ``update.yf.Ticker`` to return per-symbol stubs.
+    """Patch ``investing.fx.yf.Ticker`` to return per-symbol stubs.
 
     ``mapping`` is keyed by the FX symbol used by yfinance (e.g. "EURUSD=X").
     """
@@ -39,7 +40,7 @@ def _stub_ticker(monkeypatch, mapping):
             raise AssertionError(f"Unexpected FX ticker requested: {symbol!r}")
         return mapping[symbol]
 
-    monkeypatch.setattr(update.yf, "Ticker", _factory)
+    monkeypatch.setattr(_fx.yf, "Ticker", _factory)
 
 
 class TestCurrent:
