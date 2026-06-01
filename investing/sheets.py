@@ -235,24 +235,77 @@ def pull_data() -> tuple[list[EquityTransaction], list[Valuation], list[CashBala
     gc = _gspread_client()
     sh = gc.open_by_key(os.environ["GSHEET_ID"])
 
+    # Single batched request for all three worksheets. The legacy
+    # implementation called ``sh.worksheet(name).get_all_values()``
+    # three times in sequence -- each call is a separate Sheets
+    # API round-trip, which dominated the cold-start latency of
+    # the build. ``values_batch_get`` ships one HTTPS request and
+    # comes back with all three ranges; the per-sheet shape stays
+    # identical to ``get_all_values`` (a 2-D list of strings) so
+    # the parsers below need no changes.
+    range_names = ("Equities", "Return", "Cash & Cash Equivalents")
+    sheets = _batch_get_values(sh, range_names)
+
     transactions: list[EquityTransaction] = []
-    for row_index, row in _iter_data_rows(sh.worksheet("Equities").get_all_values()):
+    for row_index, row in _iter_data_rows(sheets["Equities"]):
         parsed_txn = _parse_equity_row(row_index, row)
         if parsed_txn is not None:
             transactions.append(parsed_txn)
 
     valuations: list[Valuation] = []
-    for row_index, row in _iter_data_rows(sh.worksheet("Return").get_all_values()):
+    for row_index, row in _iter_data_rows(sheets["Return"]):
         parsed_val = _parse_return_row(row_index, row)
         if parsed_val is not None:
             valuations.append(parsed_val)
 
     cash: list[CashBalance] = []
-    for row_index, row in _iter_data_rows(
-        sh.worksheet("Cash & Cash Equivalents").get_all_values()
-    ):
+    for row_index, row in _iter_data_rows(sheets["Cash & Cash Equivalents"]):
         parsed_cash = _parse_cash_row(row_index, row)
         if parsed_cash is not None:
             cash.append(parsed_cash)
 
     return transactions, valuations, cash
+
+
+def _batch_get_values(
+    sh, range_names: tuple[str, ...],
+) -> dict[str, list[list[str]]]:
+    """Fetch all requested worksheet ranges in a single API call.
+
+    Returns a ``{sheet_name: rows}`` mapping. The implementation
+    prefers :py:meth:`gspread.Spreadsheet.values_batch_get` (one
+    HTTPS round-trip) and falls back to per-worksheet
+    ``get_all_values`` calls for older gspread versions / mock
+    surfaces that don't implement the batch method -- the
+    fallback preserves the historical behaviour for tests that
+    plant ``sh.worksheet(name).get_all_values`` stubs without
+    teaching them about ``values_batch_get``.
+    """
+    batch = getattr(sh, "values_batch_get", None)
+    if batch is not None:
+        try:
+            response = batch(list(range_names))
+        except Exception:
+            # The fallback path below covers any failure mode the
+            # batch call exposes -- a stub that doesn't implement
+            # the API, a transient HTTP error gspread surfaces as
+            # a generic exception, etc. We deliberately swallow
+            # broadly here: the per-worksheet path that follows is
+            # the strictly-equivalent legacy contract, so a
+            # failure that's also reproducible there will still
+            # surface, just from a function the caller already
+            # knew about.
+            response = None
+        if isinstance(response, dict):
+            value_ranges = response.get("valueRanges", [])
+            if len(value_ranges) == len(range_names):
+                return {
+                    name: vr.get("values", []) or []
+                    for name, vr in zip(range_names, value_ranges, strict=True)
+                }
+    # Per-worksheet fallback path; preserves the legacy contract for
+    # any caller (or test) that hasn't migrated to the batched API.
+    return {
+        name: sh.worksheet(name).get_all_values()
+        for name in range_names
+    }

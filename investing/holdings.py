@@ -3,9 +3,11 @@ periods, inflows / outflows / dividends, TSR / CAGR).
 """
 from __future__ import annotations
 
+import bisect
 import math
 from datetime import datetime
 
+import numpy as np
 import yfinance as yf
 
 from .clock import NowFn
@@ -64,26 +66,73 @@ class Holding:
         # which those methods already have in hand, so we record the
         # event there rather than re-deriving it later.
         self._trade_events: list[dict] = []
+        # Sidecars of ``self._splits`` -- the split dates as a sorted
+        # list (so ``bisect`` can resolve "which splits land between
+        # date A and date B?" in O(log K + slice)) and the matching
+        # split factors as a numpy array of floats (so the running
+        # product across a slice is one ``.prod()`` call rather than
+        # a Python loop). Built once in ``_get_splits_dividends`` so
+        # the per-trade ``_apply_splits_between`` lookup never has to
+        # rebuild them.
+        self._split_dates: list[datetime] = [s["date"] for s in self._splits]
+        self._split_factors = np.array(
+            [s["split"] for s in self._splits], dtype=float,
+        )
 
     def _get_splits_dividends(self):
+        """Bootstrap the per-ticker splits / dividends timelines.
+
+        Splits are stored in chronological order with their raw
+        per-event factor; the *cumulative* factor used by the
+        dividend adjustment below is derived in one ``np.cumprod``
+        sweep over the reversed sequence (so each entry carries the
+        product of itself and every later split). The legacy
+        nested-loop version was O(K^2) in the number of splits and
+        mutated the accumulator in-place; the vectorised path is
+        O(K) and keeps the sidecar arrays we expose as
+        ``_split_dates`` / ``_split_factors`` consistent with the
+        original ``_splits`` list.
+
+        Dividend adjustment uses ``bisect_right`` to find the first
+        split strictly after the dividend's record date in O(log K)
+        per dividend, replacing the manually-walked ``split_idx``
+        cursor whose advancement only happened on certain branches
+        and was easy to misread.
+        """
         splits: list[dict] = []
-        splits_acc: list[dict] = []
+        split_dates: list[datetime] = []
         for ts, split in self._ticker.splits.items():
             date = _ts_to_datetime(ts)
-            splits.append({"date": date, "split": split})
-            for _split in splits_acc:
-                _split["split"] *= split
-            splits_acc.append({"date": date, "split": split})
-        # readjust dividends for splits
-        dividends = []
-        split_idx = 0
+            splits.append({"date": date, "split": float(split)})
+            split_dates.append(date)
+        if splits:
+            factors = np.array([s["split"] for s in splits], dtype=float)
+            # Cumulative product walked from the future back to the
+            # past: ``cum_factor[i]`` is the multiplier that lifts
+            # share counts in effect right after split ``i`` into
+            # post-all-future-splits units. Equivalent to the legacy
+            # in-place ``_split *= split`` accumulation for every
+            # earlier entry, but in one numpy pass.
+            cum = np.flip(np.cumprod(np.flip(factors)))
+        else:
+            cum = np.empty(0, dtype=float)
+
+        dividends: list[dict] = []
         for ts, dividend in self._ticker.get_dividends().items():
             date = _ts_to_datetime(ts)
-            for split in splits_acc[split_idx:]:
-                if split["date"] >= date:
-                    dividend *= split["split"]
-                    break
-                split_idx += 1
+            dividend = float(dividend)
+            # Find the first split at or after the dividend's record
+            # date; any split strictly earlier than the dividend has
+            # already been baked into the live share count, so we
+            # only need to scale by the cumulative product of
+            # remaining splits to express the per-share dividend in
+            # post-all-splits units. ``bisect_left`` matches the
+            # legacy ``split.date >= dividend.date`` boundary -- a
+            # dividend that lands on a split date still picks up
+            # that split's factor. O(log K).
+            idx = bisect.bisect_left(split_dates, date)
+            if idx < len(cum):
+                dividend *= cum[idx]
             dividends.append({"date": date, "dividend": dividend})
         return splits, dividends
 
@@ -95,18 +144,45 @@ class Holding:
         boundary -- the surrounding code splits by ``trade.date`` and
         relies on the exclusive-both-ends contract to avoid double-
         counting; a same-day split would silently double the holding.
+
+        ``bisect`` resolves both ends of the active slice in
+        O(log K), and the running product is one ``.prod()`` over
+        the affected entries -- the legacy linear scan walked the
+        whole split list per call and rebuilt the cumulative factor
+        with a Python multiply. K is usually small (most tickers
+        have 0-2 splits over a portfolio's lifetime), so the
+        absolute saving is tiny -- the value is in dropping the
+        per-trade hot-path overhead and in the boundary check
+        getting expressed as two array bounds instead of an inline
+        equality test.
         """
-        for split in self._splits:
-            if before_date <= split["date"]:
-                break
-            if after_date == split["date"] or before_date == split["date"]:
+        if not self._split_dates:
+            return quantity
+        # ``bisect_left`` finds the first split with date >= after.
+        # We want strictly greater, so bump past any equal entries by
+        # comparing the raw dates explicitly. Same trick on the
+        # ``before`` end with ``bisect_right`` -> first split with
+        # date > before, then trim equal-date splits off the right.
+        lo = bisect.bisect_right(self._split_dates, after_date)
+        hi = bisect.bisect_left(self._split_dates, before_date)
+        # The exclusive-both-ends invariant: if any split's date
+        # equals ``after_date`` or ``before_date``, ``bisect_left`` /
+        # ``bisect_right`` collapse those entries onto the same
+        # side; we still need to surface the explicit error so the
+        # caller knows the split-vs-trade boundary is ambiguous.
+        for date in self._split_dates[
+            bisect.bisect_left(self._split_dates, after_date)
+            : bisect.bisect_right(self._split_dates, before_date)
+        ]:
+            if date in (after_date, before_date):
                 raise InvariantError(
                     "stock split coincides with a trade boundary -- "
                     "cannot determine which side of the split owns the shares",
                 )
-            if split["date"] > after_date:
-                quantity = int(quantity * split["split"])
-        return quantity
+        if lo >= hi:
+            return quantity
+        factor = float(self._split_factors[lo:hi].prod())
+        return int(quantity * factor)
 
     def buy(self, trade: Trade):
         try:
@@ -184,43 +260,75 @@ class Holding:
             })
 
     def _add_dividends(self):
+        """Compose the cashflow timeline for TSR/CAGR by appending each
+        in-position dividend (after withholding tax + FX) to the
+        outflows list.
+
+        For every dividend record, locate the position row that was
+        active on the dividend date via ``bisect`` (positions are
+        recorded in chronological order by ``buy``/``sell``), then
+        scale the live share count for any splits that landed
+        strictly between ``position.date`` and ``dividend.date``.
+        Same exclusive-both-ends contract as
+        :meth:`_apply_splits_between`; a split colliding with the
+        position date raises ``InvariantError`` so the operator can
+        spot the ambiguity rather than silently double the holding.
+        The legacy implementation walked positions and splits with
+        two manually-advanced cursors and was easy to misread; the
+        new code is one ``bisect`` per dividend (positions) plus
+        the same ``bisect`` slice the splits helper already uses.
+        """
         outflows = list(self._outflows)
-        position_idx = 0
-        split_idx = 0
+        if not self._positions or not self._dividends:
+            return outflows
+        position_dates = [p["date"] for p in self._positions]
         for dividend in self._dividends:
-            if position_idx >= len(self._positions):
-                break
-            while True:
-                position = self._positions[position_idx]
-                if dividend["date"] > position["date"]:
-                    if (position_idx + 1 < len(self._positions) and
-                            self._positions[position_idx + 1]["date"] < dividend["date"]):
-                        position_idx += 1
-                    elif position["quantity"] > 0:
-                        quantity = position["quantity"]
-                        for split in self._splits[split_idx:]:
-                            if dividend["date"] <= split["date"]:
-                                break
-                            if split["date"] == position["date"]:
-                                raise InvariantError(
-                                    "stock split coincides with a position "
-                                    "boundary -- cannot determine which "
-                                    "side of the split receives the dividend",
-                                )
-                            if split["date"] > position["date"]:
-                                quantity = int(quantity * split["split"])
-                            else:
-                                split_idx += 1
-                        outflows.append({
-                            "date": dividend["date"],
-                            "value": (quantity * dividend["dividend"] * (1.0 - WITHHOLDING_TAX_RATE) *
-                                      self._fx(self._info["currency"], dividend["date"])),
-                        })
-                        break
-                    else:
-                        break
-                else:
-                    break
+            div_date = dividend["date"]
+            # ``bisect_right`` -> 1 + index of last position with
+            # date <= div_date. Any dividend strictly before the
+            # first position is skipped (no holding to attach to).
+            idx = bisect.bisect_right(position_dates, div_date) - 1
+            if idx < 0:
+                continue
+            position = self._positions[idx]
+            if div_date <= position["date"] or position["quantity"] <= 0:
+                # ``<=`` mirrors the legacy ``dividend.date >
+                # position.date`` boundary: a dividend recorded
+                # **on** the same day as a position write is
+                # ambiguous (was the new share count already
+                # entitled to the dividend?), so we drop it the
+                # same way the previous implementation did.
+                continue
+            quantity = position["quantity"]
+            # Walk every split strictly between the position date
+            # and the dividend date. ``bisect_right`` on the
+            # position end skips any same-day split (matches the
+            # legacy ``split.date > position.date`` test); the
+            # dividend end uses ``bisect_left`` so a split landing
+            # on the dividend record date is excluded as well
+            # (matches ``dividend.date <= split.date``).
+            lo = bisect.bisect_right(self._split_dates, position["date"])
+            hi = bisect.bisect_left(self._split_dates, div_date)
+            if self._split_dates[
+                bisect.bisect_left(self._split_dates, position["date"]) : lo
+            ]:
+                # ``bisect_left != bisect_right`` on the position
+                # date means at least one split sits exactly on it.
+                raise InvariantError(
+                    "stock split coincides with a position "
+                    "boundary -- cannot determine which "
+                    "side of the split receives the dividend",
+                )
+            if lo < hi:
+                quantity = int(
+                    quantity * float(self._split_factors[lo:hi].prod())
+                )
+            outflows.append({
+                "date": div_date,
+                "value": (quantity * dividend["dividend"]
+                          * (1.0 - WITHHOLDING_TAX_RATE)
+                          * self._fx(self._info["currency"], div_date)),
+            })
         return outflows
 
     def trade_events(

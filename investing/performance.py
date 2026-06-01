@@ -3,9 +3,11 @@ weights, benchmark fetch.
 """
 from __future__ import annotations
 
-import math
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime
+
+import numpy as np
 
 from .clock import NowFn
 from .errors import InvariantError
@@ -98,10 +100,39 @@ def get_holdings(
     fx = _fx_or_default(fx)
     trades = combine_and_sort(transactions)
 
-    holdings: dict[str, Holding] = {}
+    # ``Holding.__init__`` is dominated by sequential yfinance round
+    # trips (``get_info``, ``splits``, ``get_dividends`` -- each a
+    # separate HTTPS request behind the cached ``Ticker.actions``
+    # frame). Walking trades serially would construct each Holding
+    # one at a time and pay that latency N times in a row; a small
+    # thread pool collapses the wall-clock cost to roughly
+    # ``ceil(N / pool_size) * per-ticker latency`` while leaving
+    # the per-Trade application loop strictly serial (positions /
+    # periods / inflows are stateful and rely on chronological
+    # processing).
+    unique_tickers: list[str] = []
+    seen: set[str] = set()
     for trade in trades:
-        if trade.ticker not in holdings:
-            holdings[trade.ticker] = Holding(trade.ticker, fx=fx, now=now)
+        if trade.ticker not in seen:
+            seen.add(trade.ticker)
+            unique_tickers.append(trade.ticker)
+
+    holdings: dict[str, Holding] = {}
+    if unique_tickers:
+        # Cap the pool at a modest size: yfinance is rate-limited
+        # and a wider fan-out trades latency for HTTP 429 retries.
+        # Eight workers is a comfortable middle ground for the
+        # 10-30 ticker portfolios this page targets.
+        max_workers = min(8, len(unique_tickers))
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            constructed = pool.map(
+                lambda t: (t, Holding(t, fx=fx, now=now)),
+                unique_tickers,
+            )
+            for ticker, holding in constructed:
+                holdings[ticker] = holding
+
+    for trade in trades:
         if trade.action not in ACTIONS:
             raise InvariantError(
                 f"trade action {trade.action!r} is not one of {ACTIONS}",
@@ -295,6 +326,13 @@ class Benchmark:
     source, multiple benchmarks, currency-converted prices, ...)
     has a single edit surface and ``Holding`` keeps its private
     Yahoo Ticker handle to itself.
+
+    The two history fetches collapsed into one: with
+    ``auto_adjust=False`` the response carries unadjusted
+    ``Open`` (the price we plant the synthetic Trade at) and
+    ``Adj Close`` (the dividend / split adjusted close used for
+    the cumulative return curve), so a single call satisfies
+    both code paths.
     """
 
     def __init__(self, ticker: str, start_date, fx=None, now: NowFn | None = None):
@@ -302,17 +340,39 @@ class Benchmark:
         self._start_date = start_date
         self._start_date_str = start_date.strftime("%Y-%m-%d")
         self._fx = _fx_or_default(fx)
-        # Cache the un-adjusted (for the first-day opening price) and
-        # adjusted (for the cumulative-return curve) histories. Two
-        # separate Yahoo calls are unavoidable -- auto_adjust=True
-        # rewrites the Open series, losing the actual trade price.
         self._holding = Holding(ticker, fx=self._fx, now=now)
-        self._unadj_history = self._holding._ticker.history(
+        # Single fetch carries unadjusted ``Open`` (so we can plant
+        # the synthetic 1-share Trade at the real start-day market
+        # price) and ``Adj Close`` (the dividend / split adjusted
+        # close used for the cumulative-return curve). Pre-converting
+        # to numpy arrays here means ``cumulative_return_series``
+        # never has to pay the per-row pandas indexing tax the
+        # legacy implementation did.
+        history = self._holding._ticker.history(
             start=self._start_date_str, interval="1d", auto_adjust=False,
         )
-        self._adj_history = self._holding._ticker.history(
-            start=self._start_date_str, interval="1d", auto_adjust=True,
-        )
+        self._history = history
+        opens = history["Open"].to_numpy(dtype=float)
+        adj_closes = history["Adj Close"].to_numpy(dtype=float)
+        # Forward-fill any NaN runs so a missing day inherits the
+        # last known close. ``bfill`` after handles a leading NaN
+        # (vanishingly rare on a real Yahoo response, but the chart
+        # renderer downstream calls ``np.log`` on the result and
+        # would propagate any NaN into an invalid polyline). The
+        # historical implementation walked the series row-by-row and
+        # had a subtle bug at index 0 where ``iloc[idx - 1]`` wrapped
+        # to the **last** row instead of failing, so a NaN on the
+        # first day would have been silently filled with the most
+        # recent close from years later -- the vectorised path here
+        # closes that hole as a side-effect.
+        adj_closes = _ffill(adj_closes)
+        opens = _ffill(opens)
+        self._opens = opens
+        self._adj_closes = adj_closes
+        # Yahoo returns a ``DatetimeIndex``; ``datetime64[D]``
+        # collapses each timestamp to its date so the per-ref-date
+        # ``np.searchsorted`` lookup compares apples to apples.
+        self._dates = history.index.to_numpy().astype("datetime64[D]")
 
     @property
     def start_open_price(self) -> float:
@@ -321,65 +381,67 @@ class Benchmark:
         Used to plant a synthetic 1-share Trade so :meth:`Holding.summary`
         can produce the TSR / CAGR numbers next to the benchmark name.
         """
-        return float(self._unadj_history["Open"].iloc[0])
+        return float(self._opens[0])
 
     def cumulative_return_series(self, reference_history):
-        """Walk the adjusted-close series and emit ``(date, multiplier)``
-        pairs aligned to ``reference_history``'s timeline.
+        """Resample the benchmark's adjusted-close series onto the
+        portfolio's TWR timeline.
 
-        The portfolio's TWR has one data point per valuation upload;
-        the benchmark trading days don't line up exactly with that
-        cadence (weekends, holidays, sample-day shifts), so we walk
-        both timelines in lockstep and pick the right Yahoo close for
-        each reference timestamp. The first entry pins the curve at
-        ``1.0`` so subsequent values read as cumulative multipliers
-        relative to the portfolio start.
+        For each reference timestamp ``t`` (other than the first,
+        which is pinned at 1.0 by convention), ``np.searchsorted``
+        finds the most recent benchmark trading day with
+        ``date <= t`` -- the same "use the last known close on or
+        before the reference" rule the row-by-row walker
+        implemented, expressed in O(log n) per query instead of
+        O(n) per ref date. Yahoo trading days that fall *between*
+        two reference points are correctly skipped: only the close
+        active *as of* the ref date contributes.
+
+        The previous implementation also had a wrap-around edge
+        case at index 0 where ``iloc[idx - 1]`` evaluated to
+        ``iloc[-1]`` (the last row in the response). The vectorised
+        lookup below cannot reach for an out-of-bounds index by
+        construction.
         """
-        history = self._adj_history
-        start_price = float(history["Open"].iloc[0])
-        series = [(self._start_date, 1.0)]
-        ref_idx = 1
-        for idx, row in enumerate(history.itertuples()):
-            close_price = float(history["Close"].iloc[idx])
-            prev_close_price = float(history["Close"].iloc[idx - 1])
-            if math.isnan(close_price):
-                if math.isnan(prev_close_price):
-                    raise InvariantError(
-                        "benchmark history has two consecutive NaN closes "
-                        f"around index {idx} -- cannot interpolate",
-                    )
-                close_price = prev_close_price
-            ref_date = reference_history[ref_idx][0]
-            date = row.Index.to_pydatetime()
-            if date.date() < ref_date.date():
-                continue
-            elif date.date() == ref_date.date():
-                series.append((ref_date, close_price / start_price))
-                ref_idx += 1
-            else:
-                series.append((ref_date, prev_close_price / start_price))
-                ref_idx += 1
-                ref_date = reference_history[ref_idx][0]
-                if date.date() == ref_date.date():
-                    series.append((ref_date, close_price / start_price))
-                    ref_idx += 1
-        if len(series) < len(reference_history):
-            close_price = float(history["Close"].iloc[-1])
-            if math.isnan(close_price):
-                close_price = float(history["Close"].iloc[-2])
-                if math.isnan(close_price):
-                    raise InvariantError(
-                        "benchmark history ends with two consecutive NaN "
-                        "closes -- cannot back-fill the final reference point",
-                    )
-            series.append((reference_history[-1][0], close_price / start_price))
-        if len(series) != len(reference_history):
+        if self._adj_closes.size == 0:
             raise InvariantError(
-                "benchmark resampling lost data: produced "
-                f"{len(series)} points for a {len(reference_history)}-point "
-                "reference timeline",
+                "benchmark history is empty -- nothing to resample",
             )
-        return series
+        # Cumulative-return convention: the first reference point
+        # is pinned at 1.0 so the curve reads as a multiplier
+        # relative to the timeline start regardless of the gap
+        # between ``start_date`` and the first benchmark trading
+        # day. Subsequent points are ``adj_close[t] /
+        # adj_close[start]``.
+        start_price = float(self._adj_closes[0])
+        if start_price == 0.0:
+            raise InvariantError(
+                "benchmark start-day adjusted close is zero -- "
+                "cannot normalise cumulative-return curve",
+            )
+        ref_dates = np.array(
+            [d.date() for d, _ in reference_history], dtype="datetime64[D]",
+        )
+        # ``side="right"`` then ``- 1`` returns the index of the
+        # last benchmark trading day with date <= ref_date.
+        # ``np.clip`` floors at the first benchmark row (so a ref
+        # date earlier than every benchmark day still produces a
+        # finite multiplier) and ceilings at the last (so a ref
+        # date past the response's tail back-fills to the most
+        # recent close, mirroring the legacy "if the loop ran out
+        # before covering the timeline, append the final close"
+        # branch).
+        idx = np.searchsorted(self._dates, ref_dates, side="right") - 1
+        idx = np.clip(idx, 0, len(self._adj_closes) - 1)
+        multipliers = self._adj_closes[idx] / start_price
+        # Pin the first entry at 1.0 by convention.
+        multipliers[0] = 1.0
+        # Materialise as a list of (datetime, float) tuples to
+        # match the historical output type the renderer consumes.
+        return [
+            (ref_date, float(m))
+            for (ref_date, _), m in zip(reference_history, multipliers, strict=True)
+        ]
 
     def summary(self, reference_history) -> dict:
         """Produce the per-benchmark dict the renderer consumes.
@@ -399,6 +461,37 @@ class Benchmark:
         summary = self._holding.summary()
         summary["history"] = self.cumulative_return_series(reference_history)
         return summary
+
+
+def _ffill(arr: np.ndarray) -> np.ndarray:
+    """Forward-fill NaNs in a 1-D float array, then back-fill any
+    leading NaN run.
+
+    Only used by :class:`Benchmark` for its Yahoo response; lifted
+    out so the cumulative-return resampler can stay focused on the
+    timeline arithmetic. Returns a fresh array; the input is left
+    untouched.
+    """
+    if arr.size == 0:
+        return arr
+    out = arr.copy()
+    nan_mask = np.isnan(out)
+    if not nan_mask.any():
+        return out
+    # Forward-fill: replace each NaN with the most recent non-NaN
+    # value via ``np.maximum.accumulate`` over an "index of last
+    # valid sample" running max.
+    valid_idx = np.where(~nan_mask, np.arange(len(out)), 0)
+    valid_idx = np.maximum.accumulate(valid_idx)
+    out = out[valid_idx]
+    # Any leading NaN run still has ``valid_idx == 0`` pointing at a
+    # NaN; back-fill those with the first finite value so the
+    # downstream ``np.log`` doesn't choke.
+    if np.isnan(out[0]):
+        finite = np.where(~np.isnan(out))[0]
+        if finite.size:
+            out[: finite[0]] = out[finite[0]]
+    return out
 
 
 # Backwards-compatible alias: the older ``_BENCHMARK_TICKERS`` name

@@ -1495,10 +1495,13 @@ class Webpage:
             # is deterministic across calls; ``dict`` preserves insertion
             # order in modern Python but a ``sorted`` pass keeps the
             # output reproducible regardless of how the caller built
-            # the mapping.
-            for key in sorted(data_attrs):
-                value = data_attrs[key]
-                data_attr_html += f' data-{key}="{html.escape(value)}"'
+            # the mapping. ``"".join`` over a list comp avoids the
+            # quadratic-allocation pattern of repeated ``+=`` on a
+            # str accumulator.
+            data_attr_html = "".join(
+                f' data-{key}="{html.escape(data_attrs[key])}"'
+                for key in sorted(data_attrs)
+            )
         return (
             f'<article class="holding"{id_attr}{data_attr_html}>'
             # Below-the-fold logos load lazily; explicit dimensions
@@ -1621,18 +1624,28 @@ class Webpage:
         right_margin_pct = 12.0 if has_delta else 0.0
         chart_x_end = width * (1 - right_margin_pct / 100.0)
 
+        # Hoist the per-axis spans out of the closures: ``map_x`` /
+        # ``map_y`` used to recompute ``time_x.min()`` and
+        # ``time_x.max()`` on every call (200 calls per series) -- pure
+        # re-work since the inputs are immutable. The ``or 1.0`` guards
+        # collapse a single-point timeline (or a flat-line series with
+        # min == max) onto the left edge / reference line rather than
+        # dividing by zero.
+        x_min = float(time_x.min())
+        x_max = float(time_x.max())
+        x_span = (x_max - x_min) or 1.0
+        y_span = (view_max - view_min) or 1.0
+
         def map_x(x_days: float) -> float:
-            span = float(time_x.max() - time_x.min()) or 1.0
-            return (x_days - float(time_x.min())) / span * chart_x_end
+            return (x_days - x_min) / x_span * chart_x_end
 
         def map_y(value: float) -> float:
-            span = view_max - view_min or 1.0
-            return height - (value - view_min) / span * height
+            return height - (value - view_min) / y_span * height
 
         # Smooth interpolation when there are three or more points,
         # straight segments for two.
         if len(time_x) >= 3:
-            dense = np.linspace(time_x.min(), time_x.max(), 200)
+            dense = np.linspace(x_min, x_max, 200)
             interp_x = dense
             interp_targets = {id(s[2]): np.exp(Pchip(time_x, np.log(s[2]))(dense)) for s in series}
         else:
@@ -1640,9 +1653,16 @@ class Webpage:
             interp_targets = {id(s[2]): s[2] for s in series}
 
         def to_points(ys: np.ndarray) -> str:
+            # Vectorise the projection so the inner loop only does the
+            # f-string formatting; avoids 200 Python-level ``map_x`` /
+            # ``map_y`` invocations per series and the ``time_x.min()``
+            # / ``time_x.max()`` re-evaluation each one would have
+            # done before the hoist above.
+            px = (interp_x - x_min) / x_span * chart_x_end
+            py = height - (ys - view_min) / y_span * height
             return " ".join(
-                f"{map_x(x):.2f},{map_y(y):.2f}"
-                for x, y in zip(interp_x, ys, strict=False)
+                f"{a:.2f},{b:.2f}"
+                for a, b in zip(px, py, strict=False)
             )
 
         ref_y = map_y(1.0)

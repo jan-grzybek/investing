@@ -12,9 +12,21 @@ from dateutil.relativedelta import relativedelta
 
 def _ts_to_datetime(ts) -> datetime:
     """Convert a pandas Timestamp (or any ISO-stringifiable date) to a
-    naive ``datetime`` at midnight."""
-    iso_date = str(ts).split()[0]
-    return datetime.strptime(iso_date, "%Y-%m-%d")
+    naive ``datetime`` at midnight.
+
+    Hot path: ``pandas.Timestamp`` (and ``datetime``) expose
+    ``year``/``month``/``day`` directly, so we can construct the result
+    without round-tripping through string formatting + ``strptime`` --
+    that round trip used to dominate per-dividend / per-FX-bar parsing
+    on tickers with long histories. Strings (used by the test fixtures
+    that mimic ``pandas.Series.items()`` with a plain dict) take the
+    fallback path through ``fromisoformat``, which is materially
+    faster than the legacy ``strptime("%Y-%m-%d")`` call.
+    """
+    if not isinstance(ts, str):
+        return datetime(ts.year, ts.month, ts.day)
+    iso_date = ts.split(" ", 1)[0] if " " in ts else ts
+    return datetime.fromisoformat(iso_date)
 
 
 

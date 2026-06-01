@@ -49,8 +49,16 @@ def combine_and_sort(transactions: list[EquityTransaction]) -> list[Trade]:
 
     trades: list[Trade] = []
     for (ticker, date, action), txns in buckets.items():
-        total_quantity = sum(t["quantity"] for t in txns)
-        total_value = sum(t["quantity"] * t["price_per_share"] for t in txns)
+        # Single pass over the bucket: the historical ``sum(...) +
+        # sum(...)`` pair walked the same list twice for the volume-
+        # weighted average. One loop accumulates both running totals
+        # and is what every other reduction in this file already does.
+        total_quantity = 0
+        total_value = 0.0
+        for t in txns:
+            qty = t["quantity"]
+            total_quantity += qty
+            total_value += qty * t["price_per_share"]
         trades.append(Trade(
             date=datetime.strptime(date, "%d-%m-%Y"),
             ticker=ticker,
@@ -172,16 +180,23 @@ def _combine_trade_events(
         return []
     events = sorted(events, key=lambda e: e["date"])
     groups: list[list[dict]] = []
+    # ``head_action`` is invariant across the lifetime of a group, so
+    # we cache it on the side rather than recomputing from
+    # ``head["category"]`` on every event. Tiny saving in absolute
+    # terms; the win is reading the loop top-to-bottom without an
+    # implicit "what does the head look like?" branch.
+    head_action: str | None = None
+    head_date = None
     for event in events:
         action = "BUY" if event["category"] in _BUY_CATEGORIES else "SELL"
-        if groups:
-            head = groups[-1][0]
-            head_action = "BUY" if head["category"] in _BUY_CATEGORIES else "SELL"
-            within_window = (event["date"] - head["date"]).days <= window_days
-            if head_action == action and within_window:
+        if groups and head_action == action:
+            within_window = (event["date"] - head_date).days <= window_days
+            if within_window:
                 groups[-1].append(event)
                 continue
         groups.append([event])
+        head_action = action
+        head_date = event["date"]
 
     combined: list[dict] = []
     for group in groups:
