@@ -102,6 +102,23 @@ def _measure_svg_density(svg_path: str) -> float | None:
     runtime error blocks the measurement -- callers can substitute
     :data:`_DEFAULT_LOGO_DENSITY` so the renderer always has a
     usable value.
+
+    Important: the rasteriser is invoked with ``output_width =
+    output_height = _DENSITY_PROBE_SIZE`` (a square frame), so
+    cairosvg preserves the SVG's aspect and letterboxes a wide
+    wordmark into a thin horizontal strip inside the 128x128
+    canvas. The returned value is therefore the **letterboxed-canvas
+    density**, not the bbox-intrinsic density: for a logo with
+    aspect ``R`` and intrinsic ink density ``d_i`` the measurement
+    satisfies ``d_letterbox ~= d_i / max(R, 1/R)``. The treemap
+    renderer's :data:`_LOGO_REFERENCE_DENSITY` is calibrated against
+    this letterboxed scale and the system as a whole is internally
+    consistent, but the metric is invariant under tight-cropping
+    the source SVG (cropping doesn't change the ratio of ink pixels
+    to total raster pixels) and **also implicitly carries an aspect
+    factor** -- consumers that want an aspect-independent density
+    must use a non-square raster (output_height fixed, output_width
+    proportional to the parsed aspect ratio).
     """
     try:
         import io

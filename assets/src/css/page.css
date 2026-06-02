@@ -1284,6 +1284,15 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
   color: inherit;
   text-decoration: none;
   cursor: pointer;
+  /* Per-tile ink colour (text labels + filtered logo silhouette).
+     White by default; the per-sector overrides below flip the
+     value to a dark ink on tiles whose background is too light
+     for a white silhouette to read against. Both the ``color`` on
+     ``.treemap__tile-inner`` and the SVG knockout filter (via
+     ``flood-color="currentColor"``) consume this variable, so the
+     text and the logo always match. */
+  --treemap-tile-ink: #ffffff;
+  --treemap-tile-ink-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
   /* Subtle hairline between adjacent tiles using the same colour
      as the page background. Using ``outline`` rather than a
      border keeps the tile's box dimensions exactly matching the
@@ -1335,13 +1344,35 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
   height: 100%;
   padding: 6px 8px;
   gap: 4px;
-  /* High-contrast text on coloured swatches: white reads
-     consistently on every palette entry once the dark-mode
-     overrides kick in, and the lighter sector hues still pass
-     WCAG AA against white when measured. */
-  color: #ffffff;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  /* Ink colour resolves from the per-tile ``--treemap-tile-ink``
+     variable. The same value (via ``currentColor``) feeds the
+     SVG knockout filter applied to the logo silhouette in
+     ``.treemap__tile-logo`` -- so text and logo always end up in
+     the same colour, white on saturated tiles and dark on the
+     pastel ones the per-sector overrides flag. The matching
+     ``text-shadow`` is paired so a dark-on-light label gets a
+     subtle light glow rather than the dark drop-shadow that
+     suits white-on-colour. */
+  color: var(--treemap-tile-ink);
+  text-shadow: var(--treemap-tile-ink-shadow);
   font-variant-numeric: tabular-nums;
+}
+/* Sectors whose background is too light for a white silhouette to
+   read against (WCAG contrast vs white below 3:1) flip the
+   ink colour to a dark near-black and swap the drop-shadow to a
+   soft light glow. Industrials (#FFB703 / 1.75x), Consumer
+   Cyclical (#FB8500 / 2.48x) and Other (#94A3B8 / 2.56x) are the
+   light-mode losers; the dark-mode media block below extends the
+   same treatment to the rest of the palette, which is intentionally
+   pastel and therefore equally low-contrast against white. The
+   ``#0F2430`` ink matches the page's primary text colour, so the
+   dark-ink tiles read as if printed on tinted paper rather than
+   recoloured. */
+.treemap__tile[data-sector="Industrials"],
+.treemap__tile[data-sector="Consumer Cyclical"],
+.treemap__tile[data-sector="Other"] {
+  --treemap-tile-ink: #0f2430;
+  --treemap-tile-ink-shadow: 0 1px 2px rgba(255, 255, 255, 0.4);
 }
 /* Each tile logo renders as an opaque white silhouette with
    brand-authored white pixels knocked out to transparent. The
@@ -1415,12 +1446,32 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
      the logo when the tile clears the size threshold. Sizing
      attributes live in the ``@container treemap`` block further
      down so the ``cqi`` math resolves against the figure, not
-     the tile. */
+     the tile.
+   
+     Default knockout filter paints the logo silhouette uniform
+     white. The per-sector + dark-mode rules below swap to the
+     dark-ink variant on tiles whose background fails the 3:1
+     WCAG contrast against white. Two filters rather than one
+     parametrised on ``currentColor`` because Chromium ignores
+     ``flood-color: currentColor`` inside SVG filters applied via
+     ``filter: url(#...)`` -- the colour always resolves to
+     black regardless of the host element's ``color`` property,
+     so the swap has to happen at the filter-URL level. */
   display: none;
   max-width: 100%;
   object-fit: contain;
-  filter: url(#treemap-logo-knockout);
+  filter: url(#treemap-logo-knockout-light);
   pointer-events: none;
+}
+/* Dark-ink knockout for sectors whose background reads under
+   3:1 contrast vs white. The dark-ink variant matches the same
+   ``#0F2430`` ink colour the text labels use, so the brand mark
+   and the percent below it land in the same hue and read as one
+   visual unit on the tile. */
+.treemap__tile[data-sector="Industrials"] .treemap__tile-logo,
+.treemap__tile[data-sector="Consumer Cyclical"] .treemap__tile-logo,
+.treemap__tile[data-sector="Other"] .treemap__tile-logo {
+  filter: url(#treemap-logo-knockout-dark);
 }
 .treemap__tile-ticker {
   display: inline-block;
@@ -1430,6 +1481,32 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 100%;
+}
+/* Responsive long / short label swap for the aggregated ``Other``
+   tile. The renderer emits BOTH ``"Other equities"`` (long) and
+   ``"Other"`` (short) so the same HTML reflows gracefully across
+   viewports: the short form is the safe default that fits on every
+   tile, the long form is unhidden once the tile clears a width
+   that comfortably hosts the 14-character label at the upper end
+   of the responsive font clamp. Tiles below the threshold keep
+   the short form rather than clipping the long one to an ellipsis,
+   honouring the "if not enough space, keep using shorter Other"
+   contract. Outside the aggregated tile the two extra spans have
+   no effect because they're only emitted inside
+   ``.treemap__tile--aggregated``. */
+.treemap__tile-ticker-long {
+  display: none;
+}
+.treemap__tile-ticker-short {
+  display: inline;
+}
+@container tile (min-width: 220px) {
+  .treemap__tile--aggregated .treemap__tile-ticker-long {
+    display: inline;
+  }
+  .treemap__tile--aggregated .treemap__tile-ticker-short {
+    display: none;
+  }
 }
 .treemap__tile-weight {
   font-weight: 600;
@@ -1452,7 +1529,19 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
     height: calc(clamp(22px, 3.8cqi, 28px) * var(--logo-h-factor, 1));
   }
   .treemap__tile-ticker {
-    font-size: clamp(0.875rem, 2.2cqi, 1.1875rem);
+    /* Sized to match the apparent visual height of the equal-area
+       logo box below (clamp(22px, 3.8cqi, 28px)). The ticker is
+       only rendered when it *substitutes* for the logo -- either
+       because the tile fell below the responsive swap threshold,
+       the aggregated ``Other`` pseudo-row has no brand to show,
+       or the resolver short-circuited to an empty logo URL -- so
+       the right reference size is the logo it's standing in for,
+       not a caption beneath an existing logo. The matching font
+       size keeps the tile's primary identifier consistent across
+       brands, aggregated buckets, and the no-logo fallback path.
+       The weight percent below stays at its smaller second-tier
+       size so the brand mark / ticker still wins the eye. */
+    font-size: clamp(1.125rem, 3.8cqi, 1.75rem);
   }
   .treemap__tile-weight {
     /* The percent reads as a clear second tier next to the
@@ -1478,13 +1567,37 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
   .treemap__tile-logo {
     display: block;
   }
-  /* The aggregated ``Other`` tile uses the ticker slot for its
-     "Other" identifier and has no ``<img>`` to swap to, so the
-     swap rule has to skip ``--aggregated`` tiles. Without this
-     exception a big aggregated tile would end up with only the
-     percent number visible. */
-  .treemap__tile:not(.treemap__tile--aggregated) .treemap__tile-ticker {
+  /* The aggregated ``Other`` pseudo-row uses the ticker slot for
+     its "Other" identifier and has no ``<img>`` to swap to, and
+     tiles tagged ``--no-logo`` deliberately suppress the ``<img>``
+     when the resolver short-circuited to an empty URL. Neither
+     case has anything to display *instead* of the ticker, so the
+     swap rule excludes them -- without the exclusion a big tile
+     in either group would render with only the weight percent
+     visible. */
+  .treemap__tile:not(.treemap__tile--aggregated):not(.treemap__tile--no-logo) .treemap__tile-ticker {
     display: none;
+  }
+}
+
+/* Dark-mode logo / text ink. The dark-mode sector palette is
+   intentionally pastel (mid-lightness, moderate saturation) so it
+   reads calm on the deep navy surface; the trade-off is that
+   every sector's contrast against pure white drops to well under
+   3:1. Flip the chart-wide ink default to the same dark near-black
+   the light-mode losers use, so logos and labels stay legible on
+   every tile in dark mode. The text-ink variable handles the
+   labels; the filter swap below handles the logo silhouette (the
+   single ``treemap-logo-knockout`` filter can't read CSS variables
+   directly -- see the comment above the light/dark filter URL
+   selectors). */
+@media (prefers-color-scheme: dark) {
+  .treemap__tile {
+    --treemap-tile-ink: #0f2430;
+    --treemap-tile-ink-shadow: 0 1px 2px rgba(255, 255, 255, 0.4);
+  }
+  .treemap__tile-logo {
+    filter: url(#treemap-logo-knockout-dark);
   }
 }
 .treemap__legend {

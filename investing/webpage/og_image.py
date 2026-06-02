@@ -28,6 +28,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import math
 import os
 from collections.abc import Iterable
 from datetime import date, datetime
@@ -37,6 +38,7 @@ from dateutil.relativedelta import relativedelta
 
 from ..formatting import _fmt_date, _fmt_pct, _format_duration
 from ..log import logger
+from ..logos import _DEFAULT_LOGO_ASPECT, _parse_svg_aspect_ratio
 from ..paths import _REPO_LOGOS_DIR, LOGO_EXTENSIONS, SITE_DISPLAY
 from ..types import BenchmarkSummary, TotalReturn
 
@@ -137,7 +139,7 @@ def load_logo_for_og(ticker: str, max_w: int, max_h: int):
                 # at ``max_w``. 2x supersample for crispness.
                 png_bytes = cairosvg.svg2png(
                     url=path,
-                    output_height=max_h * 2,
+                    output_height=max(2, max_h * 2),
                 )
                 src = Image.open(io.BytesIO(png_bytes)).convert("RGBA")
             else:
@@ -153,6 +155,84 @@ def load_logo_for_og(ticker: str, max_w: int, max_h: int):
     return None
 
 
+def _og_logo_aspect(ticker: str) -> float:
+    """Return the intrinsic aspect ratio of ``ticker``'s logo file.
+
+    Mirrors :meth:`investing.logos.LogoCache.aspect_ratio` but
+    reads directly off disk so the OG renderer can size each
+    cell *before* the rasteriser runs. Returns
+    :data:`_DEFAULT_LOGO_ASPECT` whenever the logo can't be parsed
+    -- missing file, non-SVG without a parseable raster, or any
+    other read failure -- so the equal-area math degrades to the
+    "typical wordmark" assumption instead of crashing on a single
+    bad row.
+    """
+    from PIL import Image
+
+    candidates = [os.path.join(_REPO_LOGOS_DIR, f"{ticker}{ext}") for ext in LOGO_EXTENSIONS]
+    candidates.append(os.path.join(_REPO_LOGOS_DIR, "courage.png"))
+
+    for path in candidates:
+        if not os.path.exists(path):
+            continue
+        try:
+            if path.lower().endswith(".svg"):
+                with open(path, encoding="utf-8") as f:
+                    parsed = _parse_svg_aspect_ratio(f.read())
+                if parsed and parsed > 0:
+                    return parsed
+            else:
+                with Image.open(path) as im:
+                    if im.width > 0 and im.height > 0:
+                        return im.width / im.height
+        except (OSError, ValueError):
+            continue
+    return _DEFAULT_LOGO_ASPECT
+
+
+# Reference aspect for the OG strip's equal-area logo sizing -- same
+# 3 : 1 reference the treemap uses (see
+# :data:`investing.webpage.sector_treemap._LOGO_REFERENCE_ASPECT`).
+# Picking the same reference keeps the two compositions visually
+# coherent: a logo that reads "wide" in the treemap reads "wide" in
+# the OG strip too, and the same JG-portfolio wordmark distribution
+# clusters around factor 1.0 in both passes.
+_OG_REFERENCE_ASPECT = 3.0
+
+
+# OG-card palette mirrors the CSS ``:root`` block in ``page.css``. Every
+# colour the OG renderer paints derives from a webpage design-system
+# token so the share preview reads as a continuation of the page rather
+# than a separately-themed asset:
+#
+#   * ``_OG_BG`` = ``--bg`` (faint slate page surface). The OG canvas
+#     is **opaque** in this colour so the same image renders identically
+#     on light, dark and branded social-platform surfaces -- a
+#     transparent canvas would let dark ``--fg`` text disappear into a
+#     dark platform background, the readability problem the previous
+#     stroke-halo workaround tried to paper over.
+#   * ``_OG_CARD`` = ``--card-bg`` (pure white). The logo strip's pill
+#     sits on this colour to read as a lifted card above ``--bg``, the
+#     same surface layering the webpage uses for its content cards.
+#   * ``_OG_FG`` = ``--fg`` (body slate). Byline + hero caption.
+#   * ``_OG_MUTED`` = ``--muted``. Foot metadata; lands at WCAG-AA
+#     contrast against ``_OG_BG`` (4.3 : 1) so it reads as supporting
+#     context without a stroke halo.
+#   * ``_OG_ACCENT`` = ``--accent`` (Tiger Orange). The JG brand mark
+#     -- identical to the chapter rules under every section title and
+#     the chart's JG curve.
+#   * ``_OG_POS`` / ``_OG_NEG`` = ``--positive`` / ``--negative`` (Sea
+#     Green / Rose Red). The same pair the BOUGHT / SOLD pills and
+#     every up / down TSR readout on the page resolve to.
+_OG_BG: tuple[int, int, int] = (248, 250, 252)
+_OG_CARD: tuple[int, int, int] = (255, 255, 255)
+_OG_FG: tuple[int, int, int] = (15, 36, 48)
+_OG_MUTED: tuple[int, int, int] = (107, 130, 145)
+_OG_ACCENT: tuple[int, int, int] = (251, 133, 0)
+_OG_POS: tuple[int, int, int] = (42, 157, 143)
+_OG_NEG: tuple[int, int, int] = (230, 57, 112)
+
+
 def draw_top_holdings_strip(
     canvas,
     tickers: Iterable[str],
@@ -164,72 +244,93 @@ def draw_top_holdings_strip(
 ) -> None:
     """Render up to 10 logos in a single horizontal row inside ``(x, y, w, h)``.
 
-    Each logo is fitted into a same-width cell with consistent
-    gaps so the strip reads as a uniform "what's inside" row
-    regardless of the underlying logos' aspect ratios. A
-    semi-transparent white pill sits behind the row so dark logo
-    wordmarks stay legible when the OG image is composited on a
-    dark surface; the pill is wrapped in a tight Gaussian halo
-    so it visually lifts off the background. The strip is a
-    no-op when ``tickers`` is empty.
+    Each logo is sized for **equal visual area** rather than for
+    equal-cell-width fit: a wide wordmark (BABA, SPGI, NVDA) gets
+    a proportionally wider but shorter bbox; a near-square mark
+    (CRM, TSM) gets a narrower but taller bbox; every logo's
+    ``width * height`` lands at the same value. This matches the
+    treemap's equal-area logo sizing pass (see
+    :func:`investing.webpage.sector_treemap._equal_area_factors`)
+    and replaces the prior uniform-cell layout, where wide
+    wordmarks letterboxed inside a square cell and read as ~3x
+    smaller than the icon-style logos next to them.
+
+    Layout pipeline:
+
+    1. Parse each ticker's intrinsic aspect ratio off the local
+       tight-cropped SVG (or raster fallback). Tickers whose
+       aspect can't be parsed degrade to the default 3 : 1.
+
+    2. Derive a single ``base_w`` so the sum of equal-area widths
+       plus the inter-logo gaps fills the available strip width
+       exactly. ``base_h`` is then derived so the tallest
+       resulting cell (the squarest logo) caps at the strip
+       height -- shorter cells stay centred on the strip's
+       horizontal midline.
+
+    3. Each logo's per-cell dimensions are
+       ``base_w * sqrt(R/R_ref)`` wide by
+       ``base_h * sqrt(R_ref/R)`` tall; the product is constant
+       across rows so the visible "logo area" is uniform
+       regardless of intrinsic aspect.
+
+    A pure-white ``--card-bg`` pill sits behind the row -- the
+    same lifted card surface the webpage uses to separate
+    content from the faint slate page background. The pill is
+    rendered sharp (no Gaussian halo) and fully opaque; the
+    surrounding ``--bg`` canvas provides the contrast that lets
+    the card read as a distinct surface, without the previous
+    soft outer fringe that competed visually with the captions
+    above/below it. The strip is a no-op when ``tickers`` is
+    empty.
     """
-    from PIL import Image, ImageDraw, ImageFilter
+    from PIL import ImageDraw
 
     tickers = list(tickers)
     if not tickers:
         return
 
-    slots = max(len(tickers), 1)
+    aspects = [_og_logo_aspect(t) for t in tickers]
+    n = len(tickers)
     # Tight gap on small counts, looser gap once the row fills up,
     # so a 3-ticker row doesn't look unintentionally airy.
-    gap = 20 if slots >= 6 else 28
-    cell_w = (w - gap * (slots - 1)) // slots
-    cell_h = h
-    # Center the strip horizontally within the requested width
-    # when there are fewer than 10 slots so a short row still
-    # feels balanced under the hero number.
-    used_w = slots * cell_w + (slots - 1) * gap
-    offset_x = x + (w - used_w) // 2
+    gap = 20 if n >= 6 else 28
+    available_w = max(1, w - gap * (n - 1))
 
-    # Card backdrop. Semi-transparent white pill (alpha 225 gives
-    # a slight "frosted glass" softness on dark backgrounds while
-    # keeping dark logo wordmarks high contrast) wrapped in a
-    # tight Gaussian-blurred outer halo of the same shape,
-    # lifting the card visually off dark backgrounds.
+    # Equal-area math: every logo renders at
+    # ``(base_w * sqrt(R/R_ref), base_h * sqrt(R_ref/R))``. The
+    # ``w_factor`` sum determines how ``base_w`` packs into the
+    # available strip width; the ``h_factor`` max determines how
+    # tall the squarest logo wants to be relative to ``base_h``.
+    # Both fall out cleanly from the per-aspect factors.
+    w_factors = [math.sqrt(r / _OG_REFERENCE_ASPECT) for r in aspects]
+    h_factors = [math.sqrt(_OG_REFERENCE_ASPECT / r) for r in aspects]
+    sum_wf = sum(w_factors) or 1.0
+    max_hf = max(h_factors) or 1.0
+    base_w = available_w / sum_wf
+    base_h = h / max_hf
+
+    # ``--card-bg`` pill backdrop -- opaque, sharp edges. Sits on the
+    # opaque ``--bg`` page surface the way card surfaces lift above
+    # ``--bg`` on the webpage itself.
     pad_x = 24
     pad_y = 18
-    card_rect = (
-        offset_x - pad_x,
-        y - pad_y,
-        offset_x + used_w + pad_x,
-        y + cell_h + pad_y,
-    )
-    # White-RGB transparent canvas (not (0,0,0,0)) so the
-    # GaussianBlur pass below doesn't average dark transparent
-    # pixels into the halo's RGB and fringe the pill's outer
-    # glow with grey on white backgrounds.
-    card_layer = Image.new("RGBA", canvas.size, (255, 255, 255, 0))
-    ImageDraw.Draw(card_layer).rounded_rectangle(
-        card_rect,
-        radius=24,
-        fill=(255, 255, 255, 225),
-    )
-    glow_layer = card_layer.filter(ImageFilter.GaussianBlur(radius=6))
-    canvas.alpha_composite(glow_layer)
-    canvas.alpha_composite(card_layer)
+    card_rect = (x - pad_x, y - pad_y, x + w + pad_x, y + h + pad_y)
+    ImageDraw.Draw(canvas).rounded_rectangle(card_rect, radius=24, fill=_OG_CARD)
 
-    for idx, ticker in enumerate(tickers):
-        cell_x = offset_x + idx * (cell_w + gap)
-        logo = load_logo_for_og(ticker, cell_w, cell_h)
-        if logo is None:
-            continue
-        # Center the logo within its cell -- horizontally because
-        # narrow logos otherwise hug the left edge, and
-        # vertically so wide logos line up on a consistent
-        # midline with square ones.
-        paste_x = cell_x + (cell_w - logo.width) // 2
-        paste_y = y + (cell_h - logo.height) // 2
-        canvas.paste(logo, (paste_x, paste_y), logo)
+    cur_x = float(x)
+    for ticker, wf, hf in zip(tickers, w_factors, h_factors, strict=True):
+        target_w = max(1, round(base_w * wf))
+        target_h = max(1, round(base_h * hf))
+        logo = load_logo_for_og(ticker, target_w, target_h)
+        if logo is not None:
+            # Centre vertically on the strip's midline so a tall
+            # near-square mark and a thin wide wordmark share a
+            # consistent baseline rather than top-aligning.
+            paste_x = round(cur_x)
+            paste_y = y + (h - logo.height) // 2
+            canvas.paste(logo, (paste_x, paste_y), logo)
+        cur_x += base_w * wf + gap
 
 
 def _benchmark_label(
@@ -424,40 +525,14 @@ def _render_unsafe(
     from PIL import Image, ImageDraw
 
     W, H = 1200, 630
-    # Transparent canvas: we draw on RGBA with a fully-clear
-    # background so the same OG image looks correct whether a
-    # social platform places it on a light, dark, or branded
-    # surface.
-    TRANSPARENT = (255, 255, 255, 0)
-    HALO = (255, 255, 255)
-    # Palette mirrors the CSS ``:root`` block in ``page.css``. Keeping
-    # the OG card's ink colours pinned to the same hex values the
-    # webpage uses means the social preview reads as a continuation
-    # of the page rather than a separately-themed asset:
-    #   * ``FG`` is the design-system ``text-primary`` slate
-    #     ``#0F2430`` -- the same body text colour the webpage uses
-    #     in light mode.
-    #   * ``MUTED`` is the matching ``text-muted`` slate
-    #     ``#6B8291`` used for the caption beneath the hero.
-    #   * ``ACCENT`` is Tiger Orange ``#FB8500`` (the design
-    #     system's ``warning`` token, repurposed as the JG brand
-    #     mark) -- identical to the chapter rules under every
-    #     section title and the chart's JG curve.
-    #   * ``POS`` / ``NEG`` map to the design system's ``success``
-    #     and ``error`` tokens (Sea Green ``#2A9D8F`` / Rose Red
-    #     ``#E63970``), the same pair used by the BOUGHT / SOLD pills
-    #     and every up / down TSR readout on the page.
-    FG = (15, 36, 48)
-    MUTED = (107, 130, 145)
-    ACCENT = (251, 133, 0)
-    POS = (42, 157, 143)
-    NEG = (230, 57, 112)
-
-    # Tiny stroke width (in px) for the dark-mode readability
-    # outline around the byline. PIL renders ``stroke_width`` as
-    # opaque pixels, so the stroke disappears completely on white
-    # backgrounds regardless of width.
-    STROKE_BIG = 2
+    # The palette tokens live at module scope so the strip renderer
+    # below can paint its card-coloured pill from the same deck.
+    BG = _OG_BG
+    FG = _OG_FG
+    MUTED = _OG_MUTED
+    ACCENT = _OG_ACCENT
+    POS = _OG_POS
+    NEG = _OG_NEG
 
     bench = benchmarks[0] if benchmarks else None
     cagr = float(total_return.get("cagr%", 0.0))
@@ -474,22 +549,17 @@ def _render_unsafe(
     f_caption_b = load_font("bold", 32)
     f_foot = load_font("regular", 22)
 
-    img = Image.new("RGBA", (W, H), TRANSPARENT)
+    img = Image.new("RGBA", (W, H), (*BG, 255))
     draw = ImageDraw.Draw(img)
 
     pad_l = 60
 
     # ``Jan Grzybek`` is the byline header -- promoted from a
     # small eyebrow to the dominant identity element so the
-    # share preview is recognisable from the name first.
-    draw.text(
-        (pad_l, 36),
-        "Jan Grzybek",
-        font=f_name,
-        fill=FG,
-        stroke_width=STROKE_BIG,
-        stroke_fill=HALO,
-    )
+    # share preview is recognisable from the name first. With
+    # the opaque ``BG`` surface the dark ``FG`` slate reads at
+    # full contrast everywhere; no stroke halo is needed.
+    draw.text((pad_l, 36), "Jan Grzybek", font=f_name, fill=FG)
     # Accent rule under the name doubles as a visual anchor for
     # the rest of the layout.
     draw.rectangle((pad_l, 168, pad_l + 96, 176), fill=ACCENT)
@@ -510,21 +580,21 @@ def _render_unsafe(
 
     draw.text((pad_l, 210), hero_text, font=f_hero, fill=hero_color)
 
+    # Caption sits above the logo card. ``FG`` body slate on the
+    # opaque ``BG`` page surface gives full WCAG-AAA contrast
+    # (15.4 : 1) so the label reads cleanly without a halo
+    # outline. The bold middle word ("S&P 500" / "CAGR") carries
+    # the hierarchical weight via font weight, not colour.
     cap_y = 388
-    draw.text((pad_l, cap_y), label, font=f_caption, fill=MUTED)
+    draw.text((pad_l, cap_y), label, font=f_caption, fill=FG)
     label_w = int(draw.textlength(label, font=f_caption))
-    draw.text(
-        (pad_l + label_w, cap_y),
-        label_emph,
-        font=f_caption_b,
-        fill=MUTED,
-    )
+    draw.text((pad_l + label_w, cap_y), label_emph, font=f_caption_b, fill=FG)
     emph_w = int(draw.textlength(label_emph, font=f_caption_b))
     draw.text(
         (pad_l + label_w + emph_w, cap_y),
         label_tail,
         font=f_caption,
-        fill=MUTED,
+        fill=FG,
     )
 
     # Logo strip: top-10 current holdings by weight.
@@ -537,6 +607,11 @@ def _render_unsafe(
         h=90,
     )
 
+    # Foot metadata gets the ``MUTED`` slate so it reads as
+    # supporting context rather than competing with the hero
+    # caption. ``MUTED`` on the opaque ``BG`` page surface
+    # lands at WCAG-AA contrast (4.3 : 1) -- readable without
+    # any stroke outline.
     foot = f"Since {_fmt_date(start_date)}  \u00b7  {duration}  \u00b7  {SITE_DISPLAY}"
     draw.text((pad_l, H - 40), foot, font=f_foot, fill=MUTED)
 

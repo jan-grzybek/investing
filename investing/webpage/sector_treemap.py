@@ -94,11 +94,21 @@ _SECTOR_INSET_PCT = 0.4
 # where ``R`` is the logo's intrinsic aspect ratio and ``R_ref`` is
 # this reference. The product ``width * height`` stays constant
 # across logos so every brand occupies the same screen area
-# regardless of whether it's a wide wordmark (META at 4.96 : 1, NVDA
-# at 5.47 : 1) or a near-square mark (CRM at 1.43 : 1). 3.0 is the
-# median wordmark aspect in the portfolio, so the bulk of the
-# logos render close to the CSS base size with only small factor
-# adjustments.
+# regardless of whether it's a wide wordmark (META at 4.95 : 1,
+# NVDA at 5.40 : 1) or a near-square mark (CRM at 1.43 : 1).
+#
+# Why 3.0 even though the portfolio's actual tight-cropped median
+# is closer to 4 : 1: the reference doubles as the "neutral" point
+# where the factor pair ``(wf, hf)`` lands at ``(1, 1)``. Setting it
+# **below** the typical wordmark aspect makes the IMG box stretch
+# horizontally for the median logo (a 4 : 1 logo at ``R_ref = 3``
+# renders in a ~4.6 : 1 IMG box) so the box adapts to each logo's
+# natural shape rather than letterboxing the median wordmark inside
+# a fixed-aspect rectangle. The CSS base box itself is ~3 : 1
+# (``clamp(60px, 11.5cqi, 96px)`` wide × ``clamp(22px, 3.8cqi, 28px)``
+# tall), so ``R_ref = 3`` keeps the math centred on the base box's
+# intrinsic shape while letting wider logos earn extra horizontal
+# real estate.
 _LOGO_REFERENCE_ASPECT = 3.0
 
 # Reference ink density for the equal-VISUAL-area logo sizing pass
@@ -107,19 +117,34 @@ _LOGO_REFERENCE_ASPECT = 3.0
 # treemap's SVG knockout filter -- i.e. the white silhouette the
 # eye actually reads as "the logo" on a coloured tile (see
 # :func:`investing.logos._measure_svg_density` for the measurement
-# pass). Across the current portfolio, density ranges from ~0.05
-# for thin-stroke wordmarks (Alphabet, Qualcomm) up to ~0.35 for
-# solid-mass icons (Vanguard), so the same bbox area renders as
-# very different visible marks. 0.13 sits comfortably above the
-# measured median (~0.09): the sparsest wordmarks (UnitedHealth,
-# FreshWorks at density ~0.047) want a raw bbox scale of
-# ``sqrt(0.13 / 0.047) ~= 1.66`` and ride the MAX clamp at the
-# top of the chart; the mid-pack wordmarks grow gently; the
-# moderately-dense and dense logos all land on the MIN clamp.
-# This avoids the "every wordmark grew, the chart looks
+# pass). Across the current portfolio (post tight-cropping), density
+# ranges from ~0.054 for thin-stroke wide wordmarks (Qualcomm,
+# UnitedHealth, FreshWorks) up to ~0.35 for solid-mass icons
+# (Vanguard), so the same bbox area renders as very different
+# visible marks. 0.13 sits comfortably above the measured median
+# (~0.087): the sparsest wordmarks (UNH at 0.055, FRSH at 0.057,
+# QCOM at 0.054) want a raw bbox scale of ``sqrt(0.13 / 0.055) ~= 1.54``
+# and float just below the MAX clamp; the mid-pack wordmarks grow
+# gently; the moderately-dense and dense logos all land on the MIN
+# clamp. This avoids the "every wordmark grew, the chart looks
 # overcorrected" feel of a higher reference while still letting
 # the visibly-sparsest logos read as larger than their dense
 # counterparts.
+#
+# Important caveat about what ``density`` actually measures: the
+# rasteriser in :func:`investing.logos._measure_svg_density`
+# preserves the SVG's intrinsic aspect ratio and letterboxes it
+# into a fixed 128x128 frame, so the measured value is the
+# letterboxed-canvas density rather than the bbox-intrinsic
+# density. For a logo with intrinsic ink density ``d_i`` and
+# aspect ``R``, the measured value follows ``d_letterbox ~ d_i / max(R, 1/R)``.
+# That means the density correction here is implicitly **also**
+# an aspect correction (wide logos get an extra ``sqrt(R)`` size
+# bump on top of the explicit aspect normalisation above). The
+# constants below (``MIN``, ``MAX``, ``D_REF``) are tuned against
+# the letterboxed scale, so the system as a whole is internally
+# consistent -- but a future migration to an aspect-correct
+# density probe would require recalibrating all three.
 _LOGO_REFERENCE_DENSITY = 0.13
 
 # Min / max clamps on the density scale factor (= the multiplier
@@ -129,13 +154,15 @@ _LOGO_REFERENCE_DENSITY = 0.13
 #
 #   * ``_LOGO_DENSITY_MAX_SCALE`` is the upper guardrail that
 #     prevents a very-sparse logo from blowing up. With the
-#     reference density at 0.13, the sparsest wordmarks
-#     (UnitedHealth, FreshWorks at density ~0.047) want a raw
-#     scale of ``sqrt(0.13 / 0.047) ~= 1.66``, so ``MAX = 1.60``
-#     binds just below that natural ceiling -- UNH / FRSH land
-#     exactly on the clamp at ``1.60 ^ 2 = 2.56 x`` bbox area
-#     while the rest of the sparse pack grows according to its
-#     natural raw scale.
+#     reference density at 0.13, the sparsest wordmarks in the
+#     post-tight-cropping portfolio (Qualcomm at 0.054, UnitedHealth
+#     at 0.055, FreshWorks at 0.057, BABA at 0.057) want a raw
+#     scale of ``sqrt(0.13 / 0.055) ~= 1.54``, comfortably below
+#     ``MAX = 1.60``. The clamp's job is therefore to absorb any
+#     future logo whose letterboxed density measures lower than
+#     the current floor (a thin-stroke wordmark at ~7:1+ aspect
+#     would land there) rather than to bind the current cluster --
+#     in the current portfolio no logo hits MAX.
 #   * ``_LOGO_DENSITY_MIN_SCALE`` is intentionally *above 1.0* --
 #     i.e. dense logos (Salesforce, Adobe, TSM, Vanguard) don't
 #     just stop shrinking, they grow by a uniform 15 %. The
@@ -145,32 +172,38 @@ _LOGO_REFERENCE_DENSITY = 0.13
 #     their bbox squeezed by the same amount the formula's
 #     equal-ink math wants to take from them. With ``MIN = 1.15``,
 #     Salesforce reads as a comparably-sized neighbour of the
-#     mid-pack wordmarks (LRCX, Lam Research's bbox-scale ~ 1.32)
-#     rather than a miniature variant.
+#     mid-pack wordmarks (LRCX at bbox-scale 1.15) rather than a
+#     miniature variant. About half of the post-tight portfolio
+#     lands on this clamp.
 _LOGO_DENSITY_MIN_SCALE = 1.15
 _LOGO_DENSITY_MAX_SCALE = 1.60
 
-# SVG ``<filter>`` definition referenced from the per-tile logo's
-# CSS ``filter: url(#treemap-logo-knockout)``. The filter recolours
-# every visible pixel to **opaque white** (matching the legacy
-# ``filter: brightness(0) invert(1)`` look the rest of the chart
-# is built around) -- with one twist: pixels that were
-# brand-authored as **near-pure white** in the source logo drop
-# out to transparent so the tile colour shows through where the
-# brand intended a white reveal. The Salesforce blue cloud
-# renders as a solid-white silhouette with its inner "Salesforce"
-# wordmark knocked out to tile colour; SAP's blue trapezoid
-# becomes a white plate with the inner "SAP" letters cut out;
-# Adobe's red squares fill as opaque white with the inner "Adobe"
-# wordmark falling away.
+# SVG ``<filter>`` definitions referenced from the per-tile logo's
+# CSS ``filter: url(#treemap-logo-knockout-light|dark)``. The
+# filters recolour every visible source pixel to a solid ink
+# (uniform white for ``-light``, uniform dark near-black for
+# ``-dark``) and knock out brand-authored near-pure-white pixels
+# so the tile colour shows through wherever the brand intended a
+# white reveal. CSS picks the variant per tile based on the
+# sector's background contrast against white -- see the
+# ``.treemap__tile-logo`` rules in ``page.css``.
 #
-# Earlier iterations of this filter used a single ``feColorMatrix``
+# Why two filters rather than one parametrised on ``currentColor``:
+# Chromium has a long-standing bug where ``flood-color="currentColor"``
+# inside an SVG filter resolves to **black** regardless of the
+# host element's CSS ``color`` -- the colour value isn't propagated
+# from the HTML element the filter is applied to into the
+# filter-graph rendering context. Shipping two filters and
+# selecting between them in CSS sidesteps the bug entirely while
+# costing only a few hundred extra bytes of inline SVG markup.
+#
+# Earlier iterations of these filters used a single ``feColorMatrix``
 # that mapped ``alpha = 1 - (R+G+B)/3`` on every pixel. That was
 # elegant but turned every coloured pixel into a partially-
 # transparent white (blue at ~67% opacity, red at ~67%, etc.),
-# which read as grey rather than the crisp uniform white the rest
-# of the chart calls for. The current three-stage pipeline below
-# keeps the silhouette uniformly opaque and only ramps the
+# which read as grey rather than the crisp uniform silhouette the
+# rest of the chart calls for. The current four-stage pipeline
+# below keeps the silhouette uniformly opaque and only ramps the
 # alpha down on pixels whose source whiteness is above ~0.8 --
 # i.e. brand-authored white reveals and a thin band of
 # anti-aliased edges around them.
@@ -179,13 +212,16 @@ _LOGO_DENSITY_MAX_SCALE = 1.60
 # default):
 #
 #   1. ``silhouette`` -- ``feColorMatrix`` rewrites every channel
-#      to the input alpha. Output pixel: ``(A, A, A, A)`` (i.e.
-#      premultiplied opaque white at the source's alpha).
+#      to a hardcoded ink. The ``-light`` filter uses
+#      ``(1,1,1,A)`` (opaque white); the ``-dark`` filter uses
+#      ``(0.059,0.141,0.188,A)`` (#0F2430, the page's primary
+#      text colour, the same near-black the dark-ink CSS rules
+#      use for tile labels).
 #
 #   2. ``whiteness`` -- ``feColorMatrix`` zeroes out colour and
-#      writes ``(R+G+B)/3`` into alpha, so pure-white source
-#      pixels yield alpha=1 and pure-black/coloured pixels yield
-#      alpha=0.
+#      writes ``(R+G+B)/3`` of the SOURCE into alpha, so pure-
+#      white source pixels yield alpha=1 and pure-black/coloured
+#      pixels yield alpha=0.
 #
 #   3. ``knockoutMask`` -- ``feComponentTransfer`` thresholds the
 #      whiteness alpha with a steep linear ramp
@@ -200,43 +236,70 @@ _LOGO_DENSITY_MAX_SCALE = 1.60
 #      operation on the alpha channel. The output pixel becomes
 #      ``silhouette * (1 - knockoutMask.alpha)``.
 #
-# Sanity checks on representative source pixels:
+# Sanity checks on representative source pixels (``-light`` filter):
 #   * Transparent       (0,0,0,0):   -> (0,0,0,0)            -> stays transparent.
 #   * Opaque black      (0,0,0,1):   -> (1,1,1,1)            -> opaque white.
 #   * Opaque brand blue (0,0,1,1):   -> (1,1,1,1)            -> opaque white (whiteness 0.33 < 0.8 threshold).
 #   * Opaque brand red  (1,0,0,1):   -> (1,1,1,1)            -> opaque white.
 #   * Opaque white      (1,1,1,1):   -> (0,0,0,0)            -> drops out to transparent.
 #   * Near-white        (0.9,0.9,0.9,1) -> (0.5,0.5,0.5,0.5) -> half knockout (smooth fade).
-_LOGO_KNOCKOUT_FILTER_ID = "treemap-logo-knockout"
+# The ``-dark`` filter substitutes the ink in stage 1 and otherwise
+# behaves identically: opaque black source becomes opaque #0F2430,
+# opaque white still drops out, and near-white still fades smoothly.
+_LOGO_KNOCKOUT_FILTER_ID_LIGHT = "treemap-logo-knockout-light"
+_LOGO_KNOCKOUT_FILTER_ID_DARK = "treemap-logo-knockout-dark"
+
+
+def _build_logo_knockout_filter(filter_id: str, rgb: tuple[float, float, float]) -> str:
+    """Emit one variant of the treemap logo knockout filter.
+
+    ``rgb`` is the (R, G, B) ink colour in 0..1 floats. The four
+    stages are identical between variants; only the silhouette's
+    ink colour differs. Splitting the filter construction into a
+    helper keeps the two variants byte-for-byte consistent at the
+    cost of one small allocation per render.
+    """
+    r, g, b = rgb
+    return (
+        f'<filter id="{filter_id}" color-interpolation-filters="sRGB">'
+        # Stage 1: uniform opaque ink silhouette with source alpha.
+        '<feColorMatrix in="SourceGraphic" type="matrix" '
+        'result="silhouette" values="'
+        f"0 0 0 {r:.4f} 0 "
+        f"0 0 0 {g:.4f} 0 "
+        f"0 0 0 {b:.4f} 0 "
+        "0 0 0 1 0"
+        '"/>'
+        # Stage 2: whiteness map -- average of R/G/B routed into alpha.
+        '<feColorMatrix in="SourceGraphic" type="matrix" '
+        'result="whiteness" values="'
+        "0 0 0 0 0 "
+        "0 0 0 0 0 "
+        "0 0 0 0 0 "
+        "0.3333 0.3333 0.3333 0 0"
+        '"/>'
+        # Stage 3: steep alpha threshold so only near-pure-white contributes.
+        '<feComponentTransfer in="whiteness" result="knockoutMask">'
+        '<feFuncA type="linear" slope="5" intercept="-4"/>'
+        "</feComponentTransfer>"
+        # Stage 4: subtract the knockout mask from the silhouette.
+        '<feComposite in="silhouette" in2="knockoutMask" operator="out"/>'
+        "</filter>"
+    )
+
+
+# Dark ink colour (#0F2430) kept in sync with the
+# ``--treemap-tile-ink: #0f2430`` overrides in ``page.css``. The
+# value is the page's primary text colour in light mode -- using
+# the same hex keeps the filtered logo and the surrounding tile
+# label visually identical on every "dark ink" tile.
+_LOGO_KNOCKOUT_DARK_INK = (0x0F / 255.0, 0x24 / 255.0, 0x30 / 255.0)
 _LOGO_KNOCKOUT_SVG = (
     '<svg class="treemap__defs" width="0" height="0" '
     'aria-hidden="true" focusable="false">'
-    f'<filter id="{_LOGO_KNOCKOUT_FILTER_ID}" '
-    'color-interpolation-filters="sRGB">'
-    # Stage 1: uniform opaque white silhouette with source alpha.
-    '<feColorMatrix in="SourceGraphic" type="matrix" '
-    'result="silhouette" values="'
-    "0 0 0 1 0 "
-    "0 0 0 1 0 "
-    "0 0 0 1 0 "
-    "0 0 0 1 0"
-    '"/>'
-    # Stage 2: whiteness map -- average of R/G/B routed into alpha.
-    '<feColorMatrix in="SourceGraphic" type="matrix" '
-    'result="whiteness" values="'
-    "0 0 0 0 0 "
-    "0 0 0 0 0 "
-    "0 0 0 0 0 "
-    "0.3333 0.3333 0.3333 0 0"
-    '"/>'
-    # Stage 3: steep alpha threshold so only near-pure-white contributes.
-    '<feComponentTransfer in="whiteness" result="knockoutMask">'
-    '<feFuncA type="linear" slope="5" intercept="-4"/>'
-    "</feComponentTransfer>"
-    # Stage 4: subtract the knockout mask from the silhouette.
-    '<feComposite in="silhouette" in2="knockoutMask" operator="out"/>'
-    "</filter>"
-    "</svg>"
+    + _build_logo_knockout_filter(_LOGO_KNOCKOUT_FILTER_ID_LIGHT, (1.0, 1.0, 1.0))
+    + _build_logo_knockout_filter(_LOGO_KNOCKOUT_FILTER_ID_DARK, _LOGO_KNOCKOUT_DARK_INK)
+    + "</svg>"
 )
 
 # Sentinel sector label for two related buckets that both deserve a
@@ -258,7 +321,41 @@ _LOGO_KNOCKOUT_SVG = (
 #      tuple is non-empty); both buckets share the ``_OTHER_SECTOR``
 #      label and the same colour swatch so the legend stays a clean
 #      one-line summary of the chart.
+#
+# Kept in lower-case ``"Other"`` rather than the user-facing
+# ``"Other equities"`` for two reasons: the value also serves as the
+# CSS ``data-sector="Other"`` hook the colour / ink overrides key
+# off (so renaming the sentinel would force a cascade of CSS-
+# selector edits), and the same constant is referenced from tests
+# / docs that pin the internal contract. The display label is
+# produced from this sentinel via :data:`_OTHER_DISPLAY_LABEL` and
+# the responsive long / short markup the aggregated tile emits.
 _OTHER_SECTOR = "Other"
+
+# Human-readable label for the **aggregated pseudo-row** -- i.e.
+# the synthesised bucket the merge loop creates when several
+# small-weight holdings get folded together so their combined tile
+# clears the readability threshold (see :func:`_merge_small_into_other`).
+# The label disambiguates the bucket from the ``Other`` *sector*
+# (real holdings whose upstream ``info["sector"]`` was empty), so:
+#
+#   * The legend chip keeps saying ``"Other"`` -- it labels the
+#     sector swatch, which may legitimately contain real "no
+#     sector" holdings as well as the folded ones.
+#   * The aggregated tile's body / tooltip says ``"Other
+#     equities"`` -- it labels the synthesised bucket, which is
+#     specifically the folded-small group.
+#
+# The short fallback below is used in the tile body whenever the
+# tile is too narrow for ``"Other equities"`` to fit -- so a
+# deeply folded tail still reads as a clear identifier on the
+# chart instead of clipping to an ellipsis. The responsive long /
+# short swap is implemented in CSS (see the
+# ``treemap__tile-ticker-long`` / ``--short`` rules in
+# ``page.css``) using the per-tile size container query already
+# used for the logo / ticker swap.
+_OTHER_DISPLAY_LABEL = "Other equities"
+_OTHER_DISPLAY_LABEL_SHORT = "Other"
 
 # Stable palette of sector swatches, keyed off the canonical sector
 # name yfinance reports. The values are CSS custom-property names
@@ -848,12 +945,25 @@ def _ticker_tile(*, row: _Row, tile: _Tile) -> str:
     if row.is_aggregated:
         count = len(row.folded_tickers)
         # Compact tooltip for hover; aria-label gets the same string
-        # so screen-readers announce the same context.
+        # so screen-readers announce the same context. The tooltip
+        # always uses the long ``"Other equities"`` form because
+        # hover / SR contexts aren't space-constrained, and the
+        # extra word disambiguates the bucket from a real sector
+        # named "Other" that yfinance might one day surface.
         tickers_blurb = ", ".join(strip_exchange(t) for t in row.folded_tickers)
         tooltip = (
-            f"Other ({count} smaller holding{'' if count == 1 else 's'}): "
+            f"{_OTHER_DISPLAY_LABEL} ({count} smaller holding"
+            f"{'' if count == 1 else 's'}): "
             f"{label_pct}% - {tickers_blurb}"
         )
+        # Body text emits BOTH the long and short labels; CSS picks
+        # which one shows based on the tile's own container width
+        # (see ``.treemap__tile-ticker-long`` / ``--short`` rules in
+        # ``page.css``). Emitting both rather than committing to one
+        # at render time lets the same HTML reflow gracefully across
+        # viewports: a tall narrow Other tile on mobile reads
+        # "Other"; a wide one on desktop reads "Other equities";
+        # no JS / build-time tile-width measurement needed.
         return (
             '<div class="treemap__tile treemap__tile--aggregated" '
             f'data-sector="{html.escape(row.sector)}" '
@@ -862,7 +972,14 @@ def _ticker_tile(*, row: _Row, tile: _Tile) -> str:
             f'aria-label="{html.escape(tooltip)}">'
             '<span class="treemap__tile-inner">'
             '<span class="treemap__tile-text">'
-            '<span class="treemap__tile-ticker">Other</span>'
+            '<span class="treemap__tile-ticker">'
+            '<span class="treemap__tile-ticker-long">'
+            f"{html.escape(_OTHER_DISPLAY_LABEL)}"
+            "</span>"
+            '<span class="treemap__tile-ticker-short">'
+            f"{html.escape(_OTHER_DISPLAY_LABEL_SHORT)}"
+            "</span>"
+            "</span>"
             f'<span class="treemap__tile-weight">{html.escape(label_pct)}%</span>'
             "</span>"
             "</span>"
@@ -893,14 +1010,22 @@ def _ticker_tile(*, row: _Row, tile: _Tile) -> str:
             f'style="{html.escape(img_style, quote=True)}" '
             'width="48" height="24">'
         )
+        tile_modifier = ""
     else:
-        # No logo URL (shouldn't normally happen for real holdings,
-        # but defensively suppress the ``<img>`` so the CSS swap
-        # rule doesn't have an element to flip to).
+        # No logo URL: skip the ``<img>`` and flag the tile so the
+        # responsive swap rule keeps the ticker text visible even on
+        # tiles that clear the logo-swap size threshold (otherwise
+        # the big tile would be left with just the weight number).
+        # In production this branch is only reached when the
+        # resolver short-circuits to ``COURAGE_LOGO`` and the
+        # caller happens to pass an empty string instead; the
+        # defensive class makes that an unambiguous "render the
+        # ticker as the primary identifier" signal.
         img_html = ""
+        tile_modifier = " treemap__tile--no-logo"
 
     return (
-        '<a class="treemap__tile" '
+        f'<a class="treemap__tile{tile_modifier}" '
         f'data-sector="{html.escape(row.sector)}" '
         f'href="{html.escape(href)}" '
         f'style="{html.escape(style, quote=True)}" '
@@ -918,7 +1043,18 @@ def _ticker_tile(*, row: _Row, tile: _Tile) -> str:
 
 
 def _legend_chip(sector: str, weight: float) -> str:
-    """Render a single ``swatch + sector name + weight`` legend chip."""
+    """Render a single ``swatch + sector name + weight`` legend chip.
+
+    The legend names a **sector**, not the fold-up bucket: the
+    ``Other`` swatch can hold both real holdings whose upstream
+    sector was empty (a genuine "Other" sector entry) and the
+    aggregated pseudo-row's folded-small holdings, but in either
+    case the legend chip's job is to identify the sector swatch
+    -- so the chip stays ``"Other"`` here. The disambiguated
+    ``"Other equities"`` label is reserved for the aggregated
+    tile's body / tooltip, where it names the synthesised bucket
+    rather than the sector.
+    """
     sector_var = _sector_color(sector)
     return (
         '<span class="treemap__legend-chip">'
