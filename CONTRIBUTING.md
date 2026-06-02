@@ -132,8 +132,19 @@ To clear a hint:
   load time and re-surfaced as an `invalid sector overrides: ...`
   hint, so the typo is easy to spot on the next build. The hook
   is a no-op when the file is absent (fresh fork) and idempotent
-  across rebuilds (a ticker already mentioned in the file -- open
-  entry OR commented stub -- is skipped on the next pass).
+  across rebuilds (a ticker already mentioned in the file -- via
+  an active entry OR a commented stub -- is skipped on the next
+  pass). The dedupe predicate is line-anchored on the TOML
+  assignment shape (`# "TICKER" =`), so a prose mention of the
+  ticker inside header comments does NOT count as "already
+  present". The production workflow's `Commit auto-populated
+  sector overrides` step in
+  [`.github/workflows/main.yml`](.github/workflows/main.yml)
+  pushes the appended stub back to `main`, so the maintainer's
+  next `git pull` shows the diff -- no need to re-run the build
+  locally to produce it. The same step is a no-op when the file
+  was not mutated (steady state once every observed ticker has a
+  stub or an active override).
 * **Missing logo.** Drop a hand-curated SVG (preferred), PNG or
   JPG into `logos/<EXCHANGE>:<SYMBOL>.<ext>` -- the file naming
   matches the rest of the directory. The `tighten-logos`

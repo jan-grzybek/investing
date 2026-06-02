@@ -35,6 +35,7 @@ leak-safe wrapper.
 from __future__ import annotations
 
 import os
+import re
 import tomllib
 from dataclasses import dataclass, field
 
@@ -412,14 +413,7 @@ def append_missing_sector_stubs(
     appended: list[str] = []
     blocks: list[str] = []
     for ticker in tickers:
-        # Substring match against the quoted form catches both an
-        # active entry (``"NMS:FISV" = "Technology"``) and a
-        # previously-appended commented stub (``# "NMS:FISV" = ""``).
-        # The quotes anchor the match so a ticker that's a substring
-        # of another (``"NMS:A"`` vs ``"NMS:AAA"``) doesn't false-
-        # positive.
-        needle = f'"{ticker}"'
-        if needle in existing:
+        if _is_ticker_already_in_file(ticker, existing):
             continue
         blocks.append(_format_sector_stub(ticker))
         appended.append(ticker)
@@ -464,3 +458,35 @@ def _format_sector_stub(ticker: str) -> str:
         f"# documented at the top of this file (e.g. \"Technology\").\n"
         f'# "{ticker}" = ""'
     )
+
+
+def _is_ticker_already_in_file(ticker: str, contents: str) -> bool:
+    """Return ``True`` iff ``contents`` already contains an entry
+    (active or commented) for ``ticker``.
+
+    The earlier implementation here did a plain ``substring in
+    contents`` against the quoted form, which false-positived on
+    ticker mentions inside the header prose -- e.g. the worked
+    example ``(e.g. "NMS:AAPL", "NYQ:UNH", "DUS:SSU.DU")`` made
+    ``DUS:SSU.DU`` look "already present" and silently skipped its
+    stub on the first build that needed it. The line-anchored regex
+    here matches only the TOML assignment shape (optionally preceded
+    by ``#``-style comment markers) so prose mentions don't trigger
+    the skip:
+
+    * ``"NMS:FISV" = "Technology"`` (active)            -> True
+    * ``# "NMS:FISV" = ""``         (auto-stubbed)      -> True
+    * ``## "NMS:FISV" = "Technology"`` (double-comment) -> True
+    * ``# (e.g. "NMS:FISV") is a ticker``               -> False
+
+    The ``=`` anchor at the end is the discriminator: TOML
+    assignments always have it, prose mentions almost never do.
+    Ticker symbols themselves can contain dots (``DUS:SSU.DU``)
+    and other regex metacharacters; ``re.escape`` neutralises them
+    so the pattern matches the literal quoted form.
+    """
+    pattern = re.compile(
+        rf'^\s*#*\s*{re.escape(f"\"{ticker}\"")}\s*=',
+        re.MULTILINE,
+    )
+    return pattern.search(contents) is not None

@@ -40,7 +40,16 @@ on:
   workflow_dispatch: {}
 
 permissions:
-  contents: read
+  # ``contents: write`` lets the post-build "Commit auto-populated
+  # sector overrides" step push commented-out stubs that the
+  # ``append_missing_sector_stubs`` hook in
+  # ``investing.sector_overrides`` adds to ``sector_overrides.toml``
+  # when the build observes a missing-sector ticker. Without the
+  # write scope the file would be mutated only on the ephemeral
+  # runner and the maintainer's local checkout would never see the
+  # auto-populated entry -- defeating the "remind the operator to
+  # fill in a sector" half of the auto-populate contract.
+  contents: write
   pages: write
   id-token: write
   # Lets ``investing.maintenance_notifier`` file an issue when the
@@ -158,6 +167,45 @@ jobs:
         # reintroduce ``2>/dev/null`` here -- it would defeat the
         # visibility half of that contract.
         run: python -m investing
+
+      - name: Commit auto-populated sector overrides
+        # ``investing.sector_overrides.append_missing_sector_stubs``
+        # is called from ``cli.build_page`` and appends a commented-
+        # out template entry to ``sector_overrides.toml`` for each
+        # missing-sector ticker the run observed. Without this step
+        # the file would only be mutated on the ephemeral runner --
+        # the maintainer's local checkout would never see the new
+        # stub, and the next build (fresh checkout) would re-detect
+        # the same ticker and re-append the same stub. Pushing the
+        # change back to ``main`` makes the auto-populate effective:
+        # the maintainer pulls, the diff is the stub they need to
+        # uncomment + fill in, and the dedupe predicate in the
+        # hook keeps subsequent builds idempotent.
+        #
+        # Following the same model as ``regenerate-logos.yml``: the
+        # push uses the default ``GITHUB_TOKEN`` which (by GitHub's
+        # own rules) does NOT re-trigger any workflow run, so this
+        # commit will not fan out into another Tests + main.yml
+        # cycle. The ``[skip ci]`` marker in the commit message is
+        # belt-and-braces against a future tightening of that rule.
+        #
+        # The ``git status --porcelain`` guard short-circuits the
+        # commit + push on every build that didn't actually mutate
+        # the file -- the steady state once every observed ticker
+        # has a stub (or an active override). The guard is keyed on
+        # ``sector_overrides.toml`` specifically so an unrelated
+        # transient file the build might leave behind doesn't
+        # accidentally land in the commit.
+        run: |
+          if [[ -z "$(git status --porcelain sector_overrides.toml)" ]]; then
+            echo "sector_overrides.toml unchanged; nothing to commit."
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add sector_overrides.toml
+          git commit -m "chore(sectors): auto-populate missing sector stubs [skip ci]"
+          git push
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v5

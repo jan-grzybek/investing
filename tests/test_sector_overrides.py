@@ -379,6 +379,67 @@ class TestAppendMissingSectorStubs:
         text = path.read_text(encoding="utf-8")
         assert '# "NMS:A" = ""' in text
 
+    def test_prose_mention_in_header_is_not_a_skip(self, tmp_path):
+        # Regression: the shipped ``sector_overrides.toml`` mentions
+        # ``"DUS:SSU.DU"`` inside the header's worked-example prose
+        # (``# (e.g. "NMS:AAPL", "NYQ:UNH", "DUS:SSU.DU")``) without
+        # ever assigning it. The earlier substring-only predicate
+        # treated that as "already present" and silently skipped
+        # the auto-populate stub on the first build that hit the
+        # ticker. The line-anchored regex must NOT match the prose
+        # form -- only true ``"TICKER" = ...`` assignment shapes
+        # (active or commented) should count as already-present.
+        path = _write_overrides(
+            tmp_path,
+            (
+                "# Worked example referencing "
+                '"DUS:SSU.DU" in prose without assigning it.\n'
+                "[sectors]\n"
+            ),
+        )
+        appended = append_missing_sector_stubs(
+            ["DUS:SSU.DU"], path=str(path),
+        )
+        assert appended == ["DUS:SSU.DU"]
+        text = path.read_text(encoding="utf-8")
+        assert '# "DUS:SSU.DU" = ""' in text
+
+    def test_ticker_with_regex_metachars_is_handled(self, tmp_path):
+        # The ticker key contains a ``.`` which is a regex
+        # metacharacter; ``re.escape`` must be applied so the
+        # predicate matches the literal quoted form rather than
+        # treating the dot as "any character". A ticker like
+        # ``DUS:SSUaDU`` (hypothetical) should still NOT collide
+        # with ``DUS:SSU.DU``.
+        path = _write_overrides(
+            tmp_path,
+            '[sectors]\n"DUS:SSU.DU" = "Industrials"\n',
+        )
+        # Replace the assigned ticker so the dot escape matters:
+        # without escape, ``"DUS:SSUaDU"`` would match
+        # ``"DUS:SSU.DU"`` via the ``.`` wildcard and erroneously
+        # skip.
+        appended = append_missing_sector_stubs(
+            ["DUS:SSUaDU"], path=str(path),
+        )
+        assert appended == ["DUS:SSUaDU"]
+
+    def test_double_comment_marker_is_recognised_as_present(self, tmp_path):
+        # ``## "NMS:FISV" = "..."`` is still a comment in TOML
+        # (TOML uses ``#`` for the rest of the line; a second
+        # ``#`` is just part of the comment body) but the
+        # predicate should treat it as "already mentioned" because
+        # it visibly carries the ticker's assignment shape -- a
+        # human reader would intuit the intent.
+        path = _write_overrides(
+            tmp_path,
+            '[sectors]\n## "NMS:FISV" = "Technology"\n',
+        )
+        original = path.read_text(encoding="utf-8")
+        appended = append_missing_sector_stubs(["NMS:FISV"], path=str(path))
+        assert appended == []
+        assert path.read_text(encoding="utf-8") == original
+
     def test_uses_default_path_when_argument_omitted(
         self, tmp_path, monkeypatch,
     ):
