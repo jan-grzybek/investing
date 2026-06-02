@@ -28,6 +28,7 @@ __all__ = [
     "SITE_URL",
     "SOCIAL_IMAGE",
     "_REPO_LOGOS_DIR",
+    "_REPO_LOGOS_SOURCE_DIR",
     "_read_asset",
 ]
 
@@ -64,7 +65,18 @@ SITE_URL = _resolve_site_url()
 
 # Sibling artefacts deployed alongside ``index.html`` derive their
 # absolute URLs from :data:`SITE_URL` so a repoint is single-source.
-LOGOS_ADDRESS = SITE_URL + "logos/"
+# ``LOGOS_ADDRESS`` points at the ``tight/`` subdirectory rather than
+# at the raw source dump: every served logo is a viewBox-cropped
+# variant produced by ``scripts/tighten_logos.py``, while the
+# hand-curated originals stay under ``logos/`` as the design source
+# of truth. Cropping removes the SVG-author-introduced padding around
+# each mark, which is the single biggest driver of perceived size
+# disparity in the sector treemap (a centred icon in a square viewBox
+# was reading much smaller than an edge-to-edge wordmark at the same
+# bounding box). See the ``regenerate-logos`` workflow and the
+# matching pre-commit hook for the contract that keeps the tight
+# mirror in sync with its sources.
+LOGOS_ADDRESS = SITE_URL + "logos/tight/"
 SOCIAL_IMAGE = SITE_URL + "og-image.png"
 COURAGE_LOGO = LOGOS_ADDRESS + "courage.png"
 
@@ -89,7 +101,21 @@ _REPO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # The OG image renderer rasterises logos for the top-10 strip and
 # reads them straight from disk so it doesn't depend on the previous
 # deploy being reachable.
-_REPO_LOGOS_DIR = os.path.join(_REPO_DIR, "logos")
+#
+# Two separate directories so the served crop and the design source
+# never drift:
+#
+#   * ``_REPO_LOGOS_SOURCE_DIR`` (``logos/``) holds the hand-curated
+#     source SVGs (and the small handful of raster fallbacks). This
+#     is what designers / contributors edit; only
+#     ``scripts/tighten_logos.py`` and ``regenerate-logos.yml`` read
+#     it.
+#   * ``_REPO_LOGOS_DIR`` (``logos/tight/``) is the served mirror:
+#     every SVG has been viewBox-cropped to the visible silhouette
+#     and every non-SVG copied through verbatim. Both the renderer
+#     and the OG image pipeline read from here.
+_REPO_LOGOS_SOURCE_DIR = os.path.join(_REPO_DIR, "logos")
+_REPO_LOGOS_DIR = os.path.join(_REPO_LOGOS_SOURCE_DIR, "tight")
 
 
 # Source-of-truth directory for the inline CSS / JS payloads embedded in

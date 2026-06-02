@@ -92,6 +92,110 @@ class TestGetLogoUrl:
         assert [c.rsplit(".", 1)[1] for c in calls] == ["svg", "png"]
 
 
+class TestLogoCoverageRatio:
+    """The treemap's equal-VISUAL-area sizing pass leans on
+    :meth:`LogoCache.coverage_ratio` -- the rasterised fraction of a
+    logo's bounding box that survives the SVG knockout filter. These
+    tests pin the contract at the cache boundary: missing files /
+    rasterisation failures fall back to the constant default, hits
+    are cached per ticker, and the measurement itself yields
+    plausible 0..1 numbers on synthetic inputs whose densities are
+    known by construction.
+    """
+
+    @staticmethod
+    def _write_svg(tmp_path, ticker, body):
+        path = tmp_path / f"{ticker}.svg"
+        path.write_text(body, encoding="utf-8")
+        return path
+
+    def test_missing_file_returns_default_density(self, tmp_path):
+        from investing.logos import _DEFAULT_LOGO_DENSITY
+
+        cache = LogoCache(local_dir=str(tmp_path))
+        assert cache.coverage_ratio("NMS:NOTHERE") == _DEFAULT_LOGO_DENSITY
+
+    def test_no_local_dir_returns_default_density(self):
+        from investing.logos import _DEFAULT_LOGO_DENSITY
+
+        cache = LogoCache(local_dir=None)
+        assert cache.coverage_ratio("NMS:ANY") == _DEFAULT_LOGO_DENSITY
+
+    def test_solid_black_square_yields_full_density(self, tmp_path):
+        # 100% opaque non-white pixels -> the knockout filter keeps
+        # the whole bounding box; density should round to ~1.0.
+        self._write_svg(
+            tmp_path,
+            "NMS:SOLID",
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">'
+            '<rect width="10" height="10" fill="#000000"/>'
+            "</svg>",
+        )
+        cache = LogoCache(local_dir=str(tmp_path))
+        density = cache.coverage_ratio("NMS:SOLID")
+        assert density > 0.95
+
+    def test_pure_white_fill_collapses_to_zero_density(self, tmp_path):
+        # The whole bbox is opaque-near-white; the knockout filter
+        # would erase the whole logo, so the measured density
+        # collapses to ~0.
+        self._write_svg(
+            tmp_path,
+            "NMS:WHITE",
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">'
+            '<rect width="10" height="10" fill="#ffffff"/>'
+            "</svg>",
+        )
+        cache = LogoCache(local_dir=str(tmp_path))
+        density = cache.coverage_ratio("NMS:WHITE")
+        assert density < 0.05
+
+    def test_half_covered_yields_intermediate_density(self, tmp_path):
+        # A 5x10 black strip on a 10x10 transparent canvas covers
+        # exactly half the bbox; the rasterised density should land
+        # near 0.5 modulo edge anti-aliasing.
+        self._write_svg(
+            tmp_path,
+            "NMS:HALF",
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">'
+            '<rect width="5" height="10" fill="#000000"/>'
+            "</svg>",
+        )
+        cache = LogoCache(local_dir=str(tmp_path))
+        density = cache.coverage_ratio("NMS:HALF")
+        assert 0.45 < density < 0.55
+
+    def test_results_are_cached_per_ticker(self, tmp_path):
+        # The cache must not re-rasterise the SVG on repeat lookups.
+        # We assert that by patching ``_measure_svg_density`` to a
+        # counter and checking it ran exactly once.
+        import investing.logos as logos_mod
+
+        self._write_svg(
+            tmp_path,
+            "NMS:CACHED",
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">'
+            '<rect width="10" height="10" fill="#000000"/>'
+            "</svg>",
+        )
+        cache = LogoCache(local_dir=str(tmp_path))
+        calls = {"n": 0}
+        original = logos_mod._measure_svg_density
+
+        def counting(path):
+            calls["n"] += 1
+            return original(path)
+
+        try:
+            logos_mod._measure_svg_density = counting  # type: ignore[assignment]
+            first = cache.coverage_ratio("NMS:CACHED")
+            second = cache.coverage_ratio("NMS:CACHED")
+        finally:
+            logos_mod._measure_svg_density = original  # type: ignore[assignment]
+        assert first == second
+        assert calls["n"] == 1
+
+
 class TestHoldingAnchor:
     def test_strips_punctuation_to_a_dash_form(self):
         # Tickers carry exchange prefixes and dotted suffixes
@@ -212,3 +316,84 @@ class TestSectorTreemapLayout:
         areas = [t.w * t.h for t in tiles]
         # Tile order matches the input order, so areas line up by index.
         assert max(range(3), key=lambda i: areas[i]) == 0
+
+
+class TestEqualVisualAreaLogoFactors:
+    """The treemap's logo sizing pass combines aspect-ratio
+    normalisation with ink-density normalisation. Both halves are
+    pure math on per-logo scalars, so they're exercised directly at
+    the helper-function level here -- the end-to-end CSS plumbing is
+    asserted separately in
+    :class:`tests.test_webpage_sections.TestSectorTreemap` against
+    rendered HTML."""
+
+    @staticmethod
+    def _factors(aspect, density):
+        from investing.webpage.sector_treemap import _equal_area_factors
+
+        return _equal_area_factors(aspect, density)
+
+    def test_reference_density_lands_on_min_clamp_when_min_above_one(self):
+        from investing.webpage.sector_treemap import (
+            _LOGO_DENSITY_MIN_SCALE,
+            _LOGO_REFERENCE_ASPECT,
+            _LOGO_REFERENCE_DENSITY,
+        )
+
+        # At the reference aspect and reference density the raw
+        # density scale collapses to ``sqrt(D_ref / D_ref) = 1.0``.
+        # When the MIN clamp is configured above 1.0 (the current
+        # "combination of overall size and density" stance: dense
+        # logos don't shrink, they grow by a uniform floor) the
+        # neutral-input case lands on that floor in both width and
+        # height -- the "no density data" callsites take a
+        # different code path through ``_default_logo_coverage_for``
+        # and are exercised separately below.
+        w, h = self._factors(_LOGO_REFERENCE_ASPECT, _LOGO_REFERENCE_DENSITY)
+        expected = max(1.0, _LOGO_DENSITY_MIN_SCALE)
+        assert abs(w - expected) < 1e-9
+        assert abs(h - expected) < 1e-9
+
+    def test_aspect_only_path_runs_when_density_is_missing(self):
+        # Zero / non-finite densities are the "no measurement
+        # available" sentinel; the density pass is skipped entirely
+        # and the bbox area falls back to the pre-density-correction
+        # equal-area invariant w_aspect * h_aspect = 1.
+        for sentinel in (0.0, -1.0, float("inf"), float("nan")):
+            w, h = self._factors(5.0, sentinel)
+            assert abs(w * h - 1.0) < 1e-9, (
+                f"density={sentinel}: expected aspect-only product=1, got {w * h}"
+            )
+            assert w > 1.0 > h  # wide logo -> wider-than-base, shorter-than-base.
+
+    def test_low_density_logo_grows_within_max_clamp(self):
+        from investing.webpage.sector_treemap import (
+            _LOGO_DENSITY_MAX_SCALE,
+            _LOGO_REFERENCE_ASPECT,
+        )
+
+        # A density well below the reference would naively grow the
+        # bbox by sqrt(D_ref / D); the max clamp caps the growth so
+        # very sparse logos can't blow up to dominate their tile.
+        w, h = self._factors(_LOGO_REFERENCE_ASPECT, 0.02)
+        assert abs(w - _LOGO_DENSITY_MAX_SCALE) < 1e-9
+        assert abs(h - _LOGO_DENSITY_MAX_SCALE) < 1e-9
+
+    def test_high_density_logo_shrinks_within_min_clamp(self):
+        from investing.webpage.sector_treemap import (
+            _LOGO_DENSITY_MIN_SCALE,
+            _LOGO_REFERENCE_ASPECT,
+        )
+
+        # The symmetric case: a very dense icon would otherwise
+        # shrink past the legible-on-mobile floor; the min clamp
+        # keeps it visible.
+        w, h = self._factors(_LOGO_REFERENCE_ASPECT, 0.9)
+        assert abs(w - _LOGO_DENSITY_MIN_SCALE) < 1e-9
+        assert abs(h - _LOGO_DENSITY_MIN_SCALE) < 1e-9
+
+    def test_degenerate_aspect_returns_unit_factors(self):
+        # A zero or non-finite aspect can't be normalised; the
+        # consumer treats (1, 1) as "use the CSS base size".
+        for bad in (0.0, -1.0, float("inf"), float("nan")):
+            assert self._factors(bad, 0.1) == (1.0, 1.0)

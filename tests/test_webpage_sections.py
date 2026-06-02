@@ -1051,20 +1051,27 @@ class TestAddTrades:
         from investing.assets import _PAGE_STYLES
         from tests._css_helpers import blocks_for, has_declaration
 
-        # Every ``.trade__badge`` declaration block (base rule + any
-        # surviving per-breakpoint override) must pin the pill to
-        # ``width: 7em``. The base rule additionally centres the
-        # label; the 540px override doesn't need to repeat that since
-        # it inherits ``text-align`` from the base. ``has_declaration``
-        # normalises whitespace so the checks work whether the served
-        # CSS is formatted (dev) or minified (prod). ``min-width`` is
-        # explicitly excluded to prevent the "longer label grows the
-        # pill" regression from creeping back in.
+        # Every ``.trade__badge`` declaration block that touches sizing
+        # (base rule + any surviving per-breakpoint override) must pin
+        # the pill to ``width: 7em``. The base rule additionally
+        # centres the label; the 540px override doesn't need to repeat
+        # that since it inherits ``text-align`` from the base. Colour-
+        # only overrides (e.g. the dark-mode pill text flip) don't
+        # restate width and so don't need to repeat ``width: 7em`` --
+        # we only enforce the rule on blocks that already declare a
+        # ``width``. ``has_declaration`` normalises whitespace so the
+        # checks work whether the served CSS is formatted (dev) or
+        # minified (prod). ``min-width`` is explicitly excluded from
+        # every block to prevent the "longer label grows the pill"
+        # regression from creeping back in.
         bodies = blocks_for(_PAGE_STYLES, ".trade__badge")
-        assert len(bodies) == 2  # 1 base + 1 540px override
+        assert len(bodies) >= 2  # base + at least the 540px override
         assert has_declaration(bodies[0], "text-align", "center")
-        for body in bodies:
+        sizing_bodies = [body for body in bodies if "width:" in body]
+        assert len(sizing_bodies) >= 2  # base + 540px both restate width
+        for body in sizing_bodies:
             assert has_declaration(body, "width", "7em")
+        for body in bodies:
             assert "min-width" not in body
 
     def test_details_column_uses_past_tense_initiated_and_divested(

@@ -65,6 +65,18 @@ jobs:
         # ``investing/webpage/head.py``.
         run: python scripts/build_assets.py --check
 
+      - name: Verify cropped logos match source originals
+        # Same contract as the asset-minify check above, but for the
+        # logo crop mirror: ``scripts/tighten_logos.py`` rebuilds
+        # ``logos/tight/`` from ``logos/``, and CI fails when the
+        # committed crops don't match a fresh regeneration. The
+        # production pre-commit hook (``tighten-logos``) keeps this
+        # in sync locally and the ``regenerate-logos`` workflow
+        # recovers any drift that lands on ``main`` despite the
+        # hook, so this step is the PR gate that prevents a
+        # half-updated mirror from merging in the first place.
+        run: python scripts/tighten_logos.py --check
+
       - name: Run pytest with coverage
         # ``--cov`` enables the coverage plugin from ``pytest-cov``;
         # the config in ``pyproject.toml`` selects the ``investing``

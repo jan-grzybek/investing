@@ -60,6 +60,35 @@ from .anchors import holding_anchor, strip_exchange
 _TEXT_MIN_TILE_W_PCT = 12.0
 _TEXT_MIN_TILE_H_PCT = 12.0
 
+# Inset (in canvas-relative percent) shaved off **each side** of every
+# sector's bounding rectangle before the inner squarify packs the
+# ticker tiles inside it. The visual purpose is to encode the chart's
+# two-level hierarchy as two-level gap thickness: tickers that share a
+# sector abut directly (their identical 1 px ``outline`` produces a
+# 2 px hairline seam), and the gap between *different* sectors widens
+# to ``2 * _SECTOR_INSET_PCT`` of the canvas plus the same 2 px
+# outline pair. On a 1000 px-wide canvas, ``0.4`` adds ~8 px of breathing
+# room between sectors -- enough for the eye to read the partition as
+# "different cluster" without making the chart look gappy. This mirrors
+# the ``paddingOuter`` knob the D3 / Tableau treemap implementations
+# expose for exactly the same hierarchy cue.
+#
+# Trade-off: the inset removes area from the squarified packing, so
+# the strict "tile area is proportional to weight" invariant softens
+# slightly. The distortion scales with each sector's perimeter (an
+# inset costs more, in relative terms, on a slim sector than on a
+# fat one) but for any realistic portfolio it stays well below the
+# eye's noticing threshold at ``0.4`` percent.
+#
+# Knock-on effect on the merge loop: a tile that was just clearing
+# ``_TEXT_MIN_TILE_*_PCT`` could dip below after the inset shrinks
+# its sector's usable area, which means
+# :func:`_merge_small_into_other` might fold one extra holding into
+# the aggregated bucket. That is an acceptable consequence -- the
+# readability promise is "every visible tile holds its label", not
+# "every original holding gets its own tile".
+_SECTOR_INSET_PCT = 0.4
+
 # Reference aspect ratio for the equal-area logo sizing. Each logo
 # renders at ``(base_w * sqrt(R / R_ref), base_h * sqrt(R_ref / R))``
 # where ``R`` is the logo's intrinsic aspect ratio and ``R_ref`` is
@@ -71,6 +100,55 @@ _TEXT_MIN_TILE_H_PCT = 12.0
 # logos render close to the CSS base size with only small factor
 # adjustments.
 _LOGO_REFERENCE_ASPECT = 3.0
+
+# Reference ink density for the equal-VISUAL-area logo sizing pass
+# layered on top of the aspect-ratio normalisation above. ``density``
+# is the fraction of the rasterised bounding box that survives the
+# treemap's SVG knockout filter -- i.e. the white silhouette the
+# eye actually reads as "the logo" on a coloured tile (see
+# :func:`investing.logos._measure_svg_density` for the measurement
+# pass). Across the current portfolio, density ranges from ~0.05
+# for thin-stroke wordmarks (Alphabet, Qualcomm) up to ~0.35 for
+# solid-mass icons (Vanguard), so the same bbox area renders as
+# very different visible marks. 0.13 sits comfortably above the
+# measured median (~0.09): the sparsest wordmarks (UnitedHealth,
+# FreshWorks at density ~0.047) want a raw bbox scale of
+# ``sqrt(0.13 / 0.047) ~= 1.66`` and ride the MAX clamp at the
+# top of the chart; the mid-pack wordmarks grow gently; the
+# moderately-dense and dense logos all land on the MIN clamp.
+# This avoids the "every wordmark grew, the chart looks
+# overcorrected" feel of a higher reference while still letting
+# the visibly-sparsest logos read as larger than their dense
+# counterparts.
+_LOGO_REFERENCE_DENSITY = 0.13
+
+# Min / max clamps on the density scale factor (= the multiplier
+# applied to BOTH width and height to scale the bounding-box area
+# inversely to the source's ink density). The clamps cap the
+# scale's effect on extreme outliers in either direction:
+#
+#   * ``_LOGO_DENSITY_MAX_SCALE`` is the upper guardrail that
+#     prevents a very-sparse logo from blowing up. With the
+#     reference density at 0.13, the sparsest wordmarks
+#     (UnitedHealth, FreshWorks at density ~0.047) want a raw
+#     scale of ``sqrt(0.13 / 0.047) ~= 1.66``, so ``MAX = 1.60``
+#     binds just below that natural ceiling -- UNH / FRSH land
+#     exactly on the clamp at ``1.60 ^ 2 = 2.56 x`` bbox area
+#     while the rest of the sparse pack grows according to its
+#     natural raw scale.
+#   * ``_LOGO_DENSITY_MIN_SCALE`` is intentionally *above 1.0* --
+#     i.e. dense logos (Salesforce, Adobe, TSM, Vanguard) don't
+#     just stop shrinking, they grow by a uniform 15 %. The
+#     intent is a "combination of overall size and density" sizing
+#     pass rather than a strict equal-visible-ink one: dense logos
+#     visibly carry their own mass on the tile and don't need
+#     their bbox squeezed by the same amount the formula's
+#     equal-ink math wants to take from them. With ``MIN = 1.15``,
+#     Salesforce reads as a comparably-sized neighbour of the
+#     mid-pack wordmarks (LRCX, Lam Research's bbox-scale ~ 1.32)
+#     rather than a miniature variant.
+_LOGO_DENSITY_MIN_SCALE = 1.15
+_LOGO_DENSITY_MAX_SCALE = 1.60
 
 # SVG ``<filter>`` definition referenced from the per-tile logo's
 # CSS ``filter: url(#treemap-logo-knockout)``. The filter recolours
@@ -231,6 +309,13 @@ LogoResolver = Callable[[str], str]
 # function over a local SVG fixture.
 LogoAspectResolver = Callable[[str], float]
 
+# Same shape, for the rasterised ink-density probe that powers the
+# equal-VISUAL-area sizing layered on top of the aspect ratio. The
+# Webpage callsite wires this to
+# :meth:`investing.logos.LogoCache.coverage_ratio`; tests fall back
+# to a constant default when the resolver isn't injected.
+LogoCoverageResolver = Callable[[str], float]
+
 
 @dataclass(frozen=True)
 class _Tile:
@@ -381,6 +466,7 @@ class _Row:
     weight: float
     logo_url: str
     logo_aspect: float = _DEFAULT_LOGO_ASPECT
+    logo_density: float = _LOGO_REFERENCE_DENSITY
     folded_tickers: tuple[str, ...] = ()
 
     @property
@@ -398,6 +484,15 @@ def _layout_rows(rows: Sequence[_Row]) -> list[tuple[_Row, _Tile]]:
     ratio quality (largest-first is the algorithm's preferred input)
     and to match the reading affordance of "largest tile in the
     top-left corner".
+
+    Between the two passes each sector rect is shrunk inward by
+    :data:`_SECTOR_INSET_PCT` on every side so the gap between two
+    *sectors* reads as visibly wider than the gap between two
+    tickers in the **same** sector. The intra-sector seam stays at
+    the 2 px the abutting tile outlines paint; the inter-sector seam
+    adds the inset gutter on top, encoding the two-level hierarchy as
+    two-level gap thickness without needing any extra markup or
+    colour. See :data:`_SECTOR_INSET_PCT` for the trade-off discussion.
     """
     if not rows:
         return []
@@ -417,10 +512,33 @@ def _layout_rows(rows: Sequence[_Row]) -> list[tuple[_Row, _Tile]]:
     layout: list[tuple[_Row, _Tile]] = []
     for (sname, _), srect in zip(sector_totals, sector_rects, strict=False):
         items = sectors[sname]
-        ticker_rects = _squarify([row.weight for row in items], srect)
+        # Every sector pays the same inset on every side, regardless
+        # of how many tiles it contains. The two-width-gap promise
+        # only holds if every sector boundary contributes the same
+        # ``2 * _SECTOR_INSET_PCT`` gutter -- exempting single-tile
+        # sectors (an earlier attempt at "the lone tile doesn't need
+        # an inner gap, just float it") produces a *third* gap width
+        # at the join between a single-tile sector and a multi-tile
+        # neighbour, which is exactly the visual bug this constant
+        # is supposed to remove.
+        padded = _inset_rect(srect, _SECTOR_INSET_PCT)
+        ticker_rects = _squarify([row.weight for row in items], padded)
         for row, tile in zip(items, ticker_rects, strict=False):
             layout.append((row, tile))
     return layout
+
+
+def _inset_rect(rect: _Tile, pad: float) -> _Tile:
+    """Return a copy of ``rect`` shrunk inward by ``pad`` on each side.
+
+    Falls back to a zero-area rect at the original ``rect`` origin when
+    the requested padding would consume more than the rect's width or
+    height (the squarified algorithm already handles zero-area input,
+    so the caller does not need a defensive branch around this).
+    """
+    if rect.w <= 2 * pad or rect.h <= 2 * pad:
+        return _Tile(rect.x, rect.y, 0.0, 0.0)
+    return _Tile(rect.x + pad, rect.y + pad, rect.w - 2 * pad, rect.h - 2 * pad)
 
 
 def _merge_small_into_other(rows: Sequence[_Row]) -> list[_Row]:
@@ -500,6 +618,7 @@ def render(
     *,
     logo_url_for: LogoResolver,
     logo_aspect_for: LogoAspectResolver | None = None,
+    logo_coverage_for: LogoCoverageResolver | None = None,
 ) -> str:
     """Render the ``<figure class="treemap">`` block.
 
@@ -529,6 +648,15 @@ def render(
     with no factor adjustment, the same as before the equal-area
     pass was introduced).
 
+    ``logo_coverage_for`` resolves a logo's ink-density (= the
+    fraction of the rasterised bbox that survives the SVG knockout
+    filter) for the equal-VISUAL-area sizing layered on top of the
+    aspect-ratio normalisation. Defaults to :data:`_LOGO_REFERENCE_DENSITY`
+    when the resolver is omitted, which yields a density scale of
+    exactly 1.0 and preserves the pre-density-correction behaviour;
+    the test stubs rely on this fall-back so they don't have to
+    expose ``coverage_ratio``.
+
     Returns an empty string when there are no current equity
     holdings to plot. Callers should treat that signal the same way
     they do for the top-N bar chart: omit the surrounding heading /
@@ -536,6 +664,8 @@ def render(
     """
     if logo_aspect_for is None:
         logo_aspect_for = _default_logo_aspect_for
+    if logo_coverage_for is None:
+        logo_coverage_for = _default_logo_coverage_for
     rows: list[_Row] = []
     for holding in holdings:
         weight = holding.get("current_weight%")
@@ -552,6 +682,7 @@ def render(
                 weight=float(weight),
                 logo_url=logo_url_for(ticker),
                 logo_aspect=logo_aspect_for(ticker),
+                logo_density=logo_coverage_for(ticker),
             )
         )
     if not rows:
@@ -605,31 +736,78 @@ def _default_logo_aspect_for(_ticker: str) -> float:
     return _DEFAULT_LOGO_ASPECT
 
 
-def _equal_area_factors(aspect: float) -> tuple[float, float]:
-    """Compute ``(w_factor, h_factor)`` for an equal-area logo.
+def _default_logo_coverage_for(_ticker: str) -> float:
+    """Fallback density resolver used when ``render`` is called without one.
 
-    The factors scale the CSS base width / height so that, at any
-    given container size, every logo's rendered ``width * height``
-    is identical regardless of its intrinsic aspect ratio. The math:
+    Returns ``0.0`` as a "no measurement available" sentinel. The
+    consumer (:func:`_equal_area_factors`) treats any non-positive
+    density as "skip the density correction entirely" and emits
+    aspect-only factors -- which is the right semantic for test
+    stubs and any other callsite that hasn't wired up a real
+    rasterisation pipeline: in the absence of data, fall back to
+    the pre-density-correction sizing rather than apply the
+    correction to a synthesised default density.
 
-        w_factor = sqrt(R / R_ref)
-        h_factor = sqrt(R_ref / R)
+    Returning ``_LOGO_REFERENCE_DENSITY`` here looks tempting (the
+    formula would collapse to ``sqrt(D_ref / D_ref) = 1.0``), but
+    that breaks down once ``_LOGO_DENSITY_MIN_SCALE > 1.0`` -- the
+    "no-op" then becomes "clamp every logo up to MIN", which is
+    surprising behaviour for a callsite that didn't ask for the
+    density pass at all.
+    """
+    return 0.0
 
-    where ``R`` is the logo's aspect and ``R_ref`` is
-    :data:`_LOGO_REFERENCE_ASPECT`. A wide wordmark (R > R_ref) gets
-    a wider-than-base width and a shorter-than-base height; a
-    narrow mark gets the inverse. The product ``w_factor *
-    h_factor`` is always 1, which is exactly the equal-area
-    invariant the CSS leans on.
 
-    Falls back to ``(1.0, 1.0)`` on degenerate input so a bad
-    upstream value can't blow up the rendered markup; the consumer
-    treats those as "use the CSS base size unchanged".
+def _equal_area_factors(aspect: float, density: float) -> tuple[float, float]:
+    """Compute ``(w_factor, h_factor)`` for an equal-VISUAL-area logo.
+
+    The factors combine two adjustments on top of the CSS base box:
+
+    1. **Aspect-ratio normalisation** -- keeps the bounding-box area
+       ``width * height`` constant across logos with different
+       intrinsic aspect ratios:
+
+           w_aspect = sqrt(R / R_ref)
+           h_aspect = sqrt(R_ref / R)
+
+       A wide wordmark (R > R_ref) gets a wider-than-base width and
+       a shorter-than-base height; a near-square icon gets the
+       inverse. The product is 1 by construction.
+
+    2. **Ink-density normalisation** -- scales the bounding-box area
+       *inversely* to the source's coverage ratio so the white
+       silhouette (= the part of the logo the eye actually reads on
+       a coloured tile) covers approximately the same pixel area
+       across brands:
+
+           density_scale = sqrt(D_ref / D)
+           w = w_aspect * clamp(density_scale, MIN, MAX)
+           h = h_aspect * clamp(density_scale, MIN, MAX)
+
+       where ``D`` is the logo's measured ink density and ``D_ref``
+       is :data:`_LOGO_REFERENCE_DENSITY`. A sparse wordmark grows;
+       a solid icon shrinks; the symmetric MIN / MAX clamps keep
+       extreme outliers from blowing up or vanishing.
+
+    Falls back gracefully on degenerate inputs: a non-finite or
+    non-positive aspect returns ``(1.0, 1.0)`` outright (treat as
+    "use the CSS base size unchanged"); a non-finite or non-positive
+    density skips the density adjustment but still applies the
+    aspect-ratio one.
     """
     if aspect <= 0 or not math.isfinite(aspect):
         return (1.0, 1.0)
     ratio = aspect / _LOGO_REFERENCE_ASPECT
-    return (math.sqrt(ratio), math.sqrt(1.0 / ratio))
+    aspect_w = math.sqrt(ratio)
+    aspect_h = math.sqrt(1.0 / ratio)
+    if density <= 0 or not math.isfinite(density):
+        return (aspect_w, aspect_h)
+    raw_density_scale = math.sqrt(_LOGO_REFERENCE_DENSITY / density)
+    density_scale = max(
+        _LOGO_DENSITY_MIN_SCALE,
+        min(_LOGO_DENSITY_MAX_SCALE, raw_density_scale),
+    )
+    return (aspect_w * density_scale, aspect_h * density_scale)
 
 
 def _ticker_tile(*, row: _Row, tile: _Tile) -> str:
@@ -702,7 +880,7 @@ def _ticker_tile(*, row: _Row, tile: _Tile) -> str:
         # width / height clamps. The 3-decimal format is enough
         # precision for sub-pixel accuracy on any realistic
         # container size and keeps the rendered HTML diff-stable.
-        w_factor, h_factor = _equal_area_factors(row.logo_aspect)
+        w_factor, h_factor = _equal_area_factors(row.logo_aspect, row.logo_density)
         img_style = (
             f"--logo-w-factor: {w_factor:.3f};"
             f" --logo-h-factor: {h_factor:.3f};"

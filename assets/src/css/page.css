@@ -1,62 +1,141 @@
 :root {
-  --bg: #ffffff;
-  --fg: #111111;
-  --muted: #555555;
-  --line: #d8dde3;
-  --accent: #e67d22;
-  --accent-bench: #1f4e79;
-  --positive: #1f7a3d;
-  --negative: #b3261e;
-  --card-bg: #fafafa;
+  /* Unified palette. Every colour the page paints derives from a
+     single design-system deck:
+
+       * Tiger Orange    #FB8500 -> ``--accent`` (the JG signature).
+                                    Chart's JG curve, chapter rule
+                                    under every section title, top
+                                    border of the JG-vs-benchmark
+                                    capsule, skip-link border, focus
+                                    rings, OG-image accent rule.
+       * Amber Flame     #FFB703 -> ``--accent-warm`` (the secondary
+                                    brand). Asset-allocation bars
+                                    and reserved for future active-
+                                    state highlights.
+       * Deep Space Blue #023047 -> the benchmark colour on the
+                                    chart in light mode. Anchors the
+                                    cool-blue family the page text
+                                    pulls from.
+       * Sky Blue Light  #8ECAE6 -> the benchmark colour on the
+                                    chart in dark mode (where the
+                                    deep navy would disappear into
+                                    the page surface).
+       * Blue Green      #219EBC -> the design-system primary.
+                                    Surfaces as the Technology
+                                    treemap tile and as the chart's
+                                    interactive accents.
+
+     Two semantic extensions complete the deck:
+
+       * Sea Green       #2A9D8F -> ``--positive`` (BOUGHT pill +
+                                    every TSR / CAGR readout that
+                                    points up). Same teal family as
+                                    Blue Green so the win-direction
+                                    colour reads as a sibling.
+       * Rose Red        #E63970 -> ``--negative`` (SOLD pill +
+                                    every drawdown readout). The
+                                    design system's ``error`` token.
+
+     The neutral chrome sits on a slate-tinted family: a faint slate
+     page background ``#F8FAFC`` in light mode (cards lift to pure
+     white above it), and a deep navy ``#071923`` in dark mode (cards
+     lift to ``#0B2230``). Body type is a near-charcoal slate
+     ``#0F2430`` in light mode and a sky-tinted near-white
+     ``#EAF7FB`` in dark mode, so the inversion still reads as the
+     same family of cool blues. */
+  --bg: #f8fafc;
+  --fg: #0f2430;
+  --muted: #6b8291;
+  --line: #d9e2ea;
+  --accent: #fb8500;
+  --accent-warm: #ffb703;
+  --accent-bench: #023047;
+  --positive: #2a9d8f;
+  --negative: #e63970;
+  --card-bg: #ffffff;
+  --link: #0077b6;
+  --link-hover: #005f8f;
   --max-width: 880px;
   --radius: 12px;
-  /* Sector palette for the equities treemap. The hues are tuned
-     against the light-mode page background -- each one is a
-     muted-but-distinct saturation level so adjacent sectors stay
-     visually separable without the chart screaming. Dark-mode
-     overrides live in the ``@media (prefers-color-scheme: dark)``
-     block further down and swap to higher-luminance variants
-     that survive the dark surface. */
-  --treemap-color-tech: #2f6cb3;
-  --treemap-color-comm: #7c4ea3;
-  --treemap-color-cyclical: #d97c4a;
-  --treemap-color-defensive: #4a8a4c;
-  --treemap-color-healthcare: #c44d6e;
-  --treemap-color-financial: #2f8e9c;
-  --treemap-color-industrials: #7d6a3d;
-  --treemap-color-energy: #c0843a;
-  --treemap-color-utilities: #5d7589;
-  --treemap-color-materials: #8a6c46;
-  --treemap-color-realestate: #b06a8c;
-  --treemap-color-other: #8a8d92;
+  /* Sector palette for the equities treemap. Light mode anchors on
+     the brand deck (Blue Green for Technology, Deep-Space-Blue
+     sibling for Financial, Sea Green for Defensive, Carmine Red
+     for Cyclical) and fills the remaining sectors with hues spaced
+     ~30 deg around the colour wheel so adjacent tiles stay
+     distinct without one screaming louder than its neighbours.
+     Three deliberate exclusions:
+
+       * Cyclical lands on the palette's red extension (Carmine
+         Red), not orange, so it never crowds the JG ``--accent``
+         that runs across the page.
+       * Energy and Materials -- the sectors that naturally read
+         warm -- pull to a deep burnt amber and a rust brown
+         respectively, well clear of the JG orange.
+       * Utilities and Other stay achromatic so the eye has neutral
+         resting points among the saturated tiles.
+
+     Dark-mode overrides live in the ``@media (prefers-color-scheme:
+     dark)`` block further down and intentionally tone every hue
+     down (lower saturation, mid lightness) so the same chart reads
+     calm on the deep navy surface -- juicy on white, hushed on
+     dark is the contract. */
+  --treemap-color-tech: #219ebc;
+  --treemap-color-comm: #6d5bd0;
+  --treemap-color-cyclical: #fb8500;
+  --treemap-color-defensive: #2a9d8f;
+  --treemap-color-healthcare: #e63970;
+  --treemap-color-financial: #023047;
+  --treemap-color-industrials: #ffb703;
+  --treemap-color-energy: #d95d00;
+  --treemap-color-utilities: #577590;
+  --treemap-color-materials: #7f5539;
+  --treemap-color-realestate: #c026d3;
+  --treemap-color-other: #94a3b8;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #111418;
-    --fg: #e8eaed;
-    --muted: #a0a4ab;
-    --line: #2c3138;
-    --accent: #f29a4f;
-    --accent-bench: #6ea8d8;
-    --positive: #58c97f;
-    --negative: #ff6b63;
-    --card-bg: #181c22;
-    /* Treemap palette: dark-mode counterparts of the light-mode
-       hues above. Each colour is lifted to a higher luminance so
-       the swatch reads cleanly against the deep page background
-       while still mapping 1:1 to the same sector identity. */
-    --treemap-color-tech: #5b9bd5;
-    --treemap-color-comm: #b18ad1;
-    --treemap-color-cyclical: #f0a06a;
-    --treemap-color-defensive: #7cc070;
-    --treemap-color-healthcare: #e07a99;
-    --treemap-color-financial: #5fbecf;
-    --treemap-color-industrials: #c2a86a;
-    --treemap-color-energy: #f0b16a;
-    --treemap-color-utilities: #8aa3bd;
-    --treemap-color-materials: #c79a6a;
-    --treemap-color-realestate: #d99cbb;
-    --treemap-color-other: #b0b3b8;
+    /* Dark counterparts of the light palette above. The same warm
+       temperature carries over: ``--bg`` is a deep warm charcoal
+       rather than a cold blue-black, and the card surface stays
+       just lifted enough from the page to read as a layered plane.
+       Every semantic variable (accent / positive / negative /
+       benchmark) keeps its hue from the light side and only the
+       luminance is rotated so contrast lands within WCAG AA against
+       the new surface. */
+    --bg: #071923;
+    --fg: #eaf7fb;
+    --muted: #78909c;
+    --line: #244252;
+    --accent: #f6a04d;
+    --accent-warm: #ffd166;
+    --accent-bench: #8ecae6;
+    --positive: #65c3b7;
+    --negative: #f07fa3;
+    --card-bg: #0b2230;
+    --link: #8ecae6;
+    --link-hover: #b7dff0;
+    /* Treemap palette: dark-mode counterparts of the juicy light-
+       mode hues above. The brief here is the inverse of the light
+       mode's instructions -- on the deep navy surface, full-
+       saturation tiles would punch through the page like neon
+       lights; calm is the operative word. Each entry keeps its
+       sector's hue identity but drops to mid-lightness (~L 60)
+       and moderate saturation (~S 35) so adjacent tiles still
+       read distinct without one screaming louder than another.
+       Cyclical / energy / materials retain their warm-family
+       displacement from the JG dark-mode accent. */
+    --treemap-color-tech: #5ab6cf;
+    --treemap-color-comm: #9b8ae6;
+    --treemap-color-cyclical: #f6a04d;
+    --treemap-color-defensive: #65c3b7;
+    --treemap-color-healthcare: #f07fa3;
+    --treemap-color-financial: #4f7c95;
+    --treemap-color-industrials: #ffd166;
+    --treemap-color-energy: #e88c45;
+    --treemap-color-utilities: #8fa7bc;
+    --treemap-color-materials: #b98b6d;
+    --treemap-color-realestate: #d77be4;
+    --treemap-color-other: #aab4c2;
   }
   /* The dashed 0% reference line on the return chart inherits
      ``var(--muted)`` (see the base rule above). In dark mode
@@ -421,7 +500,17 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
   letter-spacing: -0.02em;
   margin: 0 0 14px;
   padding-bottom: 8px;
-  border-bottom: 2px solid currentColor;
+  /* The chapter rule under every section title is the page's
+     strongest unifying signature: it's the same brand orange that
+     marks the JG line on the all-time return chart, underlines
+     ``Jan Grzybek`` in the OG social card, and tints the focus
+     rings throughout the page. Reading down the page the orange
+     rules read as ``these are the JG chapters``, the same way a
+     fund letter uses a coloured rule under each section header to
+     telegraph identity. The earlier ``currentColor`` rule produced
+     a heavy ~2px ink-coloured underline beneath every title that
+     read as a generic divider and added no brand identity. */
+  border-bottom: 2px solid var(--accent);
 }
 .section__subtitle {
   font-size: 1.0625rem;
@@ -953,6 +1042,18 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
    column instead of being squeezed onto the badge. */
 .trade__badge--buy  { background: var(--positive); }
 .trade__badge--sell { background: var(--negative); }
+/* Dark mode lifts ``--positive`` / ``--negative`` to mid-tone greens
+   and reds so the same variables stay legible as TSR/CAGR text on
+   the deep slate background. White pill text on those lifted fills
+   drops below 2:1 contrast, so we flip the pill text to the page
+   background (deep slate) in dark mode -- inverted chip styling, the
+   standard pattern for high-contrast labels that sit on lighter
+   ``500``-shade fills. The light-mode pills keep the original white
+   text on the deeper ``700``-shade backgrounds where contrast is
+   already comfortable. */
+@media (prefers-color-scheme: dark) {
+  .trade__badge { color: var(--bg); }
+}
 /* "Details" column. ``--label`` rows (Initial stake / Disposal)
    are qualitative and ride muted-grey so the action badge keeps
    visual primacy; ``--pct`` rows (+30% / -25%) are quantitative
@@ -1099,7 +1200,15 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
   overflow: hidden;
 }
 .bars__fill { height: 100%; border-radius: inherit; }
-.bars--allocation .bars__fill { background: var(--accent-bench); }
+/* Asset-allocation bars carry the brand's secondary amber so the
+   page's two warm-family signature colours (Tiger Orange + Amber
+   Flame) both have a prominent home: the chart line above is
+   ``--accent`` for the JG signature, and these bars are
+   ``--accent-warm`` for the allocation breakdown. The per-ticker
+   equity bar primitive (no longer rendered by the renderer but kept
+   in the stylesheet) still picks up the JG orange when it appears,
+   so the two warm hues never collide in the same figure. */
+.bars--allocation .bars__fill { background: var(--accent-warm); }
 .bars--equities .bars__fill { background: var(--accent); }
 /* Sector treemap: equity-only, two-level squarified layout. Tiles
    are absolutely-positioned ``<a>`` elements inside a fixed-
@@ -1147,10 +1256,20 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
      fold". 2:1 keeps the chart roughly the same vertical extent
      as the equities bar chart that sits above it. */
   aspect-ratio: 2 / 1;
-  border-radius: var(--radius);
-  overflow: hidden;
-  background: var(--card-bg);
-  border: 1px solid var(--line);
+  /* The canvas itself carries no frame chrome (no border, no
+     rounded corners, no background fill). The treemap perimeter
+     is defined by the tile arrangement itself: the
+     ``_SECTOR_INSET_PCT`` constant in ``sector_treemap.py`` shaves
+     a uniform gutter off every sector on every side, so the page
+     background paints a clean strip around the chart *and* between
+     sectors -- the eye reads "outside the chart" and "between
+     sectors" as the same colour, and intra-sector tiles abut as
+     before. The earlier frame (rounded ``var(--line)`` border on a
+     ``var(--card-bg)`` fill) clashed with the inset because the
+     corner tiles' rectangular corners sat *inside* the rounded
+     clip zone, leaving wedges of card-bg poking through the
+     rounded mask. Dropping the frame removes that conflict and
+     leaves the chart anchored on its own tile geometry. */
   /* The container is the absolute-positioning context for every
      tile inside; ``contain: layout paint`` opts the layer out of
      scrolling the page when an off-screen tile would otherwise
@@ -1608,6 +1727,15 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
   margin: 0;
   padding: 18px 20px;
   border: 1px solid var(--line);
+  /* Brand-orange chapter rule along the top of the capsule. This
+     is the JG-vs-benchmark headline panel, so the orange marks it
+     as JG-owned -- the same identity signal the chart's JG curve
+     and every section title use. The thicker top border + thinner
+     surrounding border (3px vs 1px) lets the orange read as the
+     panel's eyebrow rather than competing with the divider lines
+     between the inner columns. The corner radius is preserved by
+     overriding only the top edge's width and colour. */
+  border-top: 3px solid var(--accent);
   border-radius: var(--radius);
   background: var(--card-bg);
 }
@@ -1726,7 +1854,21 @@ footer {
   padding: 12px 0 0;
   line-height: 1.6;
 }
-footer a { color: var(--accent-bench); }
+/* Footer links use the design system's dedicated ``--link`` blue
+   rather than the JG ``--accent`` orange. The Yahoo Finance citation
+   is an external resource, not a JG-brand signal, so it gets the
+   conventional "hyperlink blue" treatment and leaves the orange
+   exclusively for JG identity (section chapter rules, the JG-vs-
+   benchmark capsule top border, the chart's JG curve, focus rings).
+   In dark mode ``--link`` lifts to ``#8ECAE6`` Sky Blue Light so the
+   citation stays readable against the deep navy footer surface. */
+footer a { color: var(--link); }
+footer a:hover,
+footer a:focus-visible {
+  color: var(--link-hover);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 2px;
+}
 /* Section heading inside the footer ("Methodology", "Disclaimer").
    Level mirrors ``.section__title`` (h2) so the document outline
    stays linear, but the visual scale is tuned to the smaller

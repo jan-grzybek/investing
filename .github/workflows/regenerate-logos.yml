@@ -1,0 +1,97 @@
+name: Regenerate cropped logos
+
+# Server-side safety net for the ``logos/tight/`` mirror.
+#
+# ``scripts/tighten_logos.py`` rebuilds ``logos/tight/`` from
+# ``logos/``: every SVG gets viewBox-cropped to its visible silhouette
+# and every non-SVG is copied through verbatim. The renderer reads
+# from ``logos/tight/`` exclusively (see
+# ``investing.paths.LOGOS_ADDRESS``), so leaving the two out of sync
+# would either ship the placeholder logo or render stale crops.
+#
+# The matching pre-commit hook (``tighten-logos`` in
+# ``.pre-commit-config.yaml``) regenerates locally on every commit
+# that touches a source logo, and the ``test.yml`` CI step fails
+# pull requests where the committed mirror drifts from a fresh
+# build. This workflow covers the remaining branch: a direct push
+# to ``main`` that updates / adds / deletes a source logo without
+# regenerating the mirror. It re-runs the script and commits the
+# mirror back so the next deploy serves the right bytes.
+on:
+  push:
+    branches: [main]
+    paths:
+      # Only fire on changes to source files directly inside
+      # ``logos/`` -- the glob does not span ``/`` so changes
+      # under ``logos/tight/`` (= the regenerated output of this
+      # very workflow) do not trigger another run. That breaks
+      # the obvious loop without needing any further filtering.
+      - 'logos/*.svg'
+      - 'logos/*.png'
+      - 'logos/*.jpg'
+      - 'logos/*.jpeg'
+  workflow_dispatch: {}
+
+# Default ``GITHUB_TOKEN`` is read-only; the regenerate job needs to
+# push the rebuilt ``logos/tight/`` mirror back to ``main`` so the
+# repo state matches the freshly-cropped output.
+permissions:
+  contents: write
+
+# A second push to ``logos/`` while we are still regenerating the
+# previous batch should not race: serialise per-branch so the later
+# run picks up the cumulative change set.
+concurrency:
+  group: regenerate-logos-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  regenerate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: Install system deps
+        # ``cairosvg`` (used by ``scripts/tighten_logos.py`` to
+        # rasterise the source SVGs for the tight-bbox probe) needs
+        # the system-level ``libcairo2`` shared library; pip cannot
+        # install that for us.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libcairo2
+
+      - name: Install Python deps
+        # Only the runtime requirements are needed -- the cropping
+        # script does not import anything from the dev-only set
+        # (ruff / mypy / pytest), so ``requirements.txt`` is the
+        # smaller install.
+        run: pip install -r requirements.txt
+
+      - name: Regenerate logos/tight/
+        run: python scripts/tighten_logos.py
+
+      - name: Commit regenerated mirror
+        # The push uses the default ``GITHUB_TOKEN``, which by GitHub's
+        # own rules does *not* re-trigger any workflow run -- the
+        # ``Tests`` and main deploy chains both skip this commit on
+        # purpose, so the next scheduled or manual deploy is the one
+        # that picks up the new tight crops. That's deliberate: it
+        # keeps a single source of truth (the original push) for the
+        # deploy cadence and avoids paying compute for a deploy that
+        # only updates how a few logos render.
+        run: |
+          if [[ -z "$(git status --porcelain logos/tight/)" ]]; then
+            echo "logos/tight/ already in sync; nothing to commit."
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add logos/tight/
+          git commit -m "chore(logos): regenerate logos/tight/ mirror"
+          git push

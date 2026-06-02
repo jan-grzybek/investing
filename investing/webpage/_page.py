@@ -857,19 +857,26 @@ class Webpage:
         equity (so the equity sub-section's "By sector" heading is
         gated on the returned HTML being truthy at the callsite).
 
-        The aspect resolver is bound from the same logo cache via
-        ``getattr`` so a plain ``Callable`` injected through
-        ``logo_cache=`` (the test / preview pathway) still works --
-        the treemap renderer falls back to a constant default
-        aspect when the resolver doesn't expose ``aspect_ratio``,
-        which gives every logo the same factor and matches the
-        pre-equal-area behaviour.
+        The aspect and coverage resolvers are bound from the same
+        logo cache via ``getattr`` so a plain ``Callable`` injected
+        through ``logo_cache=`` (the test / preview pathway) still
+        works -- the treemap renderer falls back to constant defaults
+        when the resolver doesn't expose ``aspect_ratio`` /
+        ``coverage_ratio``, which collapses the corresponding
+        adjustment to a no-op and matches the pre-equalisation
+        behaviour. ``coverage_ratio`` rasterises the SVG to
+        estimate the visible white silhouette area; binding it
+        through ``getattr`` keeps the contract test-stub friendly
+        (the legacy ``_AspectStubCache`` only implements
+        ``aspect_ratio``).
         """
         aspect_for = getattr(self._logo_resolver, "aspect_ratio", None)
+        coverage_for = getattr(self._logo_resolver, "coverage_ratio", None)
         return _sector_treemap.render(
             self._current_equity_for_treemap,
             logo_url_for=self._get_logo_url,
             logo_aspect_for=aspect_for,
+            logo_coverage_for=coverage_for,
         )
 
     # ---- chart / bar primitives (also covered directly by tests) -------

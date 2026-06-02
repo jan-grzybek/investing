@@ -49,7 +49,38 @@ concurrency:
     cancel-in-progress: true
 
 jobs:
+  WaitForRegenerate:
+    # No-op guard job whose sole purpose is to hold the
+    # ``regenerate-logos-<ref>`` concurrency lock that
+    # ``regenerate-logos.yml`` also declares at the workflow level.
+    # GitHub Actions serialises any pair of runs that share a
+    # concurrency group across the whole repository, so when a push to
+    # ``main`` has fanned out into a parallel ``regenerate-logos``
+    # run (cropping the source SVGs and committing a refreshed
+    # ``logos/tight/`` mirror) this job sits in the queue until that
+    # workflow releases the lock. The downstream ``Update`` job then
+    # checks out a settled tree where the auto-commit (if any) has
+    # already landed, instead of racing the regenerate workflow's
+    # push and deploying a stale crop. The single ``:`` step is a
+    # POSIX no-op -- the work is the queueing, not the command --
+    # which keeps the lock held for the minimum runner time.
+    runs-on: ubuntu-latest
+    concurrency:
+      group: regenerate-logos-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - name: Synchronise on regenerate-logos
+        run: ':'
+
   Update:
+    # Gate the build + deploy on the regenerate-logos guard so the
+    # checkout below sees any ``logos/tight/`` auto-commit that the
+    # parallel workflow pushed while we were queued. ``needs``
+    # already serialises after ``WaitForRegenerate`` succeeds (the
+    # ``:`` step is hard-pressed to fail), so the existing if
+    # filter on ``workflow_run`` conclusion remains the single
+    # source of truth for the deploy-eligibility gate.
+    needs: WaitForRegenerate
     runs-on: ubuntu-latest
     # ``workflow_run`` fires for every terminal conclusion (success,
     # failure, cancelled, timed_out, ...), so we must filter here.

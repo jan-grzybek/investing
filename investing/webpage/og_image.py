@@ -430,11 +430,28 @@ def _render_unsafe(
     # surface.
     TRANSPARENT = (255, 255, 255, 0)
     HALO = (255, 255, 255)
-    FG = (17, 17, 17)
-    MUTED = (95, 99, 106)
-    ACCENT = (230, 125, 34)
-    POS = (31, 122, 61)
-    NEG = (179, 38, 30)
+    # Palette mirrors the CSS ``:root`` block in ``page.css``. Keeping
+    # the OG card's ink colours pinned to the same hex values the
+    # webpage uses means the social preview reads as a continuation
+    # of the page rather than a separately-themed asset:
+    #   * ``FG`` is the design-system ``text-primary`` slate
+    #     ``#0F2430`` -- the same body text colour the webpage uses
+    #     in light mode.
+    #   * ``MUTED`` is the matching ``text-muted`` slate
+    #     ``#6B8291`` used for the caption beneath the hero.
+    #   * ``ACCENT`` is Tiger Orange ``#FB8500`` (the design
+    #     system's ``warning`` token, repurposed as the JG brand
+    #     mark) -- identical to the chapter rules under every
+    #     section title and the chart's JG curve.
+    #   * ``POS`` / ``NEG`` map to the design system's ``success``
+    #     and ``error`` tokens (Sea Green ``#2A9D8F`` / Rose Red
+    #     ``#E63970``), the same pair used by the BOUGHT / SOLD pills
+    #     and every up / down TSR readout on the page.
+    FG = (15, 36, 48)
+    MUTED = (107, 130, 145)
+    ACCENT = (251, 133, 0)
+    POS = (42, 157, 143)
+    NEG = (230, 57, 112)
 
     # Tiny stroke width (in px) for the dark-mode readability
     # outline around the byline. PIL renders ``stroke_width`` as

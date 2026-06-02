@@ -39,11 +39,15 @@ if str(_REPO_ROOT) not in sys.path:
 from investing.paths import COURAGE_LOGO, LOGOS_ADDRESS  # noqa: E402
 from investing.webpage import Webpage  # noqa: E402
 
-# ``logos/`` lives at the repo root (one level above ``scripts/``)
-# and is uploaded as part of the Pages artifact, so any extension
-# that exists locally also resolves under ``LOGOS_ADDRESS`` once
-# deployed.
-_REPO_LOGOS_DIR = _REPO_ROOT / "logos"
+# Local mirror of what GitHub Pages serves under ``LOGOS_ADDRESS``.
+# The repo keeps hand-curated originals under ``logos/`` and a
+# parallel ``logos/tight/`` mirror that ``scripts/tighten_logos.py``
+# regenerates whenever a source changes -- the served bytes are the
+# tight crop, so the preview must read from the same place to match
+# production. See ``investing.paths._REPO_LOGOS_DIR`` for the prod
+# counterpart and the ``regenerate-logos`` workflow / pre-commit hook
+# for the maintenance contract.
+_REPO_LOGOS_DIR = _REPO_ROOT / "logos" / "tight"
 
 
 def _build_logo_extension_map() -> dict[str, str]:
@@ -70,17 +74,20 @@ class _StubLogoCache:
     ``logos/`` directory (which is what GitHub Pages serves anyway)
     so the preview render never has to leave the workstation. The
     class shape mirrors ``LogoCache``'s public surface --
-    ``__call__`` for the URL and ``aspect_ratio`` for the
-    equal-area sizing math the sector treemap consumes -- so the
-    ``Webpage`` callsite's ``getattr(..., "aspect_ratio", None)``
-    probe finds the method and the preview's treemap renders with
-    per-logo factors that match production.
+    ``__call__`` for the URL, ``aspect_ratio`` for the equal-area
+    sizing math, and ``coverage_ratio`` for the equal-VISUAL-area
+    density correction the sector treemap layers on top -- so the
+    ``Webpage`` callsite's ``getattr(..., "aspect_ratio", None)`` /
+    ``getattr(..., "coverage_ratio", None)`` probes both find the
+    methods and the preview's treemap renders with per-logo factors
+    that match production.
     """
 
     def __init__(self, extension_map: dict[str, str], logos_dir: Path):
         self._extensions = extension_map
         self._logos_dir = logos_dir
         self._aspect_cache: dict[str, float] = {}
+        self._density_cache: dict[str, float] = {}
 
     def __call__(self, ticker: str) -> str:
         ext = self._extensions.get(ticker)
@@ -109,6 +116,23 @@ class _StubLogoCache:
                     aspect = parsed
         self._aspect_cache[ticker] = aspect
         return aspect
+
+    def coverage_ratio(self, ticker: str) -> float:
+        from investing.logos import _DEFAULT_LOGO_DENSITY, _measure_svg_density
+
+        cached = self._density_cache.get(ticker)
+        if cached is not None:
+            return cached
+        density = _DEFAULT_LOGO_DENSITY
+        ext = self._extensions.get(ticker)
+        if ext == ".svg":
+            path = self._logos_dir / f"{ticker}.svg"
+            if path.is_file():
+                measured = _measure_svg_density(str(path))
+                if measured is not None:
+                    density = measured
+        self._density_cache[ticker] = density
+        return density
 
 
 def _ease_history(

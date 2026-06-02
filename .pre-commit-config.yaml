@@ -78,3 +78,18 @@ repos:
         # minified outputs (and their CSP hashes) stay in sync.
         files: '^assets/src/'
         pass_filenames: false
+      - id: tighten-logos
+        name: regenerate cropped logos
+        entry: python scripts/tighten_logos.py
+        language: system
+        # Re-run any time a source logo lands or changes so the
+        # ``logos/tight/`` mirror (which is what production actually
+        # serves -- see ``investing.paths.LOGOS_ADDRESS``) stays in
+        # lockstep with its sources. The ``regenerate-logos`` workflow
+        # is the server-side safety net for commits that bypass this
+        # hook; the matching ``test.yml`` step fails CI when drift
+        # makes it into a PR. Only files directly inside ``logos/``
+        # trigger the hook -- changes under ``logos/tight/`` are
+        # themselves the regenerated output so they would only loop.
+        files: '^logos/[^/]+\.(svg|png|jpg|jpeg)$'
+        pass_filenames: false
