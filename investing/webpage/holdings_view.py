@@ -22,7 +22,48 @@ from collections.abc import Callable, Iterable, Mapping
 from ..errors import InvariantError
 from ..formatting import _fmt_date, _fmt_pct, _format_sort_number, _value_class
 from ..holdings import CAGR_TBA_THRESHOLD, google_search_url
+from ..safehtml import SafeHtml, escape
 from .anchors import holding_anchor
+
+
+def _fmt_holding_pct_html(value: float) -> SafeHtml:
+    """Format a Return / IRR percentage with a CSS-hidable decimal.
+
+    On wider viewports the Return / IRR rows of a holding capsule
+    stack vertically, leaving the right column of the stats grid
+    plenty of room for the trailing ``.X`` digit even when the
+    integer portion has reached three figures. On narrower
+    viewports the same metrics reflow into a horizontal row
+    alongside Weight (the ``@media (max-width: 540px)`` block in
+    ``page.css``), where ``100.0`` / ``217.4`` would crowd the
+    3-column grid and the original ``_fmt_pct`` truncation to
+    plain ``100`` / ``217`` reads tidier.
+
+    The helper emits both shapes from a single DOM node: when the
+    rounded magnitude reaches 100 it wraps the ``.X`` tail in a
+    ``<span class="holding__decimal">`` element that the mobile
+    media query hides via ``display: none``. Under 100 the
+    formatter returns the bare ``.1f`` text (every viewport keeps
+    the decimal there because the integer part is at most two
+    digits, so the extra precision doesn't crowd the row).
+
+    Boundary handling mirrors :func:`_fmt_pct` -- ``round(abs(value),
+    1) >= 100`` catches values that round UP to 100 (e.g. ``99.96``
+    -> ``100.0``) so they shed the decimal on mobile alongside the
+    natively-3-digit cases.
+    """
+    full = format(value, ".1f")
+    if round(abs(value), 1) < 100:
+        return SafeHtml(html.escape(full))
+    # ``format(..., ".1f")`` always emits ``<int>.<digit>``, so the
+    # split is unconditional and the wrapper carries the leading
+    # ``.`` so the desktop layout reads as a continuous number while
+    # the mobile rule simply drops the wrapper.
+    integer_part, decimal_part = full.rsplit(".", 1)
+    return SafeHtml(
+        f"{html.escape(integer_part)}"
+        f'<span class="holding__decimal">.{html.escape(decimal_part)}</span>'
+    )
 
 # Sort options surfaced above each holdings list. ``key`` is the
 # ``data-holdings-sort-key`` consumed by the holdings-sort
@@ -100,7 +141,7 @@ def build_card(
     *,
     logo_url: str,
     title: str,
-    stats: Iterable[tuple[str, str, float | None]],
+    stats: Iterable[tuple[str, str | SafeHtml, float | None]],
     periods: Iterable[tuple] | None = None,
     note: str | None = None,
     card_id: str | None = None,
@@ -119,6 +160,13 @@ def build_card(
     ``tsr`` / ``cagr`` keys to keep the JS contract stable; only
     the visible labels and the underlying formulas have moved
     to MoIC / XIRR semantics.
+
+    Stat values are HTML-escaped by default; callers that need to
+    embed inline markup (e.g. the ``<span class="holding__decimal">``
+    wrapper emitted by :func:`_fmt_holding_pct_html` so the mobile
+    layout can hide the trailing ``.X``) can pass a :class:`SafeHtml`
+    value to bypass escaping. The :func:`escape` helper is idempotent
+    on :class:`SafeHtml`, so the call site stays a single line.
 
     ``website_url`` is the click target wired onto the capsule's
     logo wrapper. When provided, the ``<img>`` is wrapped in an
@@ -158,7 +206,7 @@ def build_card(
         stat_parts.append(
             '<div class="holding__stat">'
             f"<dt>{html.escape(label)}</dt>"
-            f"<dd{attr}>{html.escape(value)}</dd>"
+            f"<dd{attr}>{escape(value)}</dd>"
             "</div>"
         )
 
@@ -222,11 +270,16 @@ def build_holding_card(
     accessor (typically ``Webpage._get_logo_url``); passing it
     in keeps the view module logo-cache-agnostic.
     """
-    stats: list[tuple[str, str, float | None]] = [
+    stats: list[tuple[str, str | SafeHtml, float | None]] = [
         # ``tsr%``/``cagr%``/``current_weight%`` are unrounded
-        # floats; ``_fmt_pct`` chooses one decimal under 100 and
-        # whole-number from 100 up. The raw float still flows to
-        # ``_value_class`` for sign-based colouring.
+        # floats. Return and IRR run through
+        # ``_fmt_holding_pct_html`` so the ``.X`` decimal renders
+        # on the desktop vertical stack but the mobile horizontal
+        # row drops it via the ``.holding__decimal`` CSS hide rule.
+        # Weight keeps the plain ``_fmt_pct`` formatter (weights are
+        # always under 100 in practice, so the decimal-wrapping
+        # branch never fires there anyway). The raw float still
+        # flows to ``_value_class`` for sign-based colouring.
         #
         # The visible labels read "Return" (cumulative MoIC - 1)
         # and "IRR" (annualised XIRR over the holding's actual
@@ -234,13 +287,17 @@ def build_holding_card(
         # retained so the OG image / sort attrs / capsule layout
         # don't churn; the methodology bullet in the footer
         # disclaimer carries the formula change.
-        ("Return:", f"{_fmt_pct(holding['tsr%'])}%", holding["tsr%"]),
+        ("Return:", SafeHtml(f"{_fmt_holding_pct_html(holding['tsr%'])}%"), holding["tsr%"]),
     ]
     if holding["cagr%"] > CAGR_TBA_THRESHOLD:
         stats.append(("IRR:", "TBA", None))
     else:
         stats.append(
-            ("IRR:", f"{_fmt_pct(holding['cagr%'])}%", holding["cagr%"]),
+            (
+                "IRR:",
+                SafeHtml(f"{_fmt_holding_pct_html(holding['cagr%'])}%"),
+                holding["cagr%"],
+            ),
         )
     if holding["is_current"]:
         weight = holding["current_weight%"]

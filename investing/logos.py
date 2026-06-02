@@ -21,6 +21,7 @@ than scattered through whatever module happens to need a logo URL.
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Callable
 
 import requests
@@ -34,6 +35,56 @@ from .paths import _REPO_LOGOS_DIR, COURAGE_LOGO, LOGO_EXTENSIONS, LOGOS_ADDRESS
 # would rather fall back to the placeholder than hang the entire CI
 # build.
 _HEAD_TIMEOUT_S: tuple[float, float] = (3.0, 3.0)
+
+
+# Default aspect ratio (width / height) used when a logo's intrinsic
+# proportions can't be parsed. 3 : 1 is the median for the portfolio's
+# wordmark distribution (most company wordmarks land between 2.5 : 1
+# and 4 : 1), so a missing data point degrades gracefully to "looks
+# like a typical wordmark" rather than forcing the renderer into a
+# square cell that would penalise the common case.
+_DEFAULT_LOGO_ASPECT: float = 3.0
+
+
+def _parse_svg_aspect_ratio(svg_text: str) -> float | None:
+    """Extract width / height aspect from an SVG document.
+
+    Tries ``viewBox`` first (the canonical sizing source -- the four
+    space-separated numbers are ``min-x min-y width height`` per the
+    SVG spec) and falls back to a top-level ``width="..." height=
+    "..."`` attribute pair. Returns ``None`` when neither shape can
+    be parsed cleanly so callers can substitute their own default.
+
+    The parser is intentionally regex-based rather than running a
+    full XML parse: every logo in the repo is a hand-curated SVG
+    whose root element starts with a single ``<svg ...>`` tag, so
+    the cost of pulling in ``xml.etree.ElementTree`` per logo is
+    not worth it. ``re.search`` finds the first match anywhere in
+    the document, which handles SVGs that prefix their root with
+    XML declarations / DOCTYPEs / comments without special-casing.
+    """
+    m = re.search(r"viewBox\s*=\s*[\"']([^\"']+)[\"']", svg_text)
+    if m:
+        parts = m.group(1).split()
+        if len(parts) >= 4:
+            try:
+                w = float(parts[2])
+                h = float(parts[3])
+            except ValueError:
+                w = h = 0.0
+            if w > 0 and h > 0:
+                return w / h
+    w_m = re.search(r"\bwidth\s*=\s*[\"']?([\d.]+)", svg_text)
+    h_m = re.search(r"\bheight\s*=\s*[\"']?([\d.]+)", svg_text)
+    if w_m and h_m:
+        try:
+            w = float(w_m.group(1))
+            h = float(h_m.group(1))
+        except ValueError:
+            return None
+        if w > 0 and h > 0:
+            return w / h
+    return None
 
 
 # Retry policy: three attempts with exponential back-off on transient
@@ -110,8 +161,48 @@ class LogoCache:
         local_dir: str | None = _REPO_LOGOS_DIR,
     ):
         self._cache: dict[str, str] = {}
+        # Separate cache for parsed aspect ratios so a hit on the URL
+        # lookup doesn't force a second filesystem read for the
+        # aspect probe (and vice versa). Both caches share the same
+        # ticker keyspace.
+        self._aspect_cache: dict[str, float] = {}
         self._session = session or _build_session()
         self._local_dir = local_dir
+
+    def aspect_ratio(self, ticker: str) -> float:
+        """Return the logo's intrinsic aspect ratio (width / height).
+
+        Parses the local SVG when one is present (the canonical
+        production path -- every committed logo lives in the repo's
+        ``logos/`` mirror and ``LogoCache.__call__`` will have already
+        resolved it). For non-SVG formats, missing files, or
+        parse failures, returns :data:`_DEFAULT_LOGO_ASPECT` so
+        the renderer always has a usable value.
+
+        The aspect ratio is what drives the treemap's *equal-area*
+        logo sizing: each logo's rendered width / height is scaled
+        by ``sqrt(R / R_ref)`` / ``sqrt(R_ref / R)`` against a
+        reference aspect, which keeps ``width * height`` constant
+        across logos at any given container size. See
+        :mod:`investing.webpage.sector_treemap` for the consumer.
+        """
+        cached = self._aspect_cache.get(ticker)
+        if cached is not None:
+            return cached
+        aspect = _DEFAULT_LOGO_ASPECT
+        if self._local_dir is not None:
+            path = os.path.join(self._local_dir, f"{ticker}.svg")
+            if os.path.exists(path):
+                try:
+                    with open(path, encoding="utf-8") as f:
+                        text = f.read()
+                except OSError:
+                    text = ""
+                parsed = _parse_svg_aspect_ratio(text)
+                if parsed is not None:
+                    aspect = parsed
+        self._aspect_cache[ticker] = aspect
+        return aspect
 
     def __call__(self, ticker: str) -> str:
         cached = self._cache.get(ticker)

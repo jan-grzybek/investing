@@ -719,4 +719,13 @@ class Holding:
             # summary time so the renderer doesn't have to reach back
             # into the live ``info`` cache.
             "website": resolve_company_url(self._info),
+            # GICS-style sector tag for the equities treemap. yfinance
+            # returns this on most listed equities ("Technology",
+            # "Healthcare", "Financial Services", ...). Pin the empty-
+            # /missing case to a stable sentinel so the renderer's
+            # sector bucketing stays deterministic across runs (the
+            # treemap groups tickers without a real sector under
+            # "Other" -- the empty string here gets mapped to that
+            # bucket downstream).
+            "sector": (self._info.get("sector") or "").strip(),
         }

@@ -5,9 +5,11 @@ per-section sort control."""
 from __future__ import annotations
 
 import math
+import re
 from datetime import datetime
 from unittest.mock import MagicMock
 
+from investing.paths import LOGOS_ADDRESS
 from investing.webpage import Webpage
 from tests._webpage_support import (
     _benchmark,
@@ -16,6 +18,36 @@ from tests._webpage_support import (
     _trade_event,
     stub_logo_lookup,
 )
+
+
+class _AspectStubCache:
+    """Test double that satisfies both halves of the logo resolver API.
+
+    Production renders go through :class:`investing.logos.LogoCache`,
+    which exposes ``__call__(ticker) -> str`` for the URL lookup and
+    ``aspect_ratio(ticker) -> float`` for the equal-area sizing math
+    (see :mod:`investing.webpage.sector_treemap`). The default
+    ``stub_logo_lookup`` fixture only patches ``LogoCache.__call__``
+    and lets ``aspect_ratio`` parse whatever local SVG file matches
+    the ticker (defaulting to ``_DEFAULT_LOGO_ASPECT`` when no SVG
+    is on disk). This helper is the explicit-aspect counterpart:
+    it returns the configured aspect for any ticker in ``aspects``
+    and the parser's default for anything else, with the URL lookup
+    mirroring the fixture's deterministic ``ticker.svg`` shape so
+    the renderer can still emit a usable ``src``.
+    """
+
+    def __init__(self, aspects):
+        self._aspects = aspects
+
+    def __call__(self, ticker):
+        encoded = ticker.replace(":", "%3A")
+        return f"{LOGOS_ADDRESS}{encoded}.svg"
+
+    def aspect_ratio(self, ticker):
+        from investing.logos import _DEFAULT_LOGO_ASPECT
+
+        return self._aspects.get(ticker, _DEFAULT_LOGO_ASPECT)
 
 
 class TestAddReturn:
@@ -360,6 +392,123 @@ class TestAddHolding:
         w = Webpage()
         w.add_holding(_holding(tsr=-14.2, cagr=-27.4))
         assert "value--negative" in w.current[0]
+
+    def test_return_and_irr_under_100_render_decimal_without_wrapper(
+        self,
+        stub_logo_lookup,
+    ):
+        # Under the 100 threshold every viewport keeps the ``.X``
+        # decimal -- the integer part is at most two digits, so the
+        # extra precision sits naturally next to it without needing
+        # a CSS-hidable wrapper. The renderer emits plain text in
+        # this branch so the ``.holding__decimal`` span never
+        # appears for two-digit returns.
+        w = Webpage()
+        w.add_holding(_holding(tsr=12.3, cagr=4.5))
+        card = w.current[0]
+        assert ">12.3%<" in card
+        assert ">4.5%<" in card
+        assert "holding__decimal" not in card
+
+    def test_return_and_irr_at_or_above_100_wrap_decimal_for_mobile_hide(
+        self,
+        stub_logo_lookup,
+    ):
+        # On wider viewports the Return / IRR rows stack vertically
+        # under their labels, so the renderer keeps the ``.X``
+        # decimal even when the integer part has reached three
+        # figures (``217.4%`` reads as a single number in the
+        # stats column). On narrower viewports the same metrics
+        # reflow into a horizontal 3-column row alongside Weight,
+        # where the trailing decimal would crowd the layout. The
+        # capsule emits both shapes from one DOM node: the integer
+        # part sits in the ``<dd>`` text and the ``.X`` tail is
+        # wrapped in ``<span class="holding__decimal">`` so the
+        # mobile media query can drop it via ``display: none``.
+        w = Webpage()
+        w.add_holding(_holding(tsr=217.4, cagr=143.7))
+        card = w.current[0]
+        # Three-digit integers carry the wrapper for both Return
+        # and IRR.
+        assert '217<span class="holding__decimal">.4</span>%' in card
+        assert '143<span class="holding__decimal">.7</span>%' in card
+
+    def test_negative_return_at_or_above_100_still_wraps_the_decimal(
+        self,
+        stub_logo_lookup,
+    ):
+        # Sign-aware threshold: a -123.4% drawdown is just as
+        # cramped horizontally as a +123.4% gain, so the wrapper
+        # follows the magnitude of the value rather than the sign.
+        # The leading minus stays in the integer part of the
+        # ``<dd>`` text so the visible value reads continuously
+        # on every viewport.
+        w = Webpage()
+        w.add_holding(_holding(tsr=-123.4, cagr=-101.0))
+        card = w.current[0]
+        assert '-123<span class="holding__decimal">.4</span>%' in card
+        assert '-101<span class="holding__decimal">.0</span>%' in card
+        # Negative-magnitude wrapping still triggers the colour
+        # class -- the helper only changes how the digits render.
+        assert "value--negative" in card
+
+    def test_weight_uses_plain_pct_formatter_without_decimal_wrapper(
+        self,
+        stub_logo_lookup,
+    ):
+        # Weight stays on the plain ``_fmt_pct`` formatter -- the
+        # responsive ``.holding__decimal`` wrapper only applies to
+        # Return / IRR, where 3-digit magnitudes are realistic
+        # enough to need the desktop ``.X`` precision. Portfolio
+        # weights are always under 100 by construction (no single
+        # holding can exceed the whole portfolio), so the wrapper
+        # would be pointless markup churn there. Pin the
+        # serialisation so a future widening of the helper to
+        # Weight has to update this test deliberately.
+        w = Webpage()
+        w.add_holding(_holding(weight=10.0))
+        card = w.current[0]
+        # Weight rendering is unchanged from the pre-responsive
+        # behaviour.
+        assert ">10.0%<" in card
+
+    def test_holding_decimal_is_hidden_under_the_mobile_breakpoint(
+        self,
+        stub_logo_lookup,
+    ):
+        # The decimal wrapper is rendered unconditionally on the
+        # holding capsule once Return / IRR reach 100; the only
+        # thing that switches it on / off is a ``display: none``
+        # rule inside the ``@media (max-width: 540px)`` block. The
+        # 540px breakpoint is the same one that reflows the stats
+        # grid from the desktop vertical stack into the mobile
+        # horizontal row, so the wrapper hides exactly when the
+        # row geometry stops having room for the ``.X`` tail.
+        from tests._css_helpers import at_rule_bodies, has_declaration, normalize
+
+        w = Webpage()
+        w.add_holding(_holding(tsr=217.4, cagr=143.7))
+        full_html = w._head()
+        mobile_bodies = at_rule_bodies(full_html, "@media (max-width: 540px)")
+        assert mobile_bodies, "@media (max-width: 540px) missing"
+        # Any of the (possibly several) mobile blocks may carry
+        # the hide rule -- the union is what matters.
+        assert any(
+            has_declaration(body, "display", "none")
+            and ".holding__decimal" in body
+            for body in mobile_bodies
+        )
+        # And no global ``.holding__decimal{display:none}`` lives
+        # at the top level -- the desktop default must keep the
+        # wrapper visible so the ``.X`` precision shows on the
+        # vertical stats stack. ``contains_selector`` looks at the
+        # whole stylesheet; we strip the bodies of every mobile
+        # block before checking to leave only desktop-scope
+        # declarations.
+        css = normalize(full_html)
+        for body in mobile_bodies:
+            css = css.replace(body, "")
+        assert ".holding__decimal{display:none}" not in css
 
     def test_period_dates_are_wrapped_in_time_elements(self, stub_logo_lookup):
         # Wrapping each rendered date in <time datetime="..."> makes
@@ -1357,6 +1506,65 @@ class TestAddTrades:
         ):
             assert needle in _TRADES_SORT_SCRIPT
 
+    def test_wrap_is_a_named_inline_size_container(self):
+        # ``.trades__wrap`` is declared as a ``container-type:
+        # inline-size`` query container with the name ``trades`` so
+        # the matching ``@container trades (max-width: ...)`` rules
+        # below can hide the Company and Action columns against the
+        # wrap's actual rendered width (not the viewport). The two
+        # CSS declarations are the load-bearing prerequisite for the
+        # rest of the responsive column-hiding contract -- without
+        # them the ``@container`` rules below would never match and
+        # both columns would stay visible at every viewport down to
+        # the wrapper-scroll fallback. Assert they ship in the
+        # served stylesheet.
+        import re
+
+        from investing.assets import _PAGE_STYLES
+        from tests._css_helpers import contains_at_rule
+
+        # The CSS compressor strips the space after ``:`` in
+        # declarations, so match either spacing on the type / name
+        # pair.
+        assert re.search(r"container-type:\s*inline-size", _PAGE_STYLES)
+        assert re.search(r"container-name:\s*trades", _PAGE_STYLES)
+        # And the two ``@container`` rules that actually drive the
+        # responsive hiding. Both target the named ``trades``
+        # container and collapse the appropriate ``<th>`` / ``<td>``
+        # cells via ``display: none``.
+        assert contains_at_rule(_PAGE_STYLES, "@container trades (max-width: 600px)")
+        assert contains_at_rule(_PAGE_STYLES, "@container trades (max-width: 430px)")
+
+    def test_container_query_thresholds_are_well_separated(self):
+        # The Company / Action drop order is intentional (Company
+        # first, since the ticker still uniquely identifies the
+        # security; Action second, since BUY / SELL is redundantly
+        # encoded by the Details column). Just as importantly, the
+        # two thresholds sit far enough apart that a continuous
+        # resize through the boundary produces two clearly separated
+        # visual transitions rather than dropping both columns in
+        # lockstep at one viewport change. Lock that property by
+        # checking the threshold gap stays at least ~150px (the
+        # current design ships 170px of headroom between Company at
+        # 600px and Action at 430px). A future tweak that pushes
+        # them within ~100px of each other would risk reintroducing
+        # the perceived simultaneous-hide bug this test exists to
+        # prevent.
+        import re
+
+        from investing.assets import _PAGE_STYLES
+
+        thresholds = [
+            int(m.group(1))
+            for m in re.finditer(
+                r"@container\s+trades\s*\(max-width:\s*(\d+)px\)", _PAGE_STYLES
+            )
+        ]
+        assert len(thresholds) >= 2, thresholds
+        thresholds.sort(reverse=True)
+        # First (widest) hides Company, second hides Action.
+        assert thresholds[0] - thresholds[1] >= 150, thresholds
+
     def test_name_and_currency_are_html_escaped(self, stub_logo_lookup):
         # Even though tickers/names are sourced from a trusted sheet,
         # we still escape so an "&" or "<" in a security name can't
@@ -1640,3 +1848,438 @@ class TestHoldingsSortControl:
         button_end = out.index("</button>", default_open)
         default_button = out[button_start:button_end]
         assert "holdings__sort-indicator" not in default_button
+
+
+class TestEquitySectorTreemap:
+    """Sector treemap lives inside the Equities sub-section and
+    visualises the current equity holdings only. Cash and historical
+    positions never reach the renderer; ``add_holding`` filters the
+    payload list down to current rows before the treemap is built."""
+
+    def test_treemap_renders_with_current_equity_holdings(
+        self,
+        stub_logo_lookup,
+        chdir_tmp,
+        freeze_today,
+    ):
+        # Two current equities + one historical row. Only the
+        # current ones should produce tiles.
+        freeze_today(datetime(2025, 6, 1))
+        w = Webpage()
+        w.add_return(_total_return(), [])
+        w.add_holding(
+            _holding(ticker="NMS:AAA", name="Alpha", weight=60.0, sector="Technology")
+        )
+        w.add_holding(
+            _holding(ticker="NMS:BBB", name="Beta", weight=40.0, sector="Healthcare")
+        )
+        w.add_holding(
+            _holding(
+                ticker="NMS:OLD",
+                name="Old Co.",
+                is_current=False,
+                weight=None,
+                periods=[{"start": datetime(2022, 1, 1), "end": datetime(2023, 1, 1)}],
+            )
+        )
+        w.save()
+
+        out = (chdir_tmp / "index.html").read_text()
+        # Container + per-sector tiles + legend chips are all
+        # emitted.
+        assert '<figure class="treemap"' in out
+        assert 'class="treemap__canvas"' in out
+        assert out.count('class="treemap__tile"') == 2
+        assert 'data-sector="Technology"' in out
+        assert 'data-sector="Healthcare"' in out
+        # The historical-only ticker never receives a tile because
+        # ``add_holding`` filters on ``is_current`` before pushing
+        # onto the treemap list, and an absent ``current_weight%``
+        # would still be rejected by the renderer's weight guard.
+        assert 'href="#holding-NMS-OLD"' not in out[out.index('<figure class="treemap"'):out.index("</figure>", out.index('<figure class="treemap"'))]
+
+    def test_treemap_omitted_when_no_current_equities(
+        self,
+        stub_logo_lookup,
+        chdir_tmp,
+        freeze_today,
+    ):
+        # A cash-only / historical-only portfolio has no tiles to
+        # plot, so the renderer should return an empty string and
+        # nothing belonging to the treemap (figure, canvas, legend)
+        # should appear at all.
+        freeze_today(datetime(2025, 6, 1))
+        w = Webpage()
+        w.add_return(_total_return(), [])
+        w.add_holding(
+            _holding(
+                ticker="NMS:OLD",
+                is_current=False,
+                weight=None,
+                periods=[{"start": datetime(2022, 1, 1), "end": datetime(2023, 1, 1)}],
+            )
+        )
+        w.save()
+
+        out = (chdir_tmp / "index.html").read_text()
+        assert '<figure class="treemap"' not in out
+        assert 'class="treemap__canvas"' not in out
+        assert 'class="treemap__legend"' not in out
+
+    def test_treemap_tile_links_to_matching_holding_card(
+        self,
+        stub_logo_lookup,
+        chdir_tmp,
+        freeze_today,
+    ):
+        # Each tile is an ``<a href="#holding-...">`` pointing at
+        # the same capsule anchor the marquee and bar chart use, so
+        # clicking a coloured rectangle scrolls the reader to the
+        # full holding row below.
+        freeze_today(datetime(2025, 6, 1))
+        w = Webpage()
+        w.add_return(_total_return(), [])
+        w.add_holding(
+            _holding(ticker="NMS:AAA", name="Alpha", weight=70.0, sector="Technology")
+        )
+        w.add_holding(
+            _holding(ticker="NMS:BBB", name="Beta", weight=30.0, sector="Technology")
+        )
+        w.save()
+
+        out = (chdir_tmp / "index.html").read_text()
+        treemap_block = out[
+            out.index('<figure class="treemap"'):
+            out.index("</figure>", out.index('<figure class="treemap"'))
+        ]
+        assert 'href="#holding-NMS-AAA"' in treemap_block
+        assert 'href="#holding-NMS-BBB"' in treemap_block
+        # Both tiles share the same sector swatch CSS variable so
+        # they read as a contiguous block of colour in the chart;
+        # the legend chip below also references that variable, for
+        # a total of three occurrences inside the figure.
+        assert treemap_block.count("--treemap-color-tech") == 3
+
+    def test_missing_sector_falls_back_to_other_bucket(
+        self,
+        stub_logo_lookup,
+        chdir_tmp,
+        freeze_today,
+    ):
+        # yfinance occasionally returns an empty ``sector`` string
+        # for exotic instruments; those tickers should land in a
+        # stable "Other" bucket rather than producing their own
+        # one-off tile colours.
+        freeze_today(datetime(2025, 6, 1))
+        w = Webpage()
+        w.add_return(_total_return(), [])
+        w.add_holding(
+            _holding(ticker="NMS:AAA", name="Alpha", weight=50.0, sector="")
+        )
+        w.add_holding(
+            _holding(ticker="NMS:BBB", name="Beta", weight=50.0, sector="Technology")
+        )
+        w.save()
+
+        out = (chdir_tmp / "index.html").read_text()
+        assert 'data-sector="Other"' in out
+        # The fallback colour variable is wired in too.
+        assert "--treemap-color-other" in out
+
+    def test_tiles_carry_accessible_label_and_tooltip(
+        self,
+        stub_logo_lookup,
+        chdir_tmp,
+        freeze_today,
+    ):
+        # ``aria-label`` carries the ``ticker - name (sector):
+        # weight%`` summary so screen readers announce the full
+        # context for each rectangle; ``title`` mirrors that for a
+        # sighted-mouse hover tooltip.
+        freeze_today(datetime(2025, 6, 1))
+        w = Webpage()
+        w.add_return(_total_return(), [])
+        w.add_holding(
+            _holding(
+                ticker="NMS:AAA",
+                name="Alpha Inc.",
+                weight=100.0,
+                sector="Technology",
+            )
+        )
+        w.save()
+
+        out = (chdir_tmp / "index.html").read_text()
+        assert 'aria-label="NMS:AAA - Alpha Inc. (Technology): 100%"' in out
+        assert 'title="NMS:AAA - Alpha Inc. (Technology): 100%"' in out
+
+    def test_tiles_emit_both_logo_and_ticker_for_css_swap(
+        self,
+        stub_logo_lookup,
+        chdir_tmp,
+        freeze_today,
+    ):
+        # Design contract: every non-aggregated tile emits *both* a
+        # ``<img class="treemap__tile-logo">`` and a
+        # ``<span class="treemap__tile-ticker">``. Which one is
+        # visible is decided by a per-tile CSS container size query
+        # (see ``page.css``); the renderer no longer commits to one
+        # answer per tile. That's what makes the swap responsive to
+        # viewport changes -- a tile that's too small for the logo
+        # on mobile shows the ticker symbol, the same tile on a wide
+        # desktop shows the logo, and the transition happens live
+        # without re-rendering the HTML.
+        freeze_today(datetime(2025, 6, 1))
+        w = Webpage()
+        w.add_return(_total_return(), [])
+        w.add_holding(
+            _holding(ticker="NMS:AAA", weight=60.0, sector="Technology"),
+        )
+        w.add_holding(
+            _holding(ticker="NMS:BBB", weight=40.0, sector="Technology"),
+        )
+        w.save()
+
+        out = (chdir_tmp / "index.html").read_text()
+        fig_start = out.index('<figure class="treemap"')
+        fig_end = out.index("</figure>", fig_start)
+        block = out[fig_start:fig_end]
+        # Two real holdings -> two logos AND two visible ticker spans.
+        assert block.count('<img class="treemap__tile-logo"') == 2
+        assert block.count('class="treemap__tile-ticker"') == 2
+        # The ticker labels are emitted as visible text content (not
+        # only as ``aria-label`` attribute payloads -- the ``>AAA<``
+        # / ``>BBB<`` boundary check looks at the text inside the
+        # ticker span, which is what the CSS swap toggles).
+        assert ">AAA<" in block
+        assert ">BBB<" in block
+        # Pre-equal-area per-tile size variables stay absent
+        # (sizing is CSS clamp-driven, with per-logo factors set on
+        # the ``<img>`` style).
+        assert "--logo-w:" not in block
+        assert "--logo-h:" not in block
+
+    def test_tile_img_carries_equal_area_logo_factors(
+        self,
+        stub_logo_lookup,
+        chdir_tmp,
+        freeze_today,
+    ):
+        # Equal-area sizing contract: each logo's ``<img>`` carries
+        # ``--logo-w-factor`` and ``--logo-h-factor`` custom
+        # properties whose product is approximately ``1``. The CSS
+        # rules multiply those onto the base width / height clamps,
+        # so a constant product preserves ``width * height``
+        # (i.e. equal pixel area) across all logos regardless of
+        # their intrinsic aspect ratio.
+        freeze_today(datetime(2025, 6, 1))
+        # Aspects spanning the wide / medium / narrow spectrum so
+        # the test exercises non-trivial factor values, not just
+        # the ``1.0 / 1.0`` defaults.
+        aspect_table = {
+            "NMS:WIDE": 5.0,
+            "NMS:MED": 3.0,
+            "NMS:NARROW": 1.5,
+        }
+        cache = _AspectStubCache(aspect_table)
+        w = Webpage(logo_cache=cache)
+        w.add_return(_total_return(), [])
+        for ticker, _aspect in aspect_table.items():
+            w.add_holding(
+                _holding(
+                    ticker=ticker,
+                    weight=100.0 / len(aspect_table),
+                    sector="Technology",
+                )
+            )
+        w.save()
+
+        out = (chdir_tmp / "index.html").read_text()
+        fig_start = out.index('<figure class="treemap"')
+        fig_end = out.index("</figure>", fig_start)
+        block = out[fig_start:fig_end]
+
+        # For each tile, parse the inline factors off the <img>
+        # and check the equal-area invariant.
+        for ticker in aspect_table:
+            label_idx = block.index(f'aria-label="{ticker}')
+            tile = block[block.rfind("<a", 0, label_idx):block.index("</a>", label_idx)]
+            w_factor = float(
+                re.search(r"--logo-w-factor:\s*([\d.]+)", tile).group(1)
+            )
+            h_factor = float(
+                re.search(r"--logo-h-factor:\s*([\d.]+)", tile).group(1)
+            )
+            # Product of the two factors is the equal-area invariant.
+            # Allow a small slack for the 3-decimal rounding the
+            # renderer emits.
+            assert abs(w_factor * h_factor - 1.0) < 0.01, (
+                f"{ticker}: w_factor={w_factor} h_factor={h_factor} "
+                f"product={w_factor * h_factor} expected ~1.0"
+            )
+        # The wide aspect should produce a w_factor > 1 and an
+        # h_factor < 1 (wider but shorter than the base box); the
+        # narrow aspect should produce the inverse.
+        wide_tile_idx = block.index('aria-label="NMS:WIDE')
+        narrow_tile_idx = block.index('aria-label="NMS:NARROW')
+        wide_tile = block[block.rfind("<a", 0, wide_tile_idx):block.index("</a>", wide_tile_idx)]
+        narrow_tile = block[block.rfind("<a", 0, narrow_tile_idx):block.index("</a>", narrow_tile_idx)]
+        wide_w = float(re.search(r"--logo-w-factor:\s*([\d.]+)", wide_tile).group(1))
+        wide_h = float(re.search(r"--logo-h-factor:\s*([\d.]+)", wide_tile).group(1))
+        narrow_w = float(re.search(r"--logo-w-factor:\s*([\d.]+)", narrow_tile).group(1))
+        narrow_h = float(re.search(r"--logo-h-factor:\s*([\d.]+)", narrow_tile).group(1))
+        assert wide_w > 1.0 > wide_h
+        assert narrow_w < 1.0 < narrow_h
+
+    def test_tiny_holdings_folded_into_aggregated_other_tile(
+        self,
+        stub_logo_lookup,
+        chdir_tmp,
+        freeze_today,
+    ):
+        # When a portfolio has a long tail of small-weight holdings
+        # whose individual tiles would be too narrow to host even
+        # the ticker + percent labels, the renderer folds them into
+        # a single aggregated ``Other`` tile (no logo, no link,
+        # neutral grey swatch). Construct a 1 + 10 holdings portfolio
+        # where the 10 tail holdings each carry 0.6 % -- well below
+        # the 14 %-canvas-width readability threshold once they get
+        # subdivided.
+        freeze_today(datetime(2025, 6, 1))
+        w = Webpage()
+        w.add_return(_total_return(), [])
+        w.add_holding(
+            _holding(ticker="NMS:HVY", weight=94.0, sector="Technology"),
+        )
+        for i in range(10):
+            w.add_holding(
+                _holding(
+                    ticker=f"NMS:T{i:02d}",
+                    weight=0.6,
+                    sector="Technology",
+                ),
+            )
+        w.save()
+
+        out = (chdir_tmp / "index.html").read_text()
+        fig_start = out.index('<figure class="treemap"')
+        fig_end = out.index("</figure>", fig_start)
+        block = out[fig_start:fig_end]
+        # The aggregated tile renders as a ``<div>`` (no holding
+        # card to anchor to), uses the Other sector class hook, and
+        # carries an ``Other`` label.
+        assert '<div class="treemap__tile treemap__tile--aggregated"' in block
+        assert 'data-sector="Other"' in block
+        # The pseudo-row has no logo and no anchor; the tooltip lists
+        # the folded tickers so a hover surfaces what got combined.
+        agg_start = block.index('treemap__tile--aggregated')
+        agg_tile = block[block.rfind("<div", 0, agg_start):block.index("</div>", agg_start)]
+        assert "<img" not in agg_tile
+        assert "href=" not in agg_tile
+        # At least one of the tail tickers shows up in the tooltip.
+        assert "T00" in agg_tile or "T09" in agg_tile
+        # The heavy tile renders normally with its logo intact.
+        assert 'aria-label="NMS:HVY' in block
+
+    def test_other_tile_total_weight_matches_folded_holdings_sum(
+        self,
+        stub_logo_lookup,
+        chdir_tmp,
+        freeze_today,
+    ):
+        # The aggregated tile's displayed percent has to equal the
+        # sum of the folded holding weights -- otherwise the chart
+        # under-/over-reports the portfolio's tail allocation. Five
+        # 1 %-weight tail holdings plus a 95 %-weight head produces
+        # an Other tile that should read ``5%``.
+        freeze_today(datetime(2025, 6, 1))
+        w = Webpage()
+        w.add_return(_total_return(), [])
+        w.add_holding(
+            _holding(ticker="NMS:HVY", weight=95.0, sector="Technology"),
+        )
+        for i in range(5):
+            w.add_holding(
+                _holding(
+                    ticker=f"NMS:T{i}",
+                    weight=1.0,
+                    sector="Technology",
+                ),
+            )
+        w.save()
+
+        out = (chdir_tmp / "index.html").read_text()
+        fig_start = out.index('<figure class="treemap"')
+        fig_end = out.index("</figure>", fig_start)
+        block = out[fig_start:fig_end]
+        # ``Other`` tile renders with the rolled-up weight.
+        agg_idx = block.index('treemap__tile--aggregated')
+        # The visible weight label sits inside the tile's text span.
+        agg_end = block.index("</div>", agg_idx)
+        agg_segment = block[agg_idx:agg_end]
+        assert ">5%<" in agg_segment or ">5.0%<" in agg_segment
+
+    def test_no_merging_when_all_tiles_fit(
+        self,
+        stub_logo_lookup,
+        chdir_tmp,
+        freeze_today,
+    ):
+        # Two equal-weight holdings produce two 50%-wide tiles, both
+        # comfortably above the readability threshold -- the merge
+        # loop must not synthesise an Other tile in that case
+        # (otherwise it'd be confusingly emitting an empty Other on
+        # well-balanced portfolios).
+        freeze_today(datetime(2025, 6, 1))
+        w = Webpage()
+        w.add_return(_total_return(), [])
+        w.add_holding(
+            _holding(ticker="NMS:AAA", weight=50.0, sector="Technology"),
+        )
+        w.add_holding(
+            _holding(ticker="NMS:BBB", weight=50.0, sector="Technology"),
+        )
+        w.save()
+
+        out = (chdir_tmp / "index.html").read_text()
+        # Scope the check to the figure body -- the class name itself
+        # appears once in the inlined stylesheet block (rule
+        # definition), but the rendered tiles inside the figure must
+        # not carry the aggregated marker.
+        fig_start = out.index('<figure class="treemap"')
+        fig_end = out.index("</figure>", fig_start)
+        assert "treemap__tile--aggregated" not in out[fig_start:fig_end]
+
+    def test_treemap_sits_between_equities_heading_and_sort_control(
+        self,
+        stub_logo_lookup,
+        chdir_tmp,
+        freeze_today,
+    ):
+        # Layout contract for the Equities sub-section: the
+        # ``<h3 id="equities">`` heading leads, the treemap follows
+        # as the by-sector overview (it has replaced the older
+        # top-N ticker bar chart), and the holdings sort toolbar
+        # + capsule list close out the section. Any future shuffle
+        # has to update this guard intentionally.
+        freeze_today(datetime(2025, 6, 1))
+        w = Webpage()
+        w.add_return(_total_return(), [])
+        w.add_allocations(
+            {"Equities": 100.0, "Cash & Cash Equivalents": 0.0},
+            {"NMS:AAA": 100.0},
+        )
+        w.add_holding(
+            _holding(ticker="NMS:AAA", weight=100.0, sector="Technology"),
+        )
+        w.save()
+
+        out = (chdir_tmp / "index.html").read_text()
+        equities_idx = out.index('id="equities" class="section__subtitle"')
+        treemap_idx = out.index('<figure class="treemap"')
+        sort_idx = out.index('data-holdings-sort="current"')
+        assert equities_idx < treemap_idx < sort_idx
+        # Defensive guard against a regression that re-introduces
+        # the ticker-level equities bar chart between the heading
+        # and the treemap.
+        assert '<div class="bars bars--equities"' not in out

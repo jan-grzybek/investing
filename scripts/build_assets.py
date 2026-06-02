@@ -33,6 +33,7 @@ touching this script.
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from pathlib import Path
 
@@ -75,6 +76,18 @@ def _minify_js(source: str) -> str:
     return rjsmin.jsmin(source, keep_bang_comments=False)
 
 
+# Pattern matches ``@container <name>(...`` produced by
+# ``csscompressor`` when it strips the whitespace between a named
+# container query's identifier and its query parens. The CSS spec
+# requires that whitespace (otherwise the token is parsed as a
+# ``<function>`` rather than a ``<container-name>`` + ``<container-
+# query>`` sequence) and Blink / WebKit / Gecko all silently drop
+# the rule when the space is missing. The post-processing step
+# below re-inserts the space so named container queries actually
+# fire in production.
+_AT_CONTAINER_NAME_PATTERN = re.compile(r"(@container\s+[A-Za-z_-][\w-]*)\(")
+
+
 def _concatenate_css(chunks: list[str]) -> str:
     """Concatenate readable CSS sources and minify the result.
 
@@ -92,7 +105,9 @@ def _concatenate_css(chunks: list[str]) -> str:
     # ``max_linelen=0`` disables the per-line wrap so the served
     # ``page.css`` ships as a single line -- smaller payload, and the
     # SHA-256 over it stays stable across csscompressor versions.
-    return csscompressor.compress(body, max_linelen=0) + "\n"
+    minified = csscompressor.compress(body, max_linelen=0)
+    minified = _AT_CONTAINER_NAME_PATTERN.sub(r"\1 (", minified)
+    return minified + "\n"
 
 
 def _build_outputs() -> dict[Path, str]:

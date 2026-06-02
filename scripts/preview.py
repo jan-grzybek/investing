@@ -24,7 +24,6 @@ import argparse
 import shutil
 import sys
 import webbrowser
-from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -62,33 +61,54 @@ def _build_logo_extension_map() -> dict[str, str]:
     return mapping
 
 
-def _make_stub_logo_url(
-    extension_map: dict[str, str],
-) -> Callable[[str], str]:
-    """Build a stub ``LogoResolver`` callable that mirrors the
-    production fallback chain without ever hitting the network.
+class _StubLogoCache:
+    """Offline stand-in for :class:`investing.logos.LogoCache`.
 
-    The real :class:`investing.logos.LogoCache` probes ``LOGOS_ADDRESS``
-    over HTTP for each candidate extension and falls back to
-    ``courage.png`` when none match. We do the same shape of lookup
-    against the repo's local ``logos/`` directory, which is what
-    GitHub Pages serves anyway. The returned callable satisfies
-    :class:`investing.logos.LogoResolver` (``(ticker) -> str``) and is
-    threaded into :class:`investing.webpage.Webpage` via the
-    ``logo_cache=`` constructor parameter so we no longer mutate the
-    class -- the previous ``Webpage._get_logo_url = ...`` assignment
-    polluted the class for any subsequent import in the same process,
-    which mattered as soon as the renderer started being driven from
-    tests in the same interpreter as the preview helper."""
+    The real cache probes ``LOGOS_ADDRESS`` over HTTP for each
+    candidate extension and falls back to ``courage.png`` when none
+    match. We do the same shape of lookup against the repo's local
+    ``logos/`` directory (which is what GitHub Pages serves anyway)
+    so the preview render never has to leave the workstation. The
+    class shape mirrors ``LogoCache``'s public surface --
+    ``__call__`` for the URL and ``aspect_ratio`` for the
+    equal-area sizing math the sector treemap consumes -- so the
+    ``Webpage`` callsite's ``getattr(..., "aspect_ratio", None)``
+    probe finds the method and the preview's treemap renders with
+    per-logo factors that match production.
+    """
 
-    def _stub(ticker: str) -> str:
-        ext = extension_map.get(ticker)
+    def __init__(self, extension_map: dict[str, str], logos_dir: Path):
+        self._extensions = extension_map
+        self._logos_dir = logos_dir
+        self._aspect_cache: dict[str, float] = {}
+
+    def __call__(self, ticker: str) -> str:
+        ext = self._extensions.get(ticker)
         if ext is None:
             return COURAGE_LOGO
         encoded = ticker.replace(":", "%3A")
         return f"{LOGOS_ADDRESS}{encoded}{ext}"
 
-    return _stub
+    def aspect_ratio(self, ticker: str) -> float:
+        from investing.logos import _DEFAULT_LOGO_ASPECT, _parse_svg_aspect_ratio
+
+        cached = self._aspect_cache.get(ticker)
+        if cached is not None:
+            return cached
+        aspect = _DEFAULT_LOGO_ASPECT
+        ext = self._extensions.get(ticker)
+        if ext == ".svg":
+            path = self._logos_dir / f"{ticker}.svg"
+            if path.is_file():
+                try:
+                    text = path.read_text(encoding="utf-8")
+                except OSError:
+                    text = ""
+                parsed = _parse_svg_aspect_ratio(text)
+                if parsed is not None:
+                    aspect = parsed
+        self._aspect_cache[ticker] = aspect
+        return aspect
 
 
 def _ease_history(
@@ -120,6 +140,7 @@ def _holding(
     period_start: datetime,
     *,
     website: str | None = None,
+    sector: str = "",
 ) -> dict:
     return {
         "ticker": ticker,
@@ -137,6 +158,13 @@ def _holding(
         # can click through and verify the wrapper navigates as
         # expected.
         "website": website,
+        # Sector tag mirrors what yfinance's ``info["sector"]`` would
+        # return for the production summary. Drives the equities
+        # treemap below the top-N bar chart; empty / missing values
+        # get bucketed into the renderer's "Other" sentinel so the
+        # preview exercises that branch by leaving at least one row
+        # unset.
+        "sector": sector,
     }
 
 
@@ -177,44 +205,55 @@ def _build_dataset() -> dict:
         _holding(
             "NMS:NVDA", "NVIDIA Corporation", 217.4, 64.2, 21.4,
             datetime(2024, 8, 14), website="https://www.nvidia.com",
+            sector="Technology",
         ),
         _holding(
             "NMS:GOOGL", "Alphabet Inc.", 41.2, 18.6, 13.7,
             datetime(2025, 9, 1), website="https://www.abc.xyz",
+            sector="Communication Services",
         ),
         _holding(
             "NMS:META", "Meta Platforms, Inc.", 156.8, 47.2, 11.5,
             datetime(2023, 1, 12), website="https://investor.atmeta.com",
+            sector="Communication Services",
         ),
         _holding(
             "NMS:ADBE", "Adobe Inc.", 28.4, 12.7, 9.1,
             datetime(2023, 4, 5), website="https://www.adobe.com",
+            sector="Technology",
         ),
         _holding(
             "NMS:AMAT", "Applied Materials, Inc.", 62.3, 22.4, 7.9,
             datetime(2023, 11, 9), website="https://www.appliedmaterials.com",
+            sector="Technology",
         ),
         _holding(
             "NMS:LRCX", "Lam Research Corporation", 74.6, 26.8, 6.4,
             datetime(2025, 5, 15), website="https://www.lamresearch.com",
+            sector="Technology",
         ),
         _holding(
             "NYQ:SPGI", "S&P Global Inc.", 34.1, 14.2, 6.0,
             datetime(2023, 9, 18), website="https://www.spglobal.com",
+            sector="Financial Services",
         ),
         _holding(
             "NYQ:UNH", "UnitedHealth Group Inc.", -11.8, -5.1, 4.7,
             datetime(2024, 3, 17), website="https://www.unitedhealthgroup.com",
+            sector="Healthcare",
         ),
         _holding(
             "NYQ:CRM", "Salesforce, Inc.", 18.7, 9.4, 4.1,
             datetime(2026, 1, 15), website="https://www.salesforce.com",
+            sector="Technology",
         ),
         # SAP is left without an explicit ``website`` to exercise the
         # renderer-side Google-search fallback path; the production
         # ``Holding.summary`` would have filled this in already, but
         # the preview keeps one row null so a developer can verify
-        # the safety-net branch by inspection.
+        # the safety-net branch by inspection. Sector is also left
+        # blank so the treemap's "Other" fallback bucket is
+        # exercised end-to-end in the preview render.
         _holding("DUS:SSU.DU", "SAP SE", 46.9, 19.1, 3.5, datetime(2026, 4, 1)),
     ]
     historical = [
@@ -407,7 +446,7 @@ def render(out_dir: Path) -> Path:
     # twice in the same interpreter no longer leaves the renderer in
     # a half-stubbed state for any sibling import.
     extension_map = _build_logo_extension_map()
-    stub_resolver = _make_stub_logo_url(extension_map)
+    stub_resolver = _StubLogoCache(extension_map, _REPO_LOGOS_DIR)
 
     page = Webpage(logo_cache=stub_resolver)
     page.add_return(data["total_return"], data["benchmarks"])

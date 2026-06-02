@@ -154,3 +154,61 @@ class TestBuildSiteHeader:
         out = w._build_site_header()
         assert "Jan Grzybek Investment Portfolio" in out
         assert "site-nav" not in out
+
+
+class TestSectorTreemapLayout:
+    """The squarified algorithm has a couple of structural invariants
+    that are easier to assert at the helper-function level than via
+    the end-to-end ``Webpage`` flow: tile areas must sum to the canvas
+    area, no tile can fall outside the canvas, and degenerate inputs
+    (single item, all-zero weights, empty list) must short-circuit
+    without raising."""
+
+    @staticmethod
+    def _placed_tiles(values):
+        from investing.webpage.sector_treemap import _squarify, _Tile
+
+        canvas = _Tile(0.0, 0.0, 100.0, 100.0)
+        return _squarify(values, canvas)
+
+    def test_single_item_fills_the_canvas(self):
+        (tile,) = self._placed_tiles([42.0])
+        assert (tile.x, tile.y) == (0.0, 0.0)
+        assert tile.w == 100.0 and tile.h == 100.0
+
+    def test_areas_sum_to_canvas_area(self):
+        values = [50.0, 25.0, 15.0, 10.0]
+        tiles = self._placed_tiles(values)
+        total_area = sum(t.w * t.h for t in tiles)
+        # 100 x 100 canvas -> 10_000 square percentage-points;
+        # squarified layout must place every input atom and waste
+        # nothing.
+        assert abs(total_area - 10_000.0) < 1e-6
+
+    def test_all_tiles_stay_inside_the_canvas(self):
+        tiles = self._placed_tiles([10.0, 9.0, 8.0, 7.0, 6.0, 5.0, 4.0])
+        for tile in tiles:
+            assert 0.0 <= tile.x <= 100.0
+            assert 0.0 <= tile.y <= 100.0
+            assert 0.0 <= tile.w <= 100.0 + 1e-9
+            assert 0.0 <= tile.h <= 100.0 + 1e-9
+            assert tile.x + tile.w <= 100.0 + 1e-9
+            assert tile.y + tile.h <= 100.0 + 1e-9
+
+    def test_empty_input_returns_no_tiles(self):
+        assert self._placed_tiles([]) == []
+
+    def test_all_zero_weights_returns_collapsed_tiles(self):
+        # Defensive guard: a portfolio whose ``current_weight%``
+        # collapsed to zero everywhere (cash-only snapshot, before
+        # the treemap is gated upstream) must not divide by zero;
+        # the layout collapses to empty rectangles.
+        tiles = self._placed_tiles([0.0, 0.0])
+        assert all(t.w == 0.0 and t.h == 0.0 for t in tiles)
+
+    def test_largest_input_gets_the_largest_area(self):
+        values = [70.0, 20.0, 10.0]
+        tiles = self._placed_tiles(values)
+        areas = [t.w * t.h for t in tiles]
+        # Tile order matches the input order, so areas line up by index.
+        assert max(range(3), key=lambda i: areas[i]) == 0

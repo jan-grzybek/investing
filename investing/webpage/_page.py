@@ -42,6 +42,7 @@ from . import bars as _bars
 from . import holdings_view as _holdings_view
 from . import og_image as _og_image
 from . import return_chart as _return_chart
+from . import sector_treemap as _sector_treemap
 from . import trades_view as _trades_view
 from .anchors import holding_anchor, strip_exchange
 from .head import SiteMeta, build_analytics_tag, build_head, build_jsonld
@@ -104,6 +105,15 @@ class Webpage:
         # ``(ticker, name, logo_url)`` tuples for current holdings, in
         # the order they were added. Drives the marquee ticker.
         self._current_logos: list[tuple[str, str, str]] = []
+        # Minimal payload for the sector treemap: one entry per
+        # current equity holding, carrying the four fields the
+        # treemap renderer needs (ticker / name / sector / weight).
+        # Populated as a side-effect of ``add_holding`` so the
+        # public API stays small -- the renderer never sees a list
+        # of full ``HoldingSummary`` dicts and the cash / historical
+        # assets never reach this list in the first place, which is
+        # the contract the treemap depends on (equities only).
+        self._current_equity_for_treemap: list[dict] = []
         # Stashed for OG image generation in ``save()``.
         self._total_return: TotalReturn | None = None
         self._benchmarks: list[BenchmarkSummary] | None = None
@@ -133,6 +143,20 @@ class Webpage:
                     holding["name"],
                     self._get_logo_url(holding["ticker"]),
                 )
+            )
+            # Stash the four fields the sector treemap needs.
+            # Historical / closed holdings have no current weight
+            # so they would be rejected by the renderer's
+            # ``weight is None or <= 0`` guard anyway; filtering
+            # here keeps the list payload aligned with the chart's
+            # equity-only contract.
+            self._current_equity_for_treemap.append(
+                {
+                    "ticker": holding["ticker"],
+                    "name": holding["name"],
+                    "sector": holding.get("sector") or "",
+                    "current_weight%": holding.get("current_weight%"),
+                }
             )
         card = self._build_holding_card(holding)
         bucket = self.current if holding["is_current"] else self.historical
@@ -209,9 +233,9 @@ class Webpage:
                 parts.append('<h3 class="section__subtitle">Asset allocation</h3>')
                 # The "Equities" allocation row is clickable: it
                 # jumps to the equities sub-section directly below
-                # (where the per-ticker breakdown + individual
-                # capsules live). The cash row has no dedicated
-                # section to point at and stays a plain bar.
+                # (where the sector treemap + individual capsules
+                # live). The cash row has no dedicated section to
+                # point at and stays a plain bar.
                 parts.append(
                     self._render_bars(
                         list(self.allocation_pct.items()),
@@ -220,24 +244,16 @@ class Webpage:
                     )
                 )
             parts.append('<h3 id="equities" class="section__subtitle">Equities</h3>')
-            if self.top_10:
-                # Each ticker bar in the top-10 chart jumps to the
-                # matching holding capsule. The synthetic "Other
-                # equities" bucket is absent from the anchor map
-                # so it stays a plain (non-linked) bar.
-                equity_anchors = {
-                    ticker: self._holding_anchor(ticker)
-                    for ticker in self.top_10
-                    if ticker not in self._NON_TICKER_TOP10_KEYS
-                }
-                parts.append(
-                    self._render_bars(
-                        list(self.top_10.items()),
-                        "equities",
-                        scale_to_max=True,
-                        anchors=equity_anchors,
-                    )
-                )
+            # Sector treemap: equities only (cash and historical
+            # positions are filtered out by ``add_holding`` upstream).
+            # The renderer returns an empty string when there are no
+            # current equity holdings, in which case the block is
+            # silently omitted. The treemap subsumes the older
+            # ticker-level horizontal bar chart that used to sit
+            # here: tile area is proportional to weight (same
+            # ordering signal the bars provided) and the sector
+            # grouping adds an axis the bars couldn't show.
+            parts.append(self._render_sector_treemap())
             parts.append(
                 self._build_holdings_sort_control(
                     scope="current",
@@ -830,6 +846,30 @@ class Webpage:
         return _holdings_view.build_holding_card(
             holding,
             logo_url_for=self._get_logo_url,
+        )
+
+    def _render_sector_treemap(self) -> str:
+        """Render the sector-grouped treemap of current equities.
+
+        Delegates to :func:`investing.webpage.sector_treemap.render`
+        with the per-instance logo resolver pre-bound; the rendered
+        block is empty when ``add_holding`` never received a current
+        equity (so the equity sub-section's "By sector" heading is
+        gated on the returned HTML being truthy at the callsite).
+
+        The aspect resolver is bound from the same logo cache via
+        ``getattr`` so a plain ``Callable`` injected through
+        ``logo_cache=`` (the test / preview pathway) still works --
+        the treemap renderer falls back to a constant default
+        aspect when the resolver doesn't expose ``aspect_ratio``,
+        which gives every logo the same factor and matches the
+        pre-equal-area behaviour.
+        """
+        aspect_for = getattr(self._logo_resolver, "aspect_ratio", None)
+        return _sector_treemap.render(
+            self._current_equity_for_treemap,
+            logo_url_for=self._get_logo_url,
+            logo_aspect_for=aspect_for,
         )
 
     # ---- chart / bar primitives (also covered directly by tests) -------

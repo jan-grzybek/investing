@@ -103,6 +103,14 @@ HoldingSummary = TypedDict(
         # Google-search-on-name fallback so the rendered ``href`` is
         # always a non-empty URL.
         "website": str,
+        # Industry sector the issuer belongs to. Populated from
+        # yfinance's ``info["sector"]`` (the GICS-style high-level
+        # bucket: "Technology", "Healthcare", "Financial Services",
+        # ...). Used by the equities sector treemap to group ticker
+        # tiles -- holdings without an upstream sector (rare; mostly
+        # exotic instruments) are bucketed under "Other" by the
+        # renderer so the chart stays self-consistent.
+        "sector": str,
     },
     total=False,
 )

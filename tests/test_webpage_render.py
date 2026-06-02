@@ -938,12 +938,27 @@ class TestSave:
         performance_idx = out.index('id="performance"')
         assert main_idx < ticker_idx < performance_idx
         # Each current holding ticker now also appears in the marquee
-        # (two copies for the seamless loop) plus the bars + card.
-        assert out.count("NMS:CURR") == 4
+        # (two copies for the seamless loop) plus the card + two more
+        # occurrences for the equities-by-sector treemap tile
+        # (``title`` + ``aria-label`` both spell out the full
+        # ``ticker - name`` tooltip; the ``href`` uses the slugged
+        # ``holding-NMS-CURR`` form and so doesn't contribute to the
+        # raw ticker count). The ticker-level equities bar chart
+        # used to add a sixth occurrence here but has been retired
+        # in favour of the treemap.
+        assert out.count("NMS:CURR") == 5
         assert out.count("NMS:OLD") == 1  # historical -> not in ticker
-        # Allocation bar charts rendered.
+        # Asset-allocation bar chart still rendered; the previous
+        # ticker-level equities bar chart has been removed in
+        # favour of the sector treemap, so no ``<div class="bars
+        # bars--equities">`` container is emitted any more. The
+        # primitive is still defined in the embedded stylesheet
+        # (the ``_render_bars`` helper is general-purpose), so we
+        # specifically look for the rendered HTML container rather
+        # than the substring ``bars--equities``.
         assert "bars--allocation" in out
-        assert "bars--equities" in out
+        assert '<div class="bars bars--equities"' not in out
+        assert '<figure class="treemap"' in out
         # Dark mode and responsive media queries are present.
         assert "prefers-color-scheme: dark" in out
         assert "@media print" in out
@@ -1211,13 +1226,15 @@ class TestSave:
         chdir_tmp,
         freeze_today,
     ):
-        # End-to-end contract for the three new click affordances:
+        # End-to-end contract for the click affordances that span
+        # multiple sections:
         #   * a marquee logo links to the matching holding capsule;
         #   * the "Equities" allocation bar links to the equities
         #     sub-section right below the allocation chart;
-        #   * each ticker row in the equities chart links to the
-        #     matching holding capsule, while the synthetic
-        #     "Other equities" bucket stays non-clickable.
+        #   * each tile in the sector treemap links to the matching
+        #     holding capsule below it (the older ticker-level
+        #     equities bar chart that used to provide this affordance
+        #     has been retired in favour of the treemap).
         freeze_today(datetime(2025, 6, 1))
         w = Webpage()
         w.add_return(_total_return(), [])
@@ -1242,14 +1259,19 @@ class TestSave:
         # Allocation chart: "Equities" row links to the sub-section,
         # cash row stays unlinked (no anchor block created for it).
         assert 'href="#equities"' in out
-        # The two click-target classes are present (marquee + bar rows).
+        # Both click-target classes are present: marquee links above
+        # the fold and the allocation chart's "Equities" row inside
+        # the allocation bars.
         assert 'class="ticker__link"' in out
         assert 'class="bars__row bars__row--link"' in out
-        # "Other equities" is rendered as a plain non-linked bar
-        # row: its label appears, but no ``href="#holding-Other-...
-        # "`` ever does (which would be a 404 anchor anyway since
-        # there's no card behind it).
-        assert "Other equities" in out
+        # The sector treemap has replaced the older ticker-level
+        # equities bar chart and now provides the click-to-scroll
+        # affordance for individual holdings. Each tile links to
+        # the matching capsule and the synthetic "Other equities"
+        # bucket (carried purely in the OG-image / ``top_10``
+        # rollup) never reaches the rendered page any more.
+        assert '<figure class="treemap"' in out
+        assert "Other equities" not in out
         assert "holding-Other" not in out
 
     def test_save_without_current_holdings_skips_section(

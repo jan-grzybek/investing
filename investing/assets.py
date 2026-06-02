@@ -188,10 +188,34 @@ _RETURN_CHART_SCRIPT = _read_asset("return_chart.js")
 # visibly squashes or widens the Company column. By measuring once
 # with all rows displayed and then locking the table to
 # ``table-layout: fixed`` with those pixel widths, the column edges
-# stay flush across every sort + collapse permutation. The freeze is
-# re-run on viewport resize so the @540px breakpoint (which hides
-# the Company column entirely on phones) gets a fresh snapshot
-# rather than carrying desktop widths into the narrower layout.
+# stay flush across every sort + collapse permutation. On resize
+# the handler does two things, in this order: it first runs
+# ``unfreeze`` synchronously -- clearing ``table-layout: fixed`` and
+# all per-``<th>`` pixel widths -- so the table reflows naturally
+# with the new wrap dimensions as the user drags the window edge
+# (without this immediate relax, the table would stay pinned to its
+# previous wider column widths and visibly overflow the wrap until
+# the debounced re-measure caught up, which is exactly the
+# "everything jumps at once" effect the redesign exists to avoid).
+# A 150ms debounce then re-runs ``freezeColumns`` to lock the new
+# natural widths in for the next sort/expand cycle.
+#
+# Responsive column hiding is handled by the stylesheet now, not the
+# script: ``.trades__wrap`` is declared as a named ``trades``
+# inline-size container, and the matching ``@container trades
+# (max-width: ...)`` rules drop the Company column at ~600px wrap
+# width and the Action pill at ~430px wrap width. Doing the visibility
+# decision in CSS rather than JS means every resize frame gets the
+# correct column set as a synchronous side-effect of layout, without
+# the debounce delay an earlier JS-driven version had between the
+# user crossing a threshold and the column actually disappearing.
+# The two thresholds are 170px apart, so a continuous resize through
+# the boundary produces two clearly separated visual transitions --
+# Company drops first, the 5-column layout survives all the way down
+# to phone widths, and only on the narrowest viewports does Action
+# follow. ``freezeColumns`` re-runs on resize so the locked pixel
+# widths refresh once a column has dropped out and the remaining
+# columns redistribute.
 #
 # ``boot`` is deferred to ``DOMContentLoaded`` because the script ships
 # from <head> and the ``<table class="trades">`` body it queries for

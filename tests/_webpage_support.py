@@ -23,6 +23,7 @@ def _holding(
     weight=10.0,
     periods=None,
     website="https://www.alpha.example",
+    sector="Technology",
 ):
     return {
         "ticker": ticker,
@@ -41,6 +42,12 @@ def _holding(
         # value so assertions on the rendered ``href`` don't depend
         # on the live ``info`` payload.
         "website": website,
+        # Sector tag mirrors ``info["sector"]`` from yfinance. The
+        # default is ``"Technology"`` so the synthetic holding gets
+        # a stable, non-empty bucket in the equities treemap; tests
+        # that exercise the empty-sector / "Other" fallback can
+        # pass ``sector=""`` explicitly.
+        "sector": sector,
     }
 
 

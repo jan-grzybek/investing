@@ -10,6 +10,25 @@
   --card-bg: #fafafa;
   --max-width: 880px;
   --radius: 12px;
+  /* Sector palette for the equities treemap. The hues are tuned
+     against the light-mode page background -- each one is a
+     muted-but-distinct saturation level so adjacent sectors stay
+     visually separable without the chart screaming. Dark-mode
+     overrides live in the ``@media (prefers-color-scheme: dark)``
+     block further down and swap to higher-luminance variants
+     that survive the dark surface. */
+  --treemap-color-tech: #2f6cb3;
+  --treemap-color-comm: #7c4ea3;
+  --treemap-color-cyclical: #d97c4a;
+  --treemap-color-defensive: #4a8a4c;
+  --treemap-color-healthcare: #c44d6e;
+  --treemap-color-financial: #2f8e9c;
+  --treemap-color-industrials: #7d6a3d;
+  --treemap-color-energy: #c0843a;
+  --treemap-color-utilities: #5d7589;
+  --treemap-color-materials: #8a6c46;
+  --treemap-color-realestate: #b06a8c;
+  --treemap-color-other: #8a8d92;
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -22,6 +41,22 @@
     --positive: #58c97f;
     --negative: #ff6b63;
     --card-bg: #181c22;
+    /* Treemap palette: dark-mode counterparts of the light-mode
+       hues above. Each colour is lifted to a higher luminance so
+       the swatch reads cleanly against the deep page background
+       while still mapping 1:1 to the same sector identity. */
+    --treemap-color-tech: #5b9bd5;
+    --treemap-color-comm: #b18ad1;
+    --treemap-color-cyclical: #f0a06a;
+    --treemap-color-defensive: #7cc070;
+    --treemap-color-healthcare: #e07a99;
+    --treemap-color-financial: #5fbecf;
+    --treemap-color-industrials: #c2a86a;
+    --treemap-color-energy: #f0b16a;
+    --treemap-color-utilities: #8aa3bd;
+    --treemap-color-materials: #c79a6a;
+    --treemap-color-realestate: #d99cbb;
+    --treemap-color-other: #b0b3b8;
   }
   /* The dashed 0% reference line on the return chart inherits
      ``var(--muted)`` (see the base rule above). In dark mode
@@ -259,6 +294,22 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
   gap: 40px;
   width: max-content;
   animation: ticker-scroll 60s linear infinite;
+  /* Keep the track on its own GPU compositor layer at all times.
+     Without this hint, Chrome only promotes the element while
+     ``animation-play-state`` is ``running``; the moment ``:hover``
+     flips it to ``paused`` (or the cursor moves over a child link
+     and triggers an opacity repaint), the layer is eligible for
+     demotion back to the main thread. The demote/re-rasterize
+     cycle snaps the live ``translateX`` value to the nearest
+     whole pixel, which the eye reads as the bar drifting / jumping
+     a couple of pixels when the cursor enters, moves across, and
+     leaves the strip. Pinning the layer with ``will-change`` (and
+     a ``backface-visibility: hidden`` belt-and-braces hint for
+     older WebKit) keeps the transform in floating-point GPU
+     storage so hover-triggered descendant repaints can't rebase
+     it. */
+  will-change: transform;
+  backface-visibility: hidden;
 }
 /* Pause the marquee while a real pointer is hovering over it
    (mouse / trackpad / pen) so a reader can study a passing logo.
@@ -312,6 +363,12 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
   object-fit: contain;
   flex: 0 0 auto;
   opacity: 0.92;
+  /* The hover lift (``.ticker__link:hover .ticker__logo { opacity: 1 }``
+     below) toggles the opacity on this element, so the transition
+     has to live here -- not on ``.ticker__link``. The previous
+     placement on the link declared a transition for a property
+     that never changed on it, so the lift snapped instantly. */
+  transition: opacity 0.15s ease;
 }
 /* Wrap each marquee logo in a click target that scrolls down to
    the matching holding capsule. The track itself is ``display:
@@ -331,7 +388,6 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
   color: inherit;
   text-decoration: none;
   cursor: pointer;
-  transition: opacity 0.15s ease;
 }
 /* Hover lift is gated on real pointer devices: on touch, ``:hover``
    sticks until the user taps somewhere else, which would leave a
@@ -679,11 +735,25 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
    tell at a glance not just direction but whether this was an
    entry, a top-up, a trim, or an exit. */
 .trades__wrap {
-  /* Last-resort horizontal scroll for viewports so narrow that even
-     the mobile column-hiding rules below can't keep the remaining
-     columns from overflowing. On a typical mobile phone the inner
-     table already fits; this only kicks in for the unusually thin
-     iPhone SE / Galaxy Fold territory. */
+  /* Wrap is a named **inline-size** container query container so the
+     ``@container trades (max-width: ...)`` rules further down can
+     hide the Company and Action columns based on the wrap's actual
+     rendered width, not the viewport. Container queries are the
+     primary responsive mechanism for this table: they fire
+     synchronously with layout as the wrap shrinks (no JS debounce
+     between the user's resize and the column drop), and they fire
+     at two well-separated thresholds (~600px for Company, ~430px
+     for Action) so the two columns visibly drop one at a time
+     rather than vanishing together at a single JS "tick" after the
+     user stops resizing.
+     
+     ``overflow-x: auto`` survives only as a defensive belt for the
+     handful of viewports narrower than the 4-column minimum
+     (~320px) and for the (vanishingly rare) browsers without
+     container-query support, where it gracefully degrades to a
+     horizontal scrollbar instead of clipping the table. */
+  container-type: inline-size;
+  container-name: trades;
   overflow-x: auto;
   margin-top: 10px;
 }
@@ -800,6 +870,48 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
   font-weight: 600;
+}
+/* Progressive column hiding, container-query driven. The wrap above
+   is a named ``trades`` inline-size container; these two rules drop
+   the Company and Action columns based on the wrap's actual width,
+   one at a time, as the page narrows.
+   
+   The thresholds are derived empirically from the natural minimum
+   widths of each column set with the current renderer's content
+   (quarter-formatted dates, 7em BUY / SELL pill, ``Initial stake`` /
+   ``Disposal`` lifecycle labels, three-decimal prices in ISO
+   currency codes), with a small buffer so the column drops just
+   before the layout would otherwise be forced to overflow:
+   
+     * **600px**: at this container width the 6-column layout's
+       intrinsic minimum (~591px for the synthetic preview, similar
+       for production) starts to exceed the wrap, so the Company
+       column drops out. The ticker uniquely identifies the security
+       on its own, so the row stays readable.
+     * **430px**: the 5-column layout's intrinsic minimum is ~422px
+       (locked by the action pill's ``7em`` fixed width plus the
+       no-wrap minimums of ticker, details, date and price). Below
+       this the Action pill drops too. Its BUY / SELL direction is
+       still redundantly encoded by the adjacent Details column --
+       ``Initiated`` / ``Divested`` for boundary rows, and ``+`` /
+       ``-`` signs plus green / red colouring on the percentage rows
+       -- so a reader can recover buy-vs-sell at a glance without it.
+   
+   The 170px gap between the two thresholds is wide enough that a
+   continuous resize through the boundary makes Company visibly drop
+   first, then much later Action -- never both at the same instant.
+   And because container queries are CSS-native rather than JS, every
+   resize frame gets the correct visibility state, with no debounce
+   between when the user crosses a threshold and when the column
+   actually disappears.
+*/
+@container trades (max-width: 600px) {
+  .trades__col--name,
+  .trades__cell--name { display: none; }
+}
+@container trades (max-width: 430px) {
+  .trades__col--action,
+  .trades__cell--action { display: none; }
 }
 /* Solid-pill BUY / SELL badge. Uppercase + letter-spacing give it
    the "label" affordance a typographic reader expects from a
@@ -989,6 +1101,300 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
 .bars__fill { height: 100%; border-radius: inherit; }
 .bars--allocation .bars__fill { background: var(--accent-bench); }
 .bars--equities .bars__fill { background: var(--accent); }
+/* Sector treemap: equity-only, two-level squarified layout. Tiles
+   are absolutely-positioned ``<a>`` elements inside a fixed-
+   aspect-ratio canvas; the Python side emits per-tile ``left``/
+   ``top``/``width``/``height`` percentages plus a ``background``
+   keyed off the per-sector CSS variables declared in ``:root``.
+   Keeping the layout numbers as percentages lets the chart
+   reflow smoothly into any container width without recomputing
+   coordinates client-side. */
+.treemap {
+  margin: 0 0 24px;
+  padding: 0;
+  /* Named inline-size query container so the typography + logo
+     sizing rules below can resolve their ``cqi`` units against the
+     figure's width rather than each tile's. The per-tile ``tile``
+     container (declared on ``.treemap__tile``) handles the
+     responsive logo-vs-ticker swap; both containers coexist
+     because the ``@container treemap`` blocks below explicitly
+     scope ``cqi`` resolution back to this figure-level container. */
+  container-type: inline-size;
+  container-name: treemap;
+}
+/* The inline ``<svg class="treemap__defs">`` only exists to host
+   the ``#treemap-logo-knockout`` filter referenced from the tile
+   logos. Even at ``width="0" height="0"`` SVG defaults to
+   ``display: inline``, which still claims a line box equal to
+   the parent's line-height and opens an apparent gap between the
+   title and the canvas. Floating it out of the flow with
+   ``position: absolute`` makes the gap disappear without
+   detaching the filter ID from the DOM (filter ``url(#...)``
+   lookups still resolve as long as the element is rendered, and
+   ``display: none`` would break that on some engines). */
+.treemap__defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.treemap__canvas {
+  position: relative;
+  width: 100%;
+  /* The aspect ratio balances "tiles legible enough to read the
+     ticker label" against "doesn't dominate the page above the
+     fold". 2:1 keeps the chart roughly the same vertical extent
+     as the equities bar chart that sits above it. */
+  aspect-ratio: 2 / 1;
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--card-bg);
+  border: 1px solid var(--line);
+  /* The container is the absolute-positioning context for every
+     tile inside; ``contain: layout paint`` opts the layer out of
+     scrolling the page when an off-screen tile would otherwise
+     overflow the canvas (the percentages are exact, but defensive
+     containment is cheap insurance against a future rounding
+     change). */
+  contain: layout paint;
+}
+.treemap__tile {
+  position: absolute;
+  display: block;
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+  /* Subtle hairline between adjacent tiles using the same colour
+     as the page background. Using ``outline`` rather than a
+     border keeps the tile's box dimensions exactly matching the
+     squarified rectangle (no inset border subtracting from the
+     visible area). */
+  outline: 1px solid var(--bg);
+  outline-offset: -1px;
+  overflow: hidden;
+  transition: filter 150ms ease, transform 150ms ease;
+  /* Become a *size* query container so each tile can flip between
+     showing the logo and showing the ticker symbol based on its
+     own rendered px dimensions, not the chart's overall width. A
+     wide-canvas viewport gives every tile enough room for the
+     logo, a narrow phone shrinks the same tiles into the
+     text-fallback band -- and the swap is observed live as the
+     window resizes, no JS / page reload needed. The ``cqi`` units
+     used by the logo / typography rules below resolve against the
+     **named** ``treemap`` container instead (so a tile being its
+     own container doesn't accidentally scale text per-tile). */
+  container-type: size;
+  container-name: tile;
+}
+/* The aggregated ``Other`` tile is a non-interactive ``<div>``
+   (no holding card to anchor to). The pointer / hover affordances
+   the real-tile ``<a>`` carries don't apply, so we strip them
+   here -- the swatch reads as a plain summary rectangle rather
+   than tricking the user into clicking a dead link. */
+.treemap__tile--aggregated {
+  cursor: default;
+}
+.treemap__tile:focus-visible {
+  filter: brightness(1.1);
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  z-index: 2;
+}
+@media (hover: hover) {
+  .treemap__tile:hover {
+    filter: brightness(1.08);
+    z-index: 2;
+  }
+}
+.treemap__tile-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  padding: 6px 8px;
+  gap: 4px;
+  /* High-contrast text on coloured swatches: white reads
+     consistently on every palette entry once the dark-mode
+     overrides kick in, and the lighter sector hues still pass
+     WCAG AA against white when measured. */
+  color: #ffffff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  font-variant-numeric: tabular-nums;
+}
+/* Each tile logo renders as an opaque white silhouette with
+   brand-authored white pixels knocked out to transparent. The
+   plumbing lives in an inline SVG ``<filter>`` shipped with the
+   figure (see ``investing/webpage/sector_treemap.py``); the
+   filter rewrites every visible pixel to ``rgb(255, 255, 255)``
+   with alpha proportional to ``(1 - whiteness)``, so:
+     * the Salesforce blue cloud renders as a white shape with
+       its inner "Salesforce" wordmark cut out to transparent,
+       letting the tile colour show through where the brand
+       intended a white reveal;
+     * SAP's blue trapezoid renders as a white plate with the
+       inner "SAP" letters knocked out;
+     * Adobe's red squares fill as white with the "Adobe"
+       wordmark inside falling away to transparent;
+     * solid-dark wordmarks (NVIDIA, S&P Global, Lam Research)
+       render as pure white silhouettes with no inner detail
+       loss because their authored fill was already dark.
+   The single CSS ``filter: brightness(0) invert(1)`` we used
+   before produced the same uniform white silhouette but
+   collapsed every shape (cloud body and inner wordmark alike)
+   into one solid fill -- the SVG knockout filter gives the
+   same crisp monochrome look while preserving the brand's
+   white-on-colour reveals as cutouts. */
+/* Logo + label stack split across two responsive primitives:
+   
+   1. **Equal-area logos**. Every brand occupies the same screen
+      area regardless of its intrinsic aspect ratio. The base
+      box width / height clamps below define the *reference*
+      logo size (the size a perfect 3 : 1 wordmark renders at);
+      each ``<img>`` carries per-logo ``--logo-w-factor`` /
+      ``--logo-h-factor`` custom properties set inline by Python.
+      The product ``w_factor * h_factor`` is always 1, so multiplying
+      them onto the base width / height keeps ``width * height``
+      identical across logos. The Python side derives the factors
+      from each SVG's ``viewBox`` (see
+      :func:`investing.webpage.sector_treemap._equal_area_factors`);
+      missing values fall back to ``1`` so the rule still renders.
+   
+   2. **Responsive logo<->ticker swap**. Each ``.treemap__tile`` is
+      a ``container-type: size`` query container; the swap rule
+      below toggles between the logo and the ticker symbol based
+      on each tile's own rendered px dimensions. Wide-canvas
+      viewports give big tiles enough room for the logo; narrow
+      phones shrink them past the threshold and the ticker
+      fallback takes over. Both elements are *always* emitted by
+      the renderer (the swap is purely a display toggle), so the
+      transition is observed live without re-rendering the HTML.
+   
+   The ``cqi`` units in the sizing clamps need to resolve against
+   the **named** ``treemap`` container rather than the per-tile
+   ``tile`` container, otherwise a tile being its own query
+   container would re-anchor the logo to its own width and break
+   the uniform "every tile sees the same base box" invariant.
+   Wrapping the sizing rules in an ``@container treemap``
+   condition (with a trivially-true guard) does exactly that:
+   inside that scope the container-query length units resolve
+   against the named ``treemap`` container regardless of any
+   intermediate query containers. */
+.treemap__tile-text {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  line-height: 1.15;
+  text-align: center;
+  min-width: 0;
+}
+.treemap__tile-logo {
+  /* Hidden by default; the ``@container tile`` rule below shows
+     the logo when the tile clears the size threshold. Sizing
+     attributes live in the ``@container treemap`` block further
+     down so the ``cqi`` math resolves against the figure, not
+     the tile. */
+  display: none;
+  max-width: 100%;
+  object-fit: contain;
+  filter: url(#treemap-logo-knockout);
+  pointer-events: none;
+}
+.treemap__tile-ticker {
+  display: inline-block;
+  font-weight: 700;
+  letter-spacing: -0.005em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.treemap__tile-weight {
+  font-weight: 600;
+  opacity: 0.94;
+}
+/* Container-query-anchored typography + logo sizing. Wrapping
+   these in ``@container treemap (min-width: 0)`` makes every
+   ``cqi`` inside the block resolve to the figure's inline size
+   (the named ``treemap`` container) regardless of the per-tile
+   ``tile`` container that exists for the swap rule below. The
+   ``min-width: 0`` guard always matches once the figure has any
+   inline size at all, so the sizing rules apply universally. */
+@container treemap (min-width: 0) {
+  .treemap__tile-logo {
+    /* Base box ~96 x 28 px on desktop (832 px canvas) and ~60 x
+       22 px on the mobile worst-case (358 px canvas). Per-logo
+       factors then re-shape this box to preserve equal area
+       across brands. */
+    width: calc(clamp(60px, 11.5cqi, 96px) * var(--logo-w-factor, 1));
+    height: calc(clamp(22px, 3.8cqi, 28px) * var(--logo-h-factor, 1));
+  }
+  .treemap__tile-ticker {
+    font-size: clamp(0.875rem, 2.2cqi, 1.1875rem);
+  }
+  .treemap__tile-weight {
+    /* The percent reads as a clear second tier next to the
+       (slightly smaller, equal-area) logo / ticker above. On the
+       desktop canvas it lands at ~17 px, in a comfortable
+       ~1.6 : 1 ratio with the 28 px base logo height. */
+    font-size: clamp(0.8125rem, 2.1cqi, 1.125rem);
+  }
+}
+/* Per-tile size query: show the logo and hide the ticker as soon
+   as the tile is large enough to host the equal-area logo box
+   plus the percent label beneath. Threshold values are absolute
+   pixels because each tile is its own ``size`` container -- so a
+   tile that's 18 % of a 358 px mobile canvas (~64 px) falls below
+   and gets the ticker fallback, while the same 18 %-of-canvas
+   tile on an 832 px desktop canvas (~150 px) clears the threshold
+   and shows the logo. The ``80 x 50`` numbers track the base
+   logo box (~60 x 22 -- factored upward to ~80 wide for wide
+   wordmarks) plus the percent label (~13 px) and inner padding
+   (~12 px combined), with headroom so the swap doesn't flicker
+   right at the cusp of legibility. */
+@container tile (min-width: 80px) and (min-height: 50px) {
+  .treemap__tile-logo {
+    display: block;
+  }
+  /* The aggregated ``Other`` tile uses the ticker slot for its
+     "Other" identifier and has no ``<img>`` to swap to, so the
+     swap rule has to skip ``--aggregated`` tiles. Without this
+     exception a big aggregated tile would end up with only the
+     percent number visible. */
+  .treemap__tile:not(.treemap__tile--aggregated) .treemap__tile-ticker {
+    display: none;
+  }
+}
+.treemap__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin: 10px 0 0;
+  padding: 0;
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+.treemap__legend-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.treemap__legend-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex: 0 0 auto;
+}
+.treemap__legend-weight {
+  color: var(--fg);
+  font-weight: 600;
+}
 .return-chart { margin: 0 0 24px; }
 .return-chart__plot { position: relative; }
 .return-chart svg { width: 100%; height: auto; display: block; }
@@ -1486,20 +1892,34 @@ footer a { color: var(--accent-bench); }
      column 3. Historical rows simply leave column 3 empty. */
   .holding__stat:nth-child(2) { justify-self: center; }
   .holding__stat:nth-child(3) { justify-self: end; }
-  /* Trades table: shrink the cell padding and hide the company-name
-     column (the ticker uniquely identifies the security on its own)
-     so the remaining ticker / action / details / date / price
-     columns still fit on a phone width without horizontal scrolling.
-     A second cut at ``480px`` (further down) also drops the action
-     pill once even the tightened 5-column layout starts overflowing,
-     leaving ticker / details / date / price for the narrowest
-     phones. The wrapping ``.trades__wrap`` remains the fallback for
-     anything that still can't fit. */
+  /* On the desktop vertical stack the Return / IRR rows have the
+     full width of the stats column, so the renderer keeps the
+     ``.X`` decimal even when the integer part reaches three
+     figures (``217.4%`` reads as one number). Reflowing into the
+     mobile 3-column row makes that same ``.4`` crowd the
+     neighbouring Weight value, and the original ``_fmt_pct``
+     truncation to ``217%`` reads tidier. ``build_holding_card``
+     wraps the decimal tail in ``.holding__decimal`` only when the
+     value reaches the 100 threshold; the rule below hides that
+     wrapper at the breakpoint without touching values under 100
+     (where the wrapper is never emitted in the first place). */
+  .holding__decimal { display: none; }
+  /* Trades table: shrink the cell padding so the surviving columns
+     still fit a phone-width without horizontal scrolling. Column
+     visibility itself is handled entirely by the ``@container
+     trades (...)`` rules further up -- the wrap is a named
+     inline-size container, so the Company column drops at ~600px
+     wrap width (which lands around viewport 640 once the body's
+     32px horizontal padding is taken into account) and the Action
+     column drops at ~430px wrap width (around viewport 460). The
+     mobile media-query block here covers only the things that
+     depend on viewport rather than container width: tighter cell
+     padding, a slightly smaller table font, and the badge tweaks
+     below that flatten the pill's vertical rhythm to match the
+     denser surrounding type. */
   .trades { font-size: 0.875rem; }
   .trades thead th { padding: 8px 8px; font-size: 0.6875rem; }
   .trades tbody td { padding: 8px 8px; }
-  .trades__col--name,
-  .trades__cell--name { display: none; }
   .trade__badge {
     width: 7em;
     padding: 2px 0;
@@ -1542,6 +1962,18 @@ footer a { color: var(--accent-bench); }
   }
   .bars__value { grid-area: value; }
   .bars__track { grid-area: bar; }
+  /* Treemap: reflow to a taller, narrower aspect on phones so the
+     smaller tiles stay tall enough to fit the ticker label. The
+     logos hide on the smallest screens (handled in the 380px
+     block further down); legend chips wrap onto their own row
+     naturally already so no override is needed there. The ticker
+     / weight font sizes are deliberately *not* pinned here -- the
+     container-query-based ``clamp(...)`` rules on those labels
+     already scale them with the tile's actual rendered
+     dimensions, which shrink on the narrower mobile canvas, so
+     a fixed override would just clamp them to a less-fit value. */
+  .treemap__canvas { aspect-ratio: 4 / 3; }
+  .treemap__tile-inner { padding: 4px 5px; gap: 3px; }
   footer { font-size: 0.8125rem; margin-top: 20px; padding-top: 8px; }
 }
 /* Below ~540px the JG vs benchmark delta line "JG vs S&P 500: +6.7
@@ -1554,30 +1986,6 @@ footer a { color: var(--accent-bench); }
   .returns-compare__delta-prefix,
   .returns-compare__delta-metric { flex: 1 0 100%; }
   .returns-compare__delta-sep { display: none; }
-}
-/* Below ~480px the 5-column trades layout left over after the 540px
-   ``.trades__cell--name`` cut still overflows on common phone widths
-   (iPhone SE 375px, iPhone 14/15 393px, iPhone 14/15 Pro Max 430px,
-   plus the typical 360-412px Android portrait range). The ``Action``
-   column is the next-biggest fixed-width consumer after the company
-   name -- the BUY / SELL pill is locked to ``7em`` so both labels
-   render at byte-for-byte identical widths, which makes it the
-   single widest "decorative" column in the table.
-   
-   Hide it here so ticker / details / date / price fit a phone width
-   without horizontal scrolling. The direction information the pill
-   carried is still encoded redundantly in the adjacent ``Details``
-   column: ``Initiated`` / ``Divested`` spell the lifecycle event
-   directly, and the magnitude rows ride ``value--positive`` /
-   ``value--negative`` colouring with an explicit ``+`` / ``-`` sign
-   on the percent, so a reader can recover buy-vs-sell at a glance
-   without the badge. The trades-sort script's ``freezeColumns``
-   helper re-measures on viewport resize so the locked
-   ``table-layout: fixed`` pixel widths recompute to a 4-column
-   layout once this rule trips. */
-@media (max-width: 480px) {
-  .trades__col--action,
-  .trades__cell--action { display: none; }
 }
 @media (max-width: 380px) {
   body { padding: 16px 12px 28px; }
@@ -1605,4 +2013,12 @@ footer a { color: var(--accent-bench); }
      horizontal-scroll fallback. */
   .trades thead th { padding: 6px; }
   .trades tbody td { padding: 6px; }
+  /* Tighter inner padding on phone-portrait widths so the
+     equal-area logo / ticker / percent stack still has room to
+     breathe inside the smallest tiles. The per-tile container
+     query handles logo-vs-ticker visibility on its own (a tile
+     too narrow for the logo box drops to the ticker symbol
+     automatically), so no display: none belt-and-braces is
+     needed at this viewport any more. */
+  .treemap__tile-inner { padding: 3px 4px; }
 }
