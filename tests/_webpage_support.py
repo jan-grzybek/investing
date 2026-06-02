@@ -22,6 +22,7 @@ def _holding(
     is_current=True,
     weight=10.0,
     periods=None,
+    website="https://www.alpha.example",
 ):
     return {
         "ticker": ticker,
@@ -34,6 +35,12 @@ def _holding(
         "periods": periods or [{"start": datetime(2024, 1, 1), "end": None}],
         "latest_buy": datetime(2024, 1, 1),
         "latest_sell": None,
+        # Click target wired onto the capsule's logo wrapper. The
+        # production summary path fills this from yfinance via
+        # ``Holding.resolve_company_url``; tests pin a deterministic
+        # value so assertions on the rendered ``href`` don't depend
+        # on the live ``info`` payload.
+        "website": website,
     }
 
 

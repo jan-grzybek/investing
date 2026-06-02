@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import bisect
 import math
+import urllib.parse
 from datetime import datetime
 
 import numpy as np
@@ -30,6 +31,47 @@ DAYS_YEAR = 365.2425
 # the XIRR can blow up to silly annualised rates. Anything above this
 # sentinel is rendered as "TBA" rather than a misleading headline.
 CAGR_TBA_THRESHOLD = math.nextafter(1_000_000, 0)
+
+
+def google_search_url(query: str) -> str:
+    """Build a ``https://www.google.com/search?q=...`` URL for ``query``.
+
+    Centralised so the per-holding logo link (when neither the issuer
+    ``website`` nor the ``irWebsite`` field is set on the upstream
+    yfinance ``info`` payload) and the renderer's safety fallback
+    (when a synthetic test / preview dict doesn't carry a ``website``
+    key) reach for the same query format. Falls back to the Google
+    homepage if ``query`` is blank so the rendered ``href`` is never
+    an empty string.
+    """
+    cleaned = query.strip()
+    if not cleaned:
+        return "https://www.google.com/"
+    return "https://www.google.com/search?q=" + urllib.parse.quote_plus(cleaned)
+
+
+def resolve_company_url(info: dict) -> str:
+    """Pick the best company URL out of a yfinance ``info`` payload.
+
+    Tries the issuer's own ``website`` first (the standard
+    ``assetProfile`` field upstream), then ``irWebsite`` (Yahoo's
+    investor-relations sibling field; present on some equities when
+    the IR microsite differs from the marketing site), then falls
+    back to a Google search keyed on the longest available
+    descriptor (``longName`` -> ``shortName`` -> ``symbol``). Never
+    returns an empty string -- the renderer wraps the logo ``<img>``
+    in an ``<a href>`` and an empty ``href`` would make the wrapper
+    silently swallow clicks instead of routing them anywhere
+    actionable.
+    """
+    for key in ("website", "irWebsite"):
+        value = info.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    descriptor = (
+        info.get("longName") or info.get("shortName") or info.get("symbol") or ""
+    )
+    return google_search_url(descriptor)
 
 
 def _xirr(
@@ -670,4 +712,11 @@ class Holding:
             "periods": list(reversed(self._periods)),
             "latest_buy": self._inflows[-1]["date"],
             "latest_sell": self._outflows[-1]["date"] if self._outflows else None,
+            # Click target for the capsule's logo wrapper: the issuer's
+            # own ``website`` when yfinance has it, ``irWebsite`` when
+            # it doesn't, and a Google search on the company name as
+            # the universal last-ditch fallback. Resolved once at
+            # summary time so the renderer doesn't have to reach back
+            # into the live ``info`` cache.
+            "website": resolve_company_url(self._info),
         }

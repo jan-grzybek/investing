@@ -97,6 +97,12 @@ HoldingSummary = TypedDict(
         "periods": list[HoldingPeriod],
         "latest_buy": datetime,
         "latest_sell": datetime | None,
+        # Click target wired onto the capsule's logo wrapper:
+        # ``Holding.resolve_company_url`` fills it from the
+        # upstream yfinance ``website`` / ``irWebsite`` fields with a
+        # Google-search-on-name fallback so the rendered ``href`` is
+        # always a non-empty URL.
+        "website": str,
     },
     total=False,
 )

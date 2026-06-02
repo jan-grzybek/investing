@@ -403,6 +403,44 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
   object-fit: contain;
   justify-self: center;
 }
+/* The capsule's logo is wrapped in an ``<a class="holding__logo-link">``
+   that points at the issuer's own website (or its IR site /
+   a Google-search-on-name fallback when yfinance has no website
+   on file). The wrapper is the actual grid item now, so it
+   inherits the cell sizing the bare ``<img>`` used to carry --
+   the inner ``<img>`` stays at ``width: 100%`` so it fills the
+   wrapper without stretching past it. ``display: flex`` centers
+   the image vertically inside the cell on desktop (where the
+   landscape 88x64 box is taller than most wordmarks render).
+   Keep the link visually identical to the legacy bare-image
+   layout (no underline, no hand cursor on the image itself --
+   the pointer cursor is the affordance) and only light up on
+   hover/focus so a sighted reader can tell the logo is now
+   actionable. The same touch-device gate ``.ticker__link`` and
+   ``.bars__row--link`` use is replicated here so a tap on a phone
+   doesn't latch a hover state after the finger lifts. */
+.holding__logo-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  max-width: 88px;
+  max-height: 64px;
+  justify-self: center;
+  border-radius: 6px;
+  text-decoration: none;
+  cursor: pointer;
+  transition: opacity 0.15s ease, outline-color 0.15s ease;
+}
+.holding__logo-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
+@media (hover: hover) {
+  .holding__logo-link:hover {
+    opacity: 0.78;
+  }
+}
 .holding__body { min-width: 0; }
 .holding__title {
   font-size: 1.0625rem;
@@ -1392,10 +1430,20 @@ footer a { color: var(--accent-bench); }
     padding: 14px;
     scroll-margin-top: 100px;
   }
-  .holding__logo {
-    grid-area: logo;
+  .holding__logo,
+  .holding__logo-link {
     max-width: 56px;
     max-height: 56px;
+  }
+  /* On mobile the capsule switches to a named-areas grid; either
+     the wrapper ``<a class="holding__logo-link">`` (when the
+     capsule has a website URL wired in) or the bare ``<img
+     class="holding__logo">`` (the safety-net path when no URL is
+     available) ends up as the actual first grid child, so the
+     ``logo`` area assignment is replicated on both selectors. */
+  .holding__logo,
+  .holding__logo-link {
+    grid-area: logo;
     align-self: center;
   }
   .holding__body { grid-area: body; }
@@ -1546,7 +1594,8 @@ footer a { color: var(--accent-bench); }
     gap: 10px 12px;
     padding: 12px;
   }
-  .holding__logo { max-width: 44px; max-height: 44px; }
+  .holding__logo,
+  .holding__logo-link { max-width: 44px; max-height: 44px; }
   .holding__title { font-size: 0.9375rem; }
   .holding__stats { font-size: 0.875rem; gap: 6px 10px; }
   /* Phone-portrait widths shrink the trades table padding further

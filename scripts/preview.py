@@ -112,7 +112,14 @@ def _ease_history(
 
 
 def _holding(
-    ticker: str, name: str, tsr: float, cagr: float, weight: float, period_start: datetime
+    ticker: str,
+    name: str,
+    tsr: float,
+    cagr: float,
+    weight: float,
+    period_start: datetime,
+    *,
+    website: str | None = None,
 ) -> dict:
     return {
         "ticker": ticker,
@@ -123,6 +130,13 @@ def _holding(
         "current_weight%": weight,
         "current_value_usd": weight * 1000,
         "periods": [{"start": period_start, "end": None}],
+        # Click target for the capsule logo. The production path
+        # fills this from yfinance's ``website`` / ``irWebsite`` fields
+        # (with a Google-search fallback in ``resolve_company_url``);
+        # the preview hard-codes plausible issuer URLs so a developer
+        # can click through and verify the wrapper navigates as
+        # expected.
+        "website": website,
     }
 
 
@@ -160,15 +174,47 @@ def _build_dataset() -> dict:
     # have no corresponding OPEN trade in the log (ADBE, AMAT, SPGI,
     # META, UNH) keep their own plausible "owned since" dates.
     current = [
-        _holding("NMS:NVDA", "NVIDIA Corporation", 217.4, 64.2, 21.4, datetime(2024, 8, 14)),
-        _holding("NMS:GOOGL", "Alphabet Inc.", 41.2, 18.6, 13.7, datetime(2025, 9, 1)),
-        _holding("NMS:META", "Meta Platforms, Inc.", 156.8, 47.2, 11.5, datetime(2023, 1, 12)),
-        _holding("NMS:ADBE", "Adobe Inc.", 28.4, 12.7, 9.1, datetime(2023, 4, 5)),
-        _holding("NMS:AMAT", "Applied Materials, Inc.", 62.3, 22.4, 7.9, datetime(2023, 11, 9)),
-        _holding("NMS:LRCX", "Lam Research Corporation", 74.6, 26.8, 6.4, datetime(2025, 5, 15)),
-        _holding("NYQ:SPGI", "S&P Global Inc.", 34.1, 14.2, 6.0, datetime(2023, 9, 18)),
-        _holding("NYQ:UNH", "UnitedHealth Group Inc.", -11.8, -5.1, 4.7, datetime(2024, 3, 17)),
-        _holding("NYQ:CRM", "Salesforce, Inc.", 18.7, 9.4, 4.1, datetime(2026, 1, 15)),
+        _holding(
+            "NMS:NVDA", "NVIDIA Corporation", 217.4, 64.2, 21.4,
+            datetime(2024, 8, 14), website="https://www.nvidia.com",
+        ),
+        _holding(
+            "NMS:GOOGL", "Alphabet Inc.", 41.2, 18.6, 13.7,
+            datetime(2025, 9, 1), website="https://www.abc.xyz",
+        ),
+        _holding(
+            "NMS:META", "Meta Platforms, Inc.", 156.8, 47.2, 11.5,
+            datetime(2023, 1, 12), website="https://investor.atmeta.com",
+        ),
+        _holding(
+            "NMS:ADBE", "Adobe Inc.", 28.4, 12.7, 9.1,
+            datetime(2023, 4, 5), website="https://www.adobe.com",
+        ),
+        _holding(
+            "NMS:AMAT", "Applied Materials, Inc.", 62.3, 22.4, 7.9,
+            datetime(2023, 11, 9), website="https://www.appliedmaterials.com",
+        ),
+        _holding(
+            "NMS:LRCX", "Lam Research Corporation", 74.6, 26.8, 6.4,
+            datetime(2025, 5, 15), website="https://www.lamresearch.com",
+        ),
+        _holding(
+            "NYQ:SPGI", "S&P Global Inc.", 34.1, 14.2, 6.0,
+            datetime(2023, 9, 18), website="https://www.spglobal.com",
+        ),
+        _holding(
+            "NYQ:UNH", "UnitedHealth Group Inc.", -11.8, -5.1, 4.7,
+            datetime(2024, 3, 17), website="https://www.unitedhealthgroup.com",
+        ),
+        _holding(
+            "NYQ:CRM", "Salesforce, Inc.", 18.7, 9.4, 4.1,
+            datetime(2026, 1, 15), website="https://www.salesforce.com",
+        ),
+        # SAP is left without an explicit ``website`` to exercise the
+        # renderer-side Google-search fallback path; the production
+        # ``Holding.summary`` would have filled this in already, but
+        # the preview keeps one row null so a developer can verify
+        # the safety-net branch by inspection.
         _holding("DUS:SSU.DU", "SAP SE", 46.9, 19.1, 3.5, datetime(2026, 4, 1)),
     ]
     historical = [
@@ -181,6 +227,7 @@ def _build_dataset() -> dict:
             "current_weight%": None,
             "current_value_usd": 0.0,
             "periods": [{"start": datetime(2022, 11, 4), "end": datetime(2025, 11, 20)}],
+            "website": "https://ir.baidu.com",
         },
         {
             "ticker": "NMS:FRSH",
@@ -198,6 +245,7 @@ def _build_dataset() -> dict:
                 {"start": datetime(2022, 8, 5), "end": datetime(2023, 6, 9)},
                 {"start": datetime(2025, 7, 22), "end": datetime(2025, 12, 30)},
             ],
+            "website": "https://www.freshworks.com",
         },
     ]
     allocation = {"Equities": 88.3, "Cash & Cash Equivalents": 11.7}

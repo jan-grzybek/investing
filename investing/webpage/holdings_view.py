@@ -21,7 +21,7 @@ from collections.abc import Callable, Iterable, Mapping
 
 from ..errors import InvariantError
 from ..formatting import _fmt_date, _fmt_pct, _format_sort_number, _value_class
-from ..holdings import CAGR_TBA_THRESHOLD
+from ..holdings import CAGR_TBA_THRESHOLD, google_search_url
 from .anchors import holding_anchor
 
 # Sort options surfaced above each holdings list. ``key`` is the
@@ -105,6 +105,8 @@ def build_card(
     note: str | None = None,
     card_id: str | None = None,
     data_attrs: Mapping[str, str] | None = None,
+    website_url: str | None = None,
+    company_name: str | None = None,
 ) -> str:
     """Render a capsule with logo, title/period(s)/note, and right-aligned stats.
 
@@ -117,6 +119,16 @@ def build_card(
     ``tsr`` / ``cagr`` keys to keep the JS contract stable; only
     the visible labels and the underlying formulas have moved
     to MoIC / XIRR semantics.
+
+    ``website_url`` is the click target wired onto the capsule's
+    logo wrapper. When provided, the ``<img>`` is wrapped in an
+    ``<a>`` so the company logo doubles as a navigation affordance
+    (typically the issuer's own site, falling back to investor
+    relations and then to a Google search via
+    :func:`investing.holdings.resolve_company_url`). ``company_name``
+    is the human-readable label used for the link's
+    ``aria-label`` / ``title`` so screen readers and tooltips
+    announce ``"Open <name> website"`` rather than the bare URL.
     """
     body_parts = [f'<h3 class="holding__title">{html.escape(title)}</h3>']
     if periods:
@@ -161,13 +173,38 @@ def build_card(
         data_attr_html = "".join(
             f' data-{key}="{html.escape(data_attrs[key])}"' for key in sorted(data_attrs)
         )
-    return (
-        f'<article class="holding"{id_attr}{data_attr_html}>'
-        # Below-the-fold logos load lazily; explicit dimensions
-        # reserve space and keep CLS at zero.
+    # Below-the-fold logos load lazily; explicit dimensions
+    # reserve space and keep CLS at zero.
+    img_html = (
         f'<img class="holding__logo" src="{html.escape(logo_url)}" '
         'alt="" loading="lazy" decoding="async" '
         'width="64" height="64">'
+    )
+    if website_url:
+        # Decorative ``alt=""`` on the inner ``<img>`` means the
+        # link itself needs an accessible name; ``aria-label`` /
+        # ``title`` carry that and a sighted-mouse tooltip without
+        # changing the existing visual layout. ``target="_blank"``
+        # opens the issuer site in a new tab so the reader doesn't
+        # lose their place on the portfolio page; ``rel="noopener
+        # noreferrer"`` blocks the target page from reaching back
+        # into ``window.opener`` (the OWASP "tabnabbing" mitigation
+        # the page already applies to the Yahoo Finance footer
+        # link).
+        label_source = company_name or "company"
+        label = f"Open {label_source} website"
+        logo_html = (
+            f'<a class="holding__logo-link" href="{html.escape(website_url)}" '
+            f'target="_blank" rel="noopener noreferrer" '
+            f'aria-label="{html.escape(label)}" title="{html.escape(label)}">'
+            f"{img_html}"
+            "</a>"
+        )
+    else:
+        logo_html = img_html
+    return (
+        f'<article class="holding"{id_attr}{data_attr_html}>'
+        f"{logo_html}"
         f'<div class="holding__body">{"".join(body_parts)}</div>'
         f'<dl class="holding__stats">{"".join(stat_parts)}</dl>'
         "</article>"
@@ -229,6 +266,15 @@ def build_holding_card(
     if holding["is_current"]:
         sort_attrs["sort-weight"] = _format_sort_number(holding["current_weight%"])
 
+    # ``Holding.summary`` always fills ``website`` (issuer site ->
+    # IR site -> Google search on company name); the ``.get`` +
+    # local fallback here is a renderer-side safety net for
+    # synthetic preview / test dicts that don't go through the
+    # production summary path. Either way the link's ``href`` is
+    # never empty so the wrapper always routes a click somewhere
+    # actionable.
+    website_url = holding.get("website") or google_search_url(holding["name"])
+
     return build_card(
         logo_url=logo_url_for(holding["ticker"]),
         title=f"{holding['ticker']} - {holding['name']}",
@@ -236,4 +282,6 @@ def build_holding_card(
         periods=periods,
         card_id=holding_anchor(holding["ticker"]),
         data_attrs=sort_attrs,
+        website_url=website_url,
+        company_name=holding["name"],
     )
