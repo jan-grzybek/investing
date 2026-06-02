@@ -48,3 +48,14 @@
 # Example -- delete the leading ``#`` and replace with a real entry
 # when adding a manual override.
 # "NMS:EXAMPLE" = "Technology"
+
+
+# Auto-detected: missing sector for 'DUS:SSU.DU'. Uncomment the
+# next line and replace "" with one of the canonical sectors
+# documented at the top of this file (e.g. "Technology").
+# "DUS:SSU.DU" = ""
+
+# Auto-detected: missing sector for 'NMS:FISV'. Uncomment the
+# next line and replace "" with one of the canonical sectors
+# documented at the top of this file (e.g. "Technology").
+# "NMS:FISV" = ""
