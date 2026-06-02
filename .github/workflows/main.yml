@@ -43,6 +43,14 @@ permissions:
   contents: read
   pages: write
   id-token: write
+  # Lets ``investing.maintenance_notifier`` file an issue when the
+  # build observes a ticker missing a sector or a logo. The
+  # ``GITHUB_TOKEN`` injected into the Update job below already
+  # carries the right scope as long as this permission is opted in
+  # at the workflow level; the notifier dedupes against existing
+  # issues (open OR closed) so it never re-files a hint the
+  # maintainer has already triaged.
+  issues: write
 
 concurrency:
     group: "pages"
@@ -119,6 +127,22 @@ jobs:
           # later debug step could ``cat`` into job logs.
           GSHEET_CREDS: ${{ secrets.GSHEET_CREDS }}
           GSHEET_ID: ${{ secrets.GSHEET_ID }}
+          # Opt the build into the GitHub-Issues maintenance notifier
+          # (see ``investing/maintenance_notifier.py``). The flag is
+          # required *and* the ``GITHUB_TOKEN`` / ``GITHUB_REPOSITORY``
+          # values below have to be present -- the notifier is a strict
+          # no-op when any prerequisite is missing, so a fork that
+          # doesn't want auto-filed issues can simply drop the env var.
+          INVESTING_NOTIFY_GITHUB: "1"
+          # ``GITHUB_TOKEN`` is workflow-scoped (the ``issues: write``
+          # permission opt-in at the top of this file is what gives it
+          # the right scope); ``GITHUB_REPOSITORY`` and
+          # ``GITHUB_API_URL`` are populated automatically by the
+          # Actions runtime but have to be threaded into the step's env
+          # explicitly so the Python process sees them.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_API_URL: ${{ github.api_url }}
         # ``python -m investing`` resolves to ``investing/__main__.py``
         # which invokes the leak-safe wrapper (``_run_main_safely``).
         # That wrapper silences both ``sys.stderr`` and the underlying

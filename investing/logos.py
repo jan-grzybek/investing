@@ -29,6 +29,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from .paths import _REPO_LOGOS_DIR, COURAGE_LOGO, LOGO_EXTENSIONS, LOGOS_ADDRESS
+from .sector_overrides import record_missing_logo
 
 # Per-request budget for a single HEAD probe (connect, read). Pages
 # responds in milliseconds when the file exists; on a stalled run we
@@ -377,5 +378,14 @@ class LogoCache:
             if response.status_code == 200:
                 self._cache[ticker] = url
                 return url
+        # Every probe came back missing (or the offline path's
+        # local-mirror lookup found nothing). Record the ticker as a
+        # maintenance hint so the build summary can prompt the
+        # maintainer to add a hand-curated logo file under ``logos/``
+        # before caching the courage placeholder -- the recorder is
+        # idempotent, but caching ``COURAGE_LOGO`` short-circuits the
+        # second call before it reaches this branch so the hint also
+        # fires at most once per ticker per build.
+        record_missing_logo(ticker)
         self._cache[ticker] = COURAGE_LOGO
         return COURAGE_LOGO

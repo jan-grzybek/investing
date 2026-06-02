@@ -17,6 +17,7 @@ from .errors import InvariantError
 from .formatting import _ts_to_datetime
 from .fx import FxRate, _fx_or_default
 from .market_data import _call_with_retry
+from .sector_overrides import resolve_sector
 from .trades import _BUY_CATEGORIES, TRADE_WINDOW_DAYS, Trade, _combine_trade_events
 from .types import HoldingPeriod, HoldingSummary, TradeEvent
 
@@ -721,11 +722,18 @@ class Holding:
             "website": resolve_company_url(self._info),
             # GICS-style sector tag for the equities treemap. yfinance
             # returns this on most listed equities ("Technology",
-            # "Healthcare", "Financial Services", ...). Pin the empty-
-            # /missing case to a stable sentinel so the renderer's
-            # sector bucketing stays deterministic across runs (the
-            # treemap groups tickers without a real sector under
-            # "Other" -- the empty string here gets mapped to that
-            # bucket downstream).
-            "sector": (self._info.get("sector") or "").strip(),
+            # "Healthcare", "Financial Services", ...). When yfinance
+            # has no value (rare; mostly exotic instruments / fresh
+            # listings), :func:`resolve_sector` consults the
+            # maintainer-curated ``sector_overrides.toml`` and falls
+            # back to an empty string. The renderer maps an empty
+            # string to the neutral ``"Other"`` bucket so the chart
+            # stays self-consistent even when a ticker is missing both
+            # an upstream sector and a manual override -- the missing
+            # entry is also recorded as a maintenance hint so the
+            # build summary prompts the maintainer to add an override.
+            "sector": resolve_sector(
+                f"{self._info['exchange']}:{self._info['symbol']}",
+                self._info.get("sector") or "",
+            ),
         }

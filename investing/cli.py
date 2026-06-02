@@ -23,6 +23,7 @@ from .clock import NowFn
 from .formatting import _fmt_pct, _format_duration
 from .fx import ExchangeRate, FxRate
 from .log import logger
+from .maintenance_notifier import notify_github
 from .performance import (
     apply_rollup,
     calc_twr,
@@ -30,6 +31,7 @@ from .performance import (
     get_benchmarks,
     get_holdings,
 )
+from .sector_overrides import MaintenanceHints, consume_hints, reset_hints
 from .sheets import pull_data as _pull_data
 from .types import (
     BenchmarkSummary,
@@ -97,12 +99,46 @@ def _configure_logging(level: int = logging.INFO) -> None:
     logger.propagate = False
 
 
+def _format_maintenance_hints(hints: MaintenanceHints) -> str:
+    """Render :class:`MaintenanceHints` into a one-line summary fragment.
+
+    Returns the empty string when the hints object has no entries so
+    the caller can splice the output into :func:`_print_summary`'s
+    line without an extra branch. Each non-empty category produces a
+    semicolon-separated chunk of ``"label: ticker, ticker, ..."``.
+
+    Ticker symbols are public (they appear in the rendered page
+    body, in ``logos/`` filenames, and in the sitemap entries) so
+    surfacing them through the curated build summary -- which
+    bypasses the leak-safe wrapper's stdout redaction via
+    :func:`emit_summary` -- does not breach the privacy contract the
+    rest of the build observes. The maintainer workflow this enables:
+    a fork's owner reads the CI log, sees ``Maintenance: ...``,
+    and lands a follow-up PR with the matching
+    ``sector_overrides.toml`` / ``logos/`` updates.
+    """
+    parts: list[str] = []
+    if hints.missing_sector:
+        parts.append("missing sectors: " + ", ".join(hints.missing_sector))
+    if hints.invalid_overrides:
+        invalid = ", ".join(
+            f"{t}={v!r}" for t, v in sorted(hints.invalid_overrides.items())
+        )
+        parts.append(f"invalid sector overrides: {invalid}")
+    if hints.missing_logos:
+        parts.append("missing logos: " + ", ".join(hints.missing_logos))
+    if not parts:
+        return ""
+    return " | ".join(parts)
+
+
 def _print_summary(
     total_return: TotalReturn,
     holdings: HoldingsRollup,
     benchmarks: list[BenchmarkSummary],
     *,
     now: NowFn = datetime.today,
+    maintenance: MaintenanceHints | None = None,
 ) -> None:
     """Emit a redacted one-line build summary on stdout.
 
@@ -153,6 +189,14 @@ def _print_summary(
     # callers) this falls through to ``sys.stdout`` so existing
     # ``capsys`` consumers continue to see the line.
     emit_summary(line)
+    if maintenance is not None and not maintenance.is_empty:
+        # Maintenance hints ride on a separate line so they only
+        # appear when there's something to fix and the existing
+        # "Build OK: ..." line stays diff-stable across clean runs.
+        # The body is composed entirely of ticker symbols (already
+        # public) and category labels, so it is safe to emit on the
+        # real stdout under the leak-safe wrapper.
+        emit_summary(f"Maintenance: {_format_maintenance_hints(maintenance)}\n")
 
 
 # Pure data-source signature: ``pull()`` returns the same triple as
@@ -210,6 +254,14 @@ def build_page(
     # against yfinance happens at most once per process.
     _fx: FxRate = fx if fx is not None else ExchangeRate()
 
+    # Maintenance hint registry is process-scoped, so a long-lived
+    # caller (e.g. the test suite, or a hypothetical future
+    # ``build_page`` invoked twice in one process) starts each run
+    # with a clean slate. The summary helper drains the registry at
+    # the very end of the build so any hints recorded between here
+    # and there are captured in the curated build summary line.
+    reset_hints()
+
     transactions, valuations, cash = _pull()
     holdings = get_holdings(transactions, fx=_fx, now=_now)
     rollup = compute_rollup(holdings, cash, fx=_fx)
@@ -217,7 +269,22 @@ def build_page(
     total_return = calc_twr(valuations, rollup.total_value_usd, now=_now)
     benchmarks = get_benchmarks(total_return["history"], fx=_fx, now=_now)
     _save(total_return, benchmarks, holdings, output_dir=output_dir)
-    _print_summary(total_return, holdings, benchmarks, now=_now)
+    # Drain the hint registry once and share the snapshot between the
+    # curated build summary (always-on, public stdout) and the
+    # GitHub-Issues notifier (opt-in via ``INVESTING_NOTIFY_GITHUB``).
+    # Draining twice would lose hints on the second consumer because
+    # ``consume_hints`` clears the underlying registry as a side
+    # effect; passing the same snapshot keeps the two outputs in
+    # lockstep without leaking the abstraction.
+    hints = consume_hints()
+    _print_summary(
+        total_return,
+        holdings,
+        benchmarks,
+        now=_now,
+        maintenance=hints,
+    )
+    notify_github(hints)
 
 
 def main() -> None:

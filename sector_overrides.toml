@@ -1,0 +1,39 @@
+# Manual sector overrides for tickers whose yfinance ``info["sector"]``
+# field is empty or missing.
+#
+# The treemap on the rendered page (see
+# ``investing/webpage/sector_treemap.py``) groups equity holdings by
+# their sector. yfinance returns a GICS-style sector for most listed
+# equities, but a handful of exotic instruments (some ADRs, recently
+# listed names whose Yahoo profile is not yet populated, certain ETFs
+# / closed-end funds) come back with a blank string. Those tickers
+# would otherwise be bucketed into the renderer's neutral "Other"
+# tile -- adding an entry below pins them to a canonical sector so
+# they share a swatch with their real peers.
+#
+# Valid sector values: must match one of the canonical GICS-style
+# labels the treemap palette recognises. Anything else falls back to
+# "Other" and the build emits a maintenance hint flagging the
+# invalid value so the typo is easy to spot.
+#
+#   - "Basic Materials"
+#   - "Communication Services"
+#   - "Consumer Cyclical"
+#   - "Consumer Defensive"
+#   - "Energy"
+#   - "Financial Services"
+#   - "Healthcare"
+#   - "Industrials"
+#   - "Real Estate"
+#   - "Technology"
+#   - "Utilities"
+#
+# Ticker keys use the same ``EXCHANGE:SYMBOL`` shape the rest of the
+# pipeline uses (e.g. ``"NMS:AAPL"``, ``"NYQ:UNH"``, ``"DUS:SSU.DU"``).
+# A ticker that DOES have a yfinance sector ignores any override
+# below: yfinance stays the source of truth whenever it has data.
+
+[sectors]
+# Example -- delete the leading ``#`` and replace with a real entry
+# when adding a manual override.
+# "NMS:EXAMPLE" = "Technology"

@@ -29,6 +29,7 @@ __all__ = [
     "SOCIAL_IMAGE",
     "_REPO_LOGOS_DIR",
     "_REPO_LOGOS_SOURCE_DIR",
+    "_SECTOR_OVERRIDES_PATH",
     "_read_asset",
 ]
 
@@ -116,6 +117,19 @@ _REPO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 #     and the OG image pipeline read from here.
 _REPO_LOGOS_SOURCE_DIR = os.path.join(_REPO_DIR, "logos")
 _REPO_LOGOS_DIR = os.path.join(_REPO_LOGOS_SOURCE_DIR, "tight")
+
+
+# Path to the maintainer-curated TOML mapping that overrides
+# yfinance's ``info["sector"]`` field for tickers where the upstream
+# value is empty or missing. See
+# :mod:`investing.sector_overrides` for the loader / schema / fallback
+# semantics; the file itself is hand-edited and ships as part of the
+# repo (the production build reads it from the same checkout it
+# renders against). Kept here rather than inlined into
+# ``sector_overrides.py`` so the repo-root path lives next to the
+# other repo-relative constants and a fork that wants to repoint the
+# data only has to edit one module.
+_SECTOR_OVERRIDES_PATH = os.path.join(_REPO_DIR, "sector_overrides.toml")
 
 
 # Source-of-truth directory for the inline CSS / JS payloads embedded in

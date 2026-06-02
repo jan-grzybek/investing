@@ -353,7 +353,7 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
   outline: none;
 }
 /* Slow horizontal "stocks tape" of current-holdings logos. The track
-   contains two copies of the logo set so a 0 -> -50% translateX
+   contains two copies of the logo set so a 0 -> -50% translate3d
    keyframe loops seamlessly. The mask gradient fades both ends so
    logos enter and exit gracefully rather than popping at the edges. */
 .ticker {
@@ -373,8 +373,10 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
   gap: 40px;
   width: max-content;
   animation: ticker-scroll 60s linear infinite;
-  /* Keep the track on its own GPU compositor layer at all times.
-     Without this hint, Chrome only promotes the element while
+  /* Keep the track on its own GPU compositor layer at all times,
+     and force that layer into a 3D rendering context.
+
+     Without these hints, Chrome only promotes the element while
      ``animation-play-state`` is ``running``; the moment ``:hover``
      flips it to ``paused`` (or the cursor moves over a child link
      and triggers an opacity repaint), the layer is eligible for
@@ -382,11 +384,29 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
      cycle snaps the live ``translateX`` value to the nearest
      whole pixel, which the eye reads as the bar drifting / jumping
      a couple of pixels when the cursor enters, moves across, and
-     leaves the strip. Pinning the layer with ``will-change`` (and
-     a ``backface-visibility: hidden`` belt-and-braces hint for
-     older WebKit) keeps the transform in floating-point GPU
-     storage so hover-triggered descendant repaints can't rebase
-     it. */
+     leaves the strip. ``will-change`` (and a ``backface-visibility:
+     hidden`` belt-and-braces hint for older WebKit) keeps the
+     transform in floating-point GPU storage so hover-triggered
+     descendant repaints can't rebase it.
+
+     The static ``translate3d(0, 0, 0)`` here is also load-bearing
+     and pairs with the matching 3D form in the ``ticker-scroll``
+     keyframes below. ``will-change`` on its own is *advisory*: it
+     tells the engine the property is going to animate but doesn't
+     guarantee a 3D-accelerated layer survives every paint cycle.
+     The user-reported "the bar sometimes blinks / shifts / resets
+     position" was the visible symptom: when the sticky header
+     above re-rasterised its ``backdrop-filter`` (iOS Safari does
+     this on scroll while the URL bar collapses), or the tab came
+     back from background, the compositor would tear down the 2D
+     ``translateX`` layer and rebuild it from the current keyframe
+     interpolation -- which on iOS Safari snaps to a wall-clock-
+     adjusted position and reads as a jump. Forcing a 3D matrix on
+     the element (both in its baseline and in every keyframe step)
+     pins it as a 3D-accelerated layer the compositor never
+     demotes, so the animation runs continuously through whatever
+     repaint storms happen in neighbouring layers. */
+  transform: translate3d(0, 0, 0);
   will-change: transform;
   backface-visibility: hidden;
 }
@@ -478,9 +498,19 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
 @media (hover: hover) {
   .ticker__link:hover .ticker__logo { opacity: 1; }
 }
+/* The 3D form (``translate3d`` rather than the equivalent
+   ``translateX``) is intentional and pairs with the static
+   ``transform: translate3d(0, 0, 0)`` on ``.ticker__track``: it
+   keeps the animated property in a 3D matrix the entire way
+   through the cycle so the compositor never has a frame on which
+   the layer collapses back to a 2D affine transform. See the
+   explanatory comment on ``.ticker__track`` for the symptoms a
+   2D transform produced (blink / shift / reset on iOS Safari
+   URL-bar collapse, sticky-header backdrop-filter rebuild, and
+   tab-visibility resume). */
 @keyframes ticker-scroll {
-  from { transform: translateX(0); }
-  to { transform: translateX(-50%); }
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(-50%, 0, 0); }
 }
 /* ``scroll-margin-top`` reserves space at the top of the viewport
    when an anchor (``#trades`` etc.) targets the section so the

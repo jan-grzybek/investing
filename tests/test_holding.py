@@ -32,19 +32,30 @@ def _make_ticker(
     symbol: str = "TST",
     exchange: str = "NMS",
     history=None,
+    sector: str | None = None,
 ):
     from unittest.mock import MagicMock
 
     import pandas as pd
 
     mock = MagicMock()
-    mock.get_info.return_value = {
+    info: dict = {
         "currency": currency,
         "exchange": exchange,
         "symbol": symbol,
         "longName": long_name,
         "regularMarketPrice": price,
     }
+    # Only set ``sector`` when the test cares about it -- leaving the
+    # key absent exercises the same ``info.get("sector") or ""`` path
+    # the production summary takes when yfinance omits the field
+    # entirely (the empty-sector + maintenance-hint branch). Tests
+    # that want to pin a real sector pass ``sector="Technology"``;
+    # tests that want to exercise the missing-sector pin pass
+    # ``sector=""`` (or leave it unset).
+    if sector is not None:
+        info["sector"] = sector
+    mock.get_info.return_value = info
     mock.splits = splits or {}
     mock.get_dividends.return_value = dividends or {}
     # ``history`` is a ``{datetime: close}`` dict that mirrors the
@@ -437,3 +448,69 @@ class TestSummary:
         # positive p.a.
         assert summary["cagr%"] > 10.0
         assert summary["cagr%"] < 50.0
+
+
+class TestSummarySector:
+    """``Holding.summary`` routes the upstream ``info["sector"]`` field
+    through :func:`investing.sector_overrides.resolve_sector` so a
+    blank value can be repaired via the maintainer-curated
+    ``sector_overrides.toml`` file before reaching the renderer. The
+    tests below pin both halves of that contract -- the value passed
+    through to the dict and the maintenance hint recorded when no
+    repair is available.
+    """
+
+    def test_summary_passes_through_yfinance_sector(
+        self, install_ticker, stub_exchange_rate, freeze_today
+    ):
+        from investing.sector_overrides import consume_hints
+
+        freeze_today(datetime(2025, 1, 1))
+        install_ticker(_make_ticker(price=200.0, sector="Technology"))
+        holding = Holding("TST", fx=stub_exchange_rate)
+        holding.buy(Trade(datetime(2024, 1, 1), "TST", 10, 100.0, "BUY"))
+
+        summary = holding.summary()
+        assert summary["sector"] == "Technology"
+        # Sector was present upstream so no hint should fire -- the
+        # maintainer registry exists to flag *missing* data, not
+        # confirmed-good data.
+        assert consume_hints().is_empty
+
+    def test_summary_records_hint_when_sector_missing(
+        self, install_ticker, stub_exchange_rate, freeze_today
+    ):
+        from investing.sector_overrides import consume_hints
+
+        freeze_today(datetime(2025, 1, 1))
+        # ``sector=""`` explicitly mimics yfinance returning a blank
+        # value (some ADRs / brand-new listings behave this way). The
+        # production override file at the repo root has no entry for
+        # the synthetic ``NMS:TST`` so the resolver falls through to
+        # the empty + hint branch.
+        install_ticker(_make_ticker(price=200.0, sector=""))
+        holding = Holding("TST", fx=stub_exchange_rate)
+        holding.buy(Trade(datetime(2024, 1, 1), "TST", 10, 100.0, "BUY"))
+
+        summary = holding.summary()
+        assert summary["sector"] == ""
+        hints = consume_hints()
+        assert hints.missing_sector == ["NMS:TST"]
+
+    def test_summary_records_hint_when_sector_field_absent(
+        self, install_ticker, stub_exchange_rate, freeze_today
+    ):
+        # Same behaviour when ``info`` doesn't carry the ``sector``
+        # key at all -- ``get("sector") or ""`` produces the empty
+        # string and the recorder fires identically. Covers the
+        # common case where a legacy mock just doesn't set the
+        # field rather than explicitly pinning it to ``""``.
+        from investing.sector_overrides import consume_hints
+
+        freeze_today(datetime(2025, 1, 1))
+        install_ticker(_make_ticker(price=200.0))  # no sector kwarg
+        holding = Holding("TST", fx=stub_exchange_rate)
+        holding.buy(Trade(datetime(2024, 1, 1), "TST", 10, 100.0, "BUY"))
+
+        holding.summary()
+        assert consume_hints().missing_sector == ["NMS:TST"]

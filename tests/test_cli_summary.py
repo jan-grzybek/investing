@@ -12,7 +12,8 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from investing.cli import _print_summary
+from investing.cli import _format_maintenance_hints, _print_summary
+from investing.sector_overrides import MaintenanceHints
 
 
 def _total_return(twr_pct=12.3, cagr_pct=5.5, start=datetime(2024, 1, 1)):
@@ -82,3 +83,68 @@ def test_handles_missing_keys_gracefully(capsys):
     assert "TWR 1.0%" in out
     assert "CAGR 0.5%" in out
     assert "0 current / 0 historical" in out
+
+
+class TestMaintenanceLine:
+    """The build summary emits an optional ``Maintenance: ...`` line
+    when the per-build hint registry collected any actionable
+    findings (missing sectors, invalid overrides, missing logos).
+    The line rides on the same curated-stdout channel as the main
+    summary so it survives the leak-safe wrapper's redaction; it is
+    composed exclusively of ticker symbols (already public) and
+    static category labels.
+    """
+
+    def test_no_maintenance_line_when_hints_empty(self, capsys):
+        _print_summary(
+            _total_return(),
+            _holdings(),
+            benchmarks=[],
+            maintenance=MaintenanceHints(),
+        )
+        out = capsys.readouterr().out
+        assert "Maintenance:" not in out
+
+    def test_no_maintenance_line_when_argument_omitted(self, capsys):
+        # The kwarg defaults to ``None`` so existing callers (every
+        # legacy test in this file) don't have to thread anything
+        # through; the line is also suppressed in that case.
+        _print_summary(_total_return(), _holdings(), benchmarks=[])
+        out = capsys.readouterr().out
+        assert "Maintenance:" not in out
+
+    def test_maintenance_line_lists_missing_sectors(self, capsys):
+        hints = MaintenanceHints(missing_sector=["NMS:AAA", "NYQ:BBB"])
+        _print_summary(_total_return(), _holdings(), [], maintenance=hints)
+        out = capsys.readouterr().out
+        assert "Maintenance:" in out
+        assert "missing sectors: NMS:AAA, NYQ:BBB" in out
+
+    def test_maintenance_line_lists_missing_logos(self, capsys):
+        hints = MaintenanceHints(missing_logos=["NMS:XYZ"])
+        _print_summary(_total_return(), _holdings(), [], maintenance=hints)
+        out = capsys.readouterr().out
+        assert "missing logos: NMS:XYZ" in out
+
+    def test_maintenance_line_lists_invalid_overrides(self, capsys):
+        hints = MaintenanceHints(invalid_overrides={"NMS:AAA": "Tech"})
+        _print_summary(_total_return(), _holdings(), [], maintenance=hints)
+        out = capsys.readouterr().out
+        assert "invalid sector overrides:" in out
+        assert "NMS:AAA='Tech'" in out
+
+
+class TestFormatMaintenanceHints:
+    def test_empty_hints_returns_empty_string(self):
+        assert _format_maintenance_hints(MaintenanceHints()) == ""
+
+    def test_categories_joined_with_pipe_separator(self):
+        hints = MaintenanceHints(
+            missing_sector=["NMS:AAA"],
+            missing_logos=["NMS:BBB"],
+        )
+        out = _format_maintenance_hints(hints)
+        assert "missing sectors: NMS:AAA" in out
+        assert "missing logos: NMS:BBB" in out
+        # Two categories -> one pipe between them.
+        assert out.count(" | ") == 1

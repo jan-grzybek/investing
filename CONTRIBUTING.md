@@ -23,6 +23,8 @@ deploy workflow runs the same command. New code should
 | `investing/sheets.py` | Google Sheets ingestion + row schema validators. |
 | `investing/performance.py` | TWR / allocations / top-10 / benchmarks. |
 | `investing/logos.py` | `LogoCache` (session + retry + negative cache) for logo URL resolution. |
+| `investing/sector_overrides.py` | Loader + resolver for `sector_overrides.toml` + per-build maintenance-hint registry (missing sectors, missing logos, invalid overrides). |
+| `investing/maintenance_notifier.py` | Optional GitHub-Issues sync that opens an issue per maintenance hint (deduped against open AND closed issues so a closed-without-fix hint stays quiet). |
 | `investing/pchip.py` | NumPy-only PCHIP interpolator (replaces SciPy). |
 | `investing/safehtml.py` | `SafeHtml` / `escape` / `render_template` HTML safety wrapper. |
 | `investing/assets.py` | Loads `assets/page.css` + `assets/*.js` at import time. |
@@ -88,6 +90,86 @@ test(webpage): split monolithic test_webpage.py into 3 focused files
 Common type prefixes: `feat`, `fix`, `refactor`, `chore`, `docs`,
 `test`, `ci`, `style`. Use a scope when it disambiguates (the module
 you touched works well). Keep the subject under ~72 characters.
+
+## Maintenance hints
+
+Two failure modes of the data pipeline degrade gracefully but
+benefit from manual follow-up:
+
+* **Missing sector.** yfinance returns a GICS-style sector for most
+  listed equities, but a handful of exotic instruments (some ADRs,
+  fresh listings, certain ETFs / closed-end funds) come back with a
+  blank value. Tickers without a sector are bucketed into the
+  treemap's neutral `Other` tile.
+* **Missing logo.** `LogoCache` probes the repo's `logos/` mirror
+  and (in the offline path) GitHub Pages for a hand-curated SVG /
+  PNG / JPG per ticker. When none is on file the renderer falls
+  back to the `courage.png` placeholder.
+
+The build records both kinds of gap as **maintenance hints** and
+surfaces them on a dedicated line of the curated stdout summary so
+the GitHub Actions log (and any local `python -m investing` run)
+reads e.g.:
+
+```
+Build OK: TWR 48.4% / CAGR 10.5% over 4 years; 10 current / 2 historical holdings.
+Maintenance: missing sectors: NMS:XYZ | missing logos: NMS:NEW
+```
+
+To clear a hint:
+
+* **Missing sector.** Add an entry to
+  [`sector_overrides.toml`](sector_overrides.toml) under
+  `[sectors]`, mapping the ticker to one of the canonical
+  GICS-style sectors documented at the top of that file (also
+  listed in `investing.sector_overrides.KNOWN_SECTORS`). A bad
+  sector value -- typo, removed-from-GICS, etc. -- is rejected at
+  load time and re-surfaced as an `invalid sector overrides: ...`
+  hint, so the typo is easy to spot on the next build.
+* **Missing logo.** Drop a hand-curated SVG (preferred), PNG or
+  JPG into `logos/<EXCHANGE>:<SYMBOL>.<ext>` -- the file naming
+  matches the rest of the directory. The `tighten-logos`
+  pre-commit hook will regenerate the served `logos/tight/`
+  mirror on commit; the same `LogoCache` local-first probe picks
+  the new file up on the next build.
+
+### GitHub-Issues notifier
+
+The production deploy workflow (`.github/workflows/main.yml`) also
+opens a labelled GitHub issue for every maintenance hint, so the
+maintainer gets the same notification via email / push that they
+would for any other issue activity. Implementation lives in
+[`investing/maintenance_notifier.py`](investing/maintenance_notifier.py).
+
+Lifecycle:
+
+* The notifier is opt-in via `INVESTING_NOTIFY_GITHUB=1` and a
+  workflow-scoped `GITHUB_TOKEN` (the production workflow sets
+  both; forks default to a silent no-op).
+* Each hint is mapped to an issue with three labels:
+  `maintenance`, a category label (`sector` / `logo` /
+  `invalid-override`) and a `ticker:<TICKER>` dedupe label.
+* Before opening, the notifier queries `state=all` for matching
+  issues. Any match -- **open or closed** -- suppresses creation.
+  This is the "once if ignored" guarantee: closing an issue
+  without action permanently silences future notifications for
+  that ticker / category pair.
+* Every API call is individually defensive (network errors and
+  non-200 responses log a warning and skip), so a flaky GitHub
+  API never blocks the deploy. The dedup pass on the next build
+  re-attempts cleanly.
+
+To clear an auto-filed issue:
+
+1. Land the fix (TOML entry or logo file).
+2. Close the issue manually -- the notifier won't reopen it, and
+   the next build's hint registry will be empty for that ticker
+   so the wider build summary also stops mentioning it.
+
+To suppress an issue for a ticker that will never get a manual
+override (e.g. yfinance is expected to populate the field soon,
+or no brand-issued logo exists for a placeholder ticker): just
+close the issue without action. The dedup pass keeps it closed.
 
 ## Style
 

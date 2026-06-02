@@ -140,3 +140,29 @@ def chdir_tmp(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     os.makedirs(tmp_path / "assets", exist_ok=True)
     return tmp_path
+
+
+@pytest.fixture(autouse=True)
+def _reset_sector_override_state():
+    """Clear ``investing.sector_overrides`` module-level registries
+    between tests.
+
+    The maintenance-hint registry and the TOML overrides cache both
+    live as module-level state in :mod:`investing.sector_overrides`
+    -- the registry by design (so the CLI can drain it once per
+    build) and the cache as a perf optimisation (the TOML file is
+    parsed at most once per process). Tests that touch either path
+    indirectly (every ``Holding.summary`` call, every ``LogoCache``
+    miss) would otherwise see hints from sibling tests bleed into
+    their own assertions. Resetting in a setup-phase autouse fixture
+    keeps each test case in a clean slate without forcing every test
+    that exercises the side effect to remember to do the cleanup
+    itself.
+    """
+    from investing.sector_overrides import _clear_overrides_cache, reset_hints
+
+    reset_hints()
+    _clear_overrides_cache()
+    yield
+    reset_hints()
+    _clear_overrides_cache()

@@ -92,6 +92,53 @@ class TestGetLogoUrl:
         assert [c.rsplit(".", 1)[1] for c in calls] == ["svg", "png"]
 
 
+class TestLogoCacheMaintenanceHints:
+    """The renderer falls back to ``COURAGE_LOGO`` whenever a ticker's
+    logo can't be resolved through any of the configured probes. Each
+    such fallback should also record a maintenance hint so the
+    curated build summary can prompt the maintainer to add the
+    missing file under ``logos/``. These tests pin that contract at
+    the cache boundary so the wiring stays intact across refactors
+    of either the cache or the hint module.
+    """
+
+    def test_fallback_to_courage_records_hint(self):
+        from investing.sector_overrides import consume_hints
+
+        session, _ = _make_session_stub(ok_extensions=())
+        cache = LogoCache(session=session, local_dir=None)
+        url = cache("NMS:NOLOGO")
+        assert url == COURAGE_LOGO
+        hints = consume_hints()
+        assert hints.missing_logos == ["NMS:NOLOGO"]
+
+    def test_successful_lookup_records_no_hint(self):
+        # A successful HEAD probe means a hand-curated logo IS on
+        # file (just not in the local mirror this cache instance
+        # checks); no maintenance action needed.
+        from investing.sector_overrides import consume_hints
+
+        session, _ = _make_session_stub(ok_extensions=(".svg",))
+        cache = LogoCache(session=session, local_dir=None)
+        cache("NMS:HASLOGO")
+        assert consume_hints().is_empty
+
+    def test_repeat_lookups_record_hint_once(self):
+        # The cache returns ``COURAGE_LOGO`` on the second call
+        # without re-probing the network; the hint registry should
+        # likewise stay at a single entry per ticker (it's set-based
+        # so a duplicate ``record`` would be absorbed silently
+        # anyway, but the cache short-circuit means the second call
+        # never even reaches the recorder).
+        from investing.sector_overrides import consume_hints
+
+        session, _ = _make_session_stub(ok_extensions=())
+        cache = LogoCache(session=session, local_dir=None)
+        cache("NMS:NOLOGO")
+        cache("NMS:NOLOGO")
+        assert consume_hints().missing_logos == ["NMS:NOLOGO"]
+
+
 class TestLogoCoverageRatio:
     """The treemap's equal-VISUAL-area sizing pass leans on
     :meth:`LogoCache.coverage_ratio` -- the rasterised fraction of a
