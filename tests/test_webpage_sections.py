@@ -1525,8 +1525,6 @@ class TestAddTrades:
         # both columns would stay visible at every viewport down to
         # the wrapper-scroll fallback. Assert they ship in the
         # served stylesheet.
-        import re
-
         from investing.assets import _PAGE_STYLES
         from tests._css_helpers import contains_at_rule
 
@@ -1557,8 +1555,6 @@ class TestAddTrades:
         # them within ~100px of each other would risk reintroducing
         # the perceived simultaneous-hide bug this test exists to
         # prevent.
-        import re
-
         from investing.assets import _PAGE_STYLES
 
         thresholds = [

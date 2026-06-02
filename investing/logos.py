@@ -172,9 +172,10 @@ def _parse_svg_aspect_ratio(svg_text: str) -> float | None:
                 w = float(parts[2])
                 h = float(parts[3])
             except ValueError:
-                w = h = 0.0
-            if w > 0 and h > 0:
-                return w / h
+                pass
+            else:
+                if w > 0 and h > 0:
+                    return w / h
     w_m = re.search(r"\bwidth\s*=\s*[\"']?([\d.]+)", svg_text)
     h_m = re.search(r"\bheight\s*=\s*[\"']?([\d.]+)", svg_text)
     if w_m and h_m:

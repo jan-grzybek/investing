@@ -169,7 +169,7 @@ class TestLogoCoverageRatio:
         # The cache must not re-rasterise the SVG on repeat lookups.
         # We assert that by patching ``_measure_svg_density`` to a
         # counter and checking it ran exactly once.
-        import investing.logos as logos_mod
+        from investing import logos as logos_mod
 
         self._write_svg(
             tmp_path,
