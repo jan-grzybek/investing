@@ -32,6 +32,17 @@
 # pipeline uses (e.g. ``"NMS:AAPL"``, ``"NYQ:UNH"``, ``"DUS:SSU.DU"``).
 # A ticker that DOES have a yfinance sector ignores any override
 # below: yfinance stays the source of truth whenever it has data.
+#
+# Auto-populate hook: when the build observes a missing sector for a
+# ticker, ``investing.sector_overrides.append_missing_sector_stubs``
+# appends a commented-out template block to this file (visible in
+# the local checkout's git diff and in the CI runner's filesystem,
+# though CI's mutations don't persist). The maintainer's edit is
+# the two-keystroke "delete ``# `` from the data line, replace
+# ``""`` with a real sector". The hook is idempotent across
+# rebuilds: a ticker already mentioned in the file -- by an active
+# entry OR by an earlier commented stub -- is skipped on subsequent
+# passes.
 
 [sectors]
 # Example -- delete the leading ``#`` and replace with a real entry

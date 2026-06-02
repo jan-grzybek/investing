@@ -12,7 +12,13 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from investing.cli import _format_maintenance_hints, _print_summary
+from investing.cli import (
+    _format_appended_stubs,
+    _format_maintenance_hints,
+    _format_notifier_outcome,
+    _print_summary,
+)
+from investing.maintenance_notifier import NotifierOutcome
 from investing.sector_overrides import MaintenanceHints
 
 
@@ -148,3 +154,106 @@ class TestFormatMaintenanceHints:
         assert "missing logos: NMS:BBB" in out
         # Two categories -> one pipe between them.
         assert out.count(" | ") == 1
+
+
+class TestNotifierStatusLine:
+    """The notifier outcome rides on its own ``Notifier: ...`` line
+    so the operator sees, in the public job log, whether issues
+    actually got filed. The line is silent on local runs (notifier
+    disabled) and on clean builds (no hints), but always present
+    when the env-gated notifier ran -- including the case that
+    motivated the dataclass: ``opened=0 already_tracked=0 failed=N``
+    on a repository with Issues turned off.
+    """
+
+    def test_no_notifier_line_when_outcome_omitted(self, capsys):
+        # Legacy callers (every existing test in this file) don't
+        # pass ``notifier=``; the kwarg defaults to ``None`` and the
+        # line must stay suppressed so they don't break.
+        _print_summary(_total_return(), _holdings(), benchmarks=[])
+        out = capsys.readouterr().out
+        assert "Notifier:" not in out
+
+    def test_no_notifier_line_when_disabled(self, capsys):
+        # ``enabled=False`` covers two production cases: hints were
+        # empty (notifier short-circuited) AND env vars were unset
+        # (local ``python -m investing`` run). Both should stay
+        # quiet on the public stream.
+        _print_summary(
+            _total_return(), _holdings(), [],
+            notifier=NotifierOutcome(enabled=False),
+        )
+        out = capsys.readouterr().out
+        assert "Notifier:" not in out
+
+    def test_notifier_line_includes_opened_tickers(self, capsys):
+        _print_summary(
+            _total_return(), _holdings(), [],
+            notifier=NotifierOutcome(
+                enabled=True, opened=["NMS:AAA", "NMS:BBB"],
+            ),
+        )
+        out = capsys.readouterr().out
+        assert "Notifier:" in out
+        assert "2 opened" in out
+        assert "NMS:AAA" in out
+        assert "NMS:BBB" in out
+
+    def test_notifier_line_includes_failed_count_and_tickers(self, capsys):
+        # The failure mode this dataclass was designed for: a repo
+        # with Issues disabled returns 410 Gone on the POST. The
+        # operator's eye needs to land on the ticker list to debug.
+        _print_summary(
+            _total_return(), _holdings(), [],
+            notifier=NotifierOutcome(
+                enabled=True, failed=["NMS:FISV"],
+            ),
+        )
+        out = capsys.readouterr().out
+        assert "1 failed" in out
+        assert "NMS:FISV" in out
+
+
+class TestAutoPopulateSummaryLine:
+    """The auto-populate hook appends commented stubs to
+    ``sector_overrides.toml`` for tickers that lack a sector. The
+    summary line is the maintainer's cue to open the file and
+    uncomment + fill in the freshly added entries.
+    """
+
+    def test_no_line_when_no_stubs_appended(self, capsys):
+        _print_summary(_total_return(), _holdings(), [], appended_stubs=[])
+        out = capsys.readouterr().out
+        assert "Auto-populated" not in out
+
+    def test_line_lists_appended_tickers(self, capsys):
+        _print_summary(
+            _total_return(), _holdings(), [],
+            appended_stubs=["NMS:AAA", "NMS:BBB"],
+        )
+        out = capsys.readouterr().out
+        assert "Auto-populated sector_overrides.toml stubs for:" in out
+        assert "NMS:AAA, NMS:BBB" in out
+
+
+class TestFormatHelpers:
+    def test_format_notifier_outcome_silent_when_disabled(self):
+        assert _format_notifier_outcome(NotifierOutcome(enabled=False)) == ""
+
+    def test_format_notifier_outcome_silent_when_enabled_but_empty(self):
+        # Edge case: notifier ran (enabled=True) but had nothing to
+        # report (e.g. all hints were unique-but-already-tracked
+        # -- wait, that would populate ``already_tracked``. The
+        # truly empty case is ``enabled=True`` with all counters
+        # zero, which only happens if the hints were empty -- in
+        # which case ``notify_github`` returns ``enabled=False``
+        # before reaching this branch. Belt-and-braces: even if a
+        # caller crafts the impossible shape, no line is emitted.)
+        assert _format_notifier_outcome(NotifierOutcome(enabled=True)) == ""
+
+    def test_format_appended_stubs_silent_when_empty(self):
+        assert _format_appended_stubs([]) == ""
+
+    def test_format_appended_stubs_joins_with_commas(self):
+        out = _format_appended_stubs(["NMS:AAA", "NMS:BBB", "NMS:CCC"])
+        assert out == "NMS:AAA, NMS:BBB, NMS:CCC"

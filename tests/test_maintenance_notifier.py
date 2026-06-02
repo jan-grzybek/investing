@@ -26,6 +26,7 @@ import pytest
 import requests
 
 from investing import maintenance_notifier as notifier
+from investing.maintenance_notifier import NotifierOutcome
 from investing.sector_overrides import MaintenanceHints
 
 # ---------------------------------------------------------------------------
@@ -87,24 +88,34 @@ class TestEnvGating:
         monkeypatch.setenv("GITHUB_TOKEN", "ghs_xxx")
         monkeypatch.setenv("GITHUB_REPOSITORY", "acme/widgets")
         session = _install_session(monkeypatch)
-        notifier.notify_github(MaintenanceHints(missing_sector=["NMS:AAA"]))
+        outcome = notifier.notify_github(
+            MaintenanceHints(missing_sector=["NMS:AAA"])
+        )
         assert session.method_calls == []
+        assert outcome.enabled is False
+        assert outcome.is_empty
 
     def test_opt_in_without_token_is_noop(self, monkeypatch):
         monkeypatch.setenv("INVESTING_NOTIFY_GITHUB", "1")
         monkeypatch.delenv("GITHUB_TOKEN", raising=False)
         monkeypatch.setenv("GITHUB_REPOSITORY", "acme/widgets")
         session = _install_session(monkeypatch)
-        notifier.notify_github(MaintenanceHints(missing_sector=["NMS:AAA"]))
+        outcome = notifier.notify_github(
+            MaintenanceHints(missing_sector=["NMS:AAA"])
+        )
         assert session.method_calls == []
+        assert outcome.enabled is False
 
     def test_opt_in_without_repo_is_noop(self, monkeypatch):
         monkeypatch.setenv("INVESTING_NOTIFY_GITHUB", "1")
         monkeypatch.setenv("GITHUB_TOKEN", "ghs_xxx")
         monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
         session = _install_session(monkeypatch)
-        notifier.notify_github(MaintenanceHints(missing_sector=["NMS:AAA"]))
+        outcome = notifier.notify_github(
+            MaintenanceHints(missing_sector=["NMS:AAA"])
+        )
         assert session.method_calls == []
+        assert outcome.enabled is False
 
     def test_empty_hints_short_circuits_before_env_read(self, monkeypatch):
         # Empty hints means there's nothing to notify about; the
@@ -112,8 +123,12 @@ class TestEnvGating:
         # context. The session must therefore stay untouched.
         _enable_notifier(monkeypatch)
         session = _install_session(monkeypatch)
-        notifier.notify_github(MaintenanceHints())
+        outcome = notifier.notify_github(MaintenanceHints())
         assert session.method_calls == []
+        # Default outcome (``enabled=False``, all counters empty)
+        # so the CLI's summary line stays silent on a clean build.
+        assert outcome.enabled is False
+        assert outcome.is_empty
 
 
 # ---------------------------------------------------------------------------
@@ -169,7 +184,7 @@ class TestMissingSectorRouting:
         session.get.return_value = _ok_response([])
         session.post.return_value = _ok_response({"number": 42}, status=201)
 
-        notifier.notify_github(
+        outcome = notifier.notify_github(
             MaintenanceHints(missing_sector=["NMS:AAA"])
         )
 
@@ -188,6 +203,11 @@ class TestMissingSectorRouting:
         }
         assert "NMS:AAA" in body["body"]
         assert "Technology" in body["body"]  # canonical list is rendered
+        # Outcome reflects the successful open.
+        assert outcome.enabled is True
+        assert outcome.opened == ["NMS:AAA"]
+        assert outcome.already_tracked == []
+        assert outcome.failed == []
 
     def test_skips_create_when_open_issue_matches(self, monkeypatch):
         _enable_notifier(monkeypatch)
@@ -196,13 +216,17 @@ class TestMissingSectorRouting:
             [{"number": 7, "state": "open", "title": "Missing sector for NMS:AAA"}]
         )
 
-        notifier.notify_github(
+        outcome = notifier.notify_github(
             MaintenanceHints(missing_sector=["NMS:AAA"])
         )
 
         # Lookup happened, but the create call MUST NOT fire.
         assert session.get.call_count == 1
         assert session.post.call_count == 0
+        assert outcome.enabled is True
+        assert outcome.opened == []
+        assert outcome.already_tracked == ["NMS:AAA"]
+        assert outcome.failed == []
 
     def test_skips_create_when_closed_issue_matches(self, monkeypatch):
         # The "once if ignored" guarantee depends on closed issues
@@ -215,11 +239,16 @@ class TestMissingSectorRouting:
             [{"number": 7, "state": "closed", "title": "Missing sector for NMS:AAA"}]
         )
 
-        notifier.notify_github(
+        outcome = notifier.notify_github(
             MaintenanceHints(missing_sector=["NMS:AAA"])
         )
 
         assert session.post.call_count == 0
+        # A closed-issue match still counts as ``already_tracked`` --
+        # the operator's "Notifier: ..." line shouldn't differentiate
+        # between open and closed dedupes (both mean "we've already
+        # notified about this and the maintainer's decision stands").
+        assert outcome.already_tracked == ["NMS:AAA"]
 
     def test_lookup_uses_state_all(self, monkeypatch):
         # Regression guard for the "once if ignored" semantic: the
@@ -392,9 +421,16 @@ class TestDefensiveLookup:
         session = _install_session(monkeypatch)
         session.get.side_effect = requests.ConnectionError("simulated")
 
-        notifier.notify_github(MaintenanceHints(missing_sector=["NMS:AAA"]))
+        outcome = notifier.notify_github(
+            MaintenanceHints(missing_sector=["NMS:AAA"])
+        )
 
         assert session.post.call_count == 0
+        # Lookup failure surfaces in the ``failed`` counter so the
+        # operator can spot a misconfigured CI run -- the case that
+        # motivated splitting ``failed`` out from ``already_tracked``.
+        assert outcome.failed == ["NMS:AAA"]
+        assert outcome.already_tracked == []
 
     def test_non_200_status_on_lookup_skips_create(self, monkeypatch):
         # Same guard for a 5xx / 401 / 403 from the API. Treating
@@ -404,9 +440,12 @@ class TestDefensiveLookup:
         session = _install_session(monkeypatch)
         session.get.return_value = _ok_response(None, status=503)
 
-        notifier.notify_github(MaintenanceHints(missing_sector=["NMS:AAA"]))
+        outcome = notifier.notify_github(
+            MaintenanceHints(missing_sector=["NMS:AAA"])
+        )
 
         assert session.post.call_count == 0
+        assert outcome.failed == ["NMS:AAA"]
 
     def test_non_json_body_on_lookup_skips_create(self, monkeypatch):
         _enable_notifier(monkeypatch)
@@ -416,9 +455,12 @@ class TestDefensiveLookup:
         resp.json.side_effect = ValueError("not JSON")
         session.get.return_value = resp
 
-        notifier.notify_github(MaintenanceHints(missing_sector=["NMS:AAA"]))
+        outcome = notifier.notify_github(
+            MaintenanceHints(missing_sector=["NMS:AAA"])
+        )
 
         assert session.post.call_count == 0
+        assert outcome.failed == ["NMS:AAA"]
 
 
 class TestDefensiveCreate:
@@ -431,17 +473,49 @@ class TestDefensiveCreate:
         session.get.return_value = _ok_response([])
         session.post.side_effect = requests.ConnectionError("simulated")
 
-        # Must not raise.
-        notifier.notify_github(MaintenanceHints(missing_sector=["NMS:AAA"]))
+        outcome = notifier.notify_github(
+            MaintenanceHints(missing_sector=["NMS:AAA"])
+        )
+        # Failure must not raise AND must surface in the outcome
+        # so the operator's build summary flags the problem.
+        assert outcome.failed == ["NMS:AAA"]
 
     def test_non_201_status_on_create_is_swallowed(self, monkeypatch):
+        # Mirrors the "Issues disabled on the repo" failure mode --
+        # GitHub returns 410 Gone for that case, falling into the
+        # generic non-2xx-on-create branch below. Surfacing the
+        # ticker in ``outcome.failed`` is the production breadcrumb
+        # that pointed at the missing-issues toggle.
         _enable_notifier(monkeypatch)
         session = _install_session(monkeypatch)
         session.get.return_value = _ok_response([])
         session.post.return_value = _ok_response(None, status=422)
 
-        # Must not raise.
-        notifier.notify_github(MaintenanceHints(missing_sector=["NMS:AAA"]))
+        outcome = notifier.notify_github(
+            MaintenanceHints(missing_sector=["NMS:AAA"])
+        )
+        assert outcome.failed == ["NMS:AAA"]
+
+    def test_issues_disabled_410_falls_into_failed_bucket(self, monkeypatch):
+        # The exact failure mode this dataclass was introduced for:
+        # GitHub returns ``410 Gone`` when a repository has Issues
+        # turned off entirely. The notifier must NOT silently
+        # swallow that into ``already_tracked`` (the previous
+        # behaviour) -- the operator needs the ``failed`` count to
+        # spot the misconfiguration without reading CI source logs.
+        _enable_notifier(monkeypatch)
+        session = _install_session(monkeypatch)
+        session.get.return_value = _ok_response(
+            {"message": "Issues are disabled for this repo"}, status=410,
+        )
+
+        outcome = notifier.notify_github(
+            MaintenanceHints(missing_sector=["NMS:AAA"])
+        )
+
+        assert outcome.failed == ["NMS:AAA"]
+        assert outcome.opened == []
+        assert outcome.already_tracked == []
 
 
 # ---------------------------------------------------------------------------
@@ -480,13 +554,26 @@ class TestBuildPageWiring:
     to coincidentally call ``consume_hints`` themselves.
     """
 
-    def test_notifier_receives_hints_recorded_during_build(self, monkeypatch):
+    def test_notifier_receives_hints_recorded_during_build(
+        self, monkeypatch, tmp_path,
+    ):
         # Plant a hint *before* build_page runs and stub every other
         # pipeline step so the test is exclusively about the hint
         # plumbing. ``build_page`` calls ``reset_hints`` first, so
         # planting the hint via a pull-stub side-effect is the
         # cleanest way to inject one that survives that reset.
         from investing import cli, sector_overrides
+
+        # Redirect the auto-populate hook's default path at a tmp
+        # file so this test never mutates the shipped
+        # ``sector_overrides.toml`` at the repo root. The file
+        # doesn't exist under ``tmp_path``, so the hook's "skip if
+        # absent" branch fires and ``appended_stubs`` stays empty.
+        monkeypatch.setattr(
+            sector_overrides,
+            "_SECTOR_OVERRIDES_PATH",
+            str(tmp_path / "sector_overrides.toml"),
+        )
 
         def stub_pull():
             sector_overrides.record_missing_sector("NMS:STUB")
@@ -515,7 +602,12 @@ class TestBuildPageWiring:
         )
 
         notified: list = []
-        monkeypatch.setattr(cli, "notify_github", lambda hints: notified.append(hints))
+
+        def _record(hints):
+            notified.append(hints)
+            return NotifierOutcome()
+
+        monkeypatch.setattr(cli, "notify_github", _record)
 
         def _stub_save(*_args, **_kw):
             return None

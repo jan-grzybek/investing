@@ -22,6 +22,7 @@ from investing.sector_overrides import (
     MaintenanceHints,
     _clear_overrides_cache,
     _load_overrides,
+    append_missing_sector_stubs,
     consume_hints,
     record_missing_logo,
     record_missing_sector,
@@ -256,6 +257,188 @@ class TestModuleCacheBehaviour:
 
         assert _load_overrides(str(first_file))["NMS:AAA"] == "Technology"
         assert _load_overrides(str(second_file))["NMS:AAA"] == "Healthcare"
+
+
+class TestAppendMissingSectorStubs:
+    """The auto-populate hook gives the maintainer a head-start when
+    editing ``sector_overrides.toml`` after a missing-sector hint:
+    each ticker gets a commented-out block with two-keystroke
+    activation (delete ``# `` from the data line, type a sector).
+    Idempotent across rebuilds: a ticker that already has any
+    mention in the file (active entry or auto-appended stub) is
+    skipped.
+    """
+
+    def test_noop_on_empty_input(self, tmp_path):
+        path = _write_overrides(tmp_path, "[sectors]\n")
+        original = path.read_text(encoding="utf-8")
+        appended = append_missing_sector_stubs([], path=str(path))
+        assert appended == []
+        # File must be byte-identical -- a no-op input must not
+        # touch the file at all (a trailing-whitespace tidy would
+        # still count as mutation under git-diff).
+        assert path.read_text(encoding="utf-8") == original
+
+    def test_noop_when_file_missing(self, tmp_path):
+        # A fresh fork without the TOML must not see one conjured
+        # into existence by the hook. The function returns an
+        # empty list and the file stays absent.
+        absent = tmp_path / "absent.toml"
+        appended = append_missing_sector_stubs(["NMS:AAA"], path=str(absent))
+        assert appended == []
+        assert not absent.exists()
+
+    def test_appends_commented_stub_for_each_ticker(self, tmp_path):
+        path = _write_overrides(tmp_path, "[sectors]\n")
+        appended = append_missing_sector_stubs(
+            ["NMS:FISV", "NYQ:WIDGET"], path=str(path),
+        )
+        assert appended == ["NMS:FISV", "NYQ:WIDGET"]
+        text = path.read_text(encoding="utf-8")
+        # Each ticker shows up in a commented data line ready for
+        # the maintainer to uncomment + fill in.
+        assert '# "NMS:FISV" = ""' in text
+        assert '# "NYQ:WIDGET" = ""' in text
+        # And the explanatory header is present so the maintainer
+        # doesn't have to remember the canonical sector list.
+        assert "Auto-detected: missing sector" in text
+        assert "canonical sectors" in text
+
+    def test_appended_stub_does_not_parse_as_active_entry(self, tmp_path):
+        # Commented stubs must stay commented -- if the empty
+        # ``""`` value were active it would itself record an
+        # invalid-override hint on the next build (failing the
+        # ``KNOWN_SECTORS`` membership check), creating a churning
+        # loop. Re-parse the file and confirm no new override
+        # surfaces.
+        path = _write_overrides(tmp_path, "[sectors]\n")
+        append_missing_sector_stubs(["NMS:AAA"], path=str(path))
+        _clear_overrides_cache()
+        assert _load_overrides(str(path)) == {}
+        # And no invalid-override hint either: the line is purely
+        # a comment so the loader never sees it.
+        assert consume_hints().is_empty
+
+    def test_skips_ticker_already_in_active_entry(self, tmp_path):
+        # An override already pinned to a real sector must not get
+        # a duplicate commented stub on top of it. The substring
+        # match against ``"TICKER"`` (with quotes) catches the
+        # active entry.
+        path = _write_overrides(
+            tmp_path,
+            '[sectors]\n"NMS:AAA" = "Technology"\n',
+        )
+        original = path.read_text(encoding="utf-8")
+        appended = append_missing_sector_stubs(["NMS:AAA"], path=str(path))
+        assert appended == []
+        assert path.read_text(encoding="utf-8") == original
+
+    def test_skips_ticker_already_in_commented_stub(self, tmp_path):
+        # The dedupe predicate must also catch a previously
+        # auto-appended stub so repeated builds don't pile up
+        # identical comment blocks. Run twice and confirm the
+        # second pass is a no-op.
+        path = _write_overrides(tmp_path, "[sectors]\n")
+        first = append_missing_sector_stubs(["NMS:AAA"], path=str(path))
+        text_after_first = path.read_text(encoding="utf-8")
+        second = append_missing_sector_stubs(["NMS:AAA"], path=str(path))
+        assert first == ["NMS:AAA"]
+        assert second == []
+        assert path.read_text(encoding="utf-8") == text_after_first
+
+    def test_partial_dedupe_only_appends_new_tickers(self, tmp_path):
+        # Mixed input: one ticker already has an entry, one is new.
+        # Only the new one should be appended; the active entry
+        # for the existing ticker must not be touched.
+        path = _write_overrides(
+            tmp_path,
+            '[sectors]\n"NMS:AAA" = "Technology"\n',
+        )
+        appended = append_missing_sector_stubs(
+            ["NMS:AAA", "NMS:BBB"], path=str(path),
+        )
+        assert appended == ["NMS:BBB"]
+        text = path.read_text(encoding="utf-8")
+        # Active entry preserved verbatim.
+        assert '"NMS:AAA" = "Technology"' in text
+        # New ticker got a stub.
+        assert '# "NMS:BBB" = ""' in text
+
+    def test_substring_anchoring_does_not_false_positive(self, tmp_path):
+        # ``"NMS:A"`` is a substring of ``"NMS:AAA"`` but the
+        # quote-anchored needle (``"NMS:A"``) must NOT match the
+        # quoted form of the longer ticker (``"NMS:AAA"``). A
+        # naive ``in`` against the unquoted ticker would have
+        # mis-deduped here.
+        path = _write_overrides(
+            tmp_path,
+            '[sectors]\n"NMS:AAA" = "Technology"\n',
+        )
+        appended = append_missing_sector_stubs(["NMS:A"], path=str(path))
+        assert appended == ["NMS:A"]
+        text = path.read_text(encoding="utf-8")
+        assert '# "NMS:A" = ""' in text
+
+    def test_uses_default_path_when_argument_omitted(
+        self, tmp_path, monkeypatch,
+    ):
+        # Production callsites omit ``path``; the function must
+        # then fall through to :data:`_SECTOR_OVERRIDES_PATH`. The
+        # test redirects the default at a tmp file to confirm the
+        # plumbing without mutating the shipped TOML.
+        from investing import sector_overrides as so
+
+        default_path = tmp_path / "default.toml"
+        default_path.write_text("[sectors]\n", encoding="utf-8")
+        monkeypatch.setattr(so, "_SECTOR_OVERRIDES_PATH", str(default_path))
+
+        appended = append_missing_sector_stubs(["NMS:ZZZ"])
+        assert appended == ["NMS:ZZZ"]
+        assert '"NMS:ZZZ"' in default_path.read_text(encoding="utf-8")
+
+    def test_oserror_on_read_is_swallowed(self, tmp_path, monkeypatch):
+        # A file we can't open for reading (permissions revoked,
+        # remote filesystem hiccup) must not crash the build. The
+        # function returns ``[]`` so the caller's summary line
+        # stays silent rather than reporting phantom stubs.
+        import builtins
+
+        path = _write_overrides(tmp_path, "[sectors]\n")
+        real_open = builtins.open
+
+        def _failing_open(p, *args, **kwargs):
+            if str(p) == str(path) and (not args or "r" in args[0]):
+                raise OSError("simulated read failure")
+            return real_open(p, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "open", _failing_open)
+        appended = append_missing_sector_stubs(["NMS:AAA"], path=str(path))
+        assert appended == []
+
+    def test_oserror_on_write_is_swallowed(self, tmp_path, monkeypatch):
+        # The same defence on the write side. A POSIX append that
+        # fails mid-build must not abort the deploy -- the next
+        # build's dedupe pass will retry against whatever the file
+        # actually ended up containing.
+        import builtins
+
+        path = _write_overrides(tmp_path, "[sectors]\n")
+        original = path.read_text(encoding="utf-8")
+        real_open = builtins.open
+
+        def _failing_open(p, *args, **kwargs):
+            if str(p) == str(path) and args and "a" in args[0]:
+                raise OSError("simulated write failure")
+            return real_open(p, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "open", _failing_open)
+        appended = append_missing_sector_stubs(["NMS:AAA"], path=str(path))
+        assert appended == []
+        # File contents must be untouched (we got past the open
+        # but the write itself failed -- partial writes are
+        # technically possible but the simulated ``OSError``
+        # fires before any bytes hit disk).
+        assert path.read_text(encoding="utf-8") == original
 
 
 class TestRepoOverridesFile:

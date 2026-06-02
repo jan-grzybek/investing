@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import os
 import urllib.parse
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import requests
@@ -58,6 +58,38 @@ _LABEL_ROOT = "maintenance"
 _LABEL_SECTOR = "sector"
 _LABEL_LOGO = "logo"
 _LABEL_INVALID_OVERRIDE = "invalid-override"
+
+
+@dataclass(frozen=True)
+class NotifierOutcome:
+    """Per-build counters describing what :func:`notify_github` did.
+
+    The CLI surfaces these counts on the curated build-summary
+    stream (via :func:`investing.cli.emit_summary`) so the
+    operator sees, in the public job log, whether the notifier
+    actually managed to file issues -- not just "the env vars were
+    set". Three failure modes hide behind the previous "log a
+    warning then move on" behaviour: a fork forgetting to enable
+    ``issues: write``, a repository with Issues turned off (the
+    case that surfaced this dataclass), and a flaky API connection.
+    All three show up here as a non-zero ``failed`` count instead
+    of the previous total opacity.
+
+    ``enabled`` distinguishes "notifier deliberately skipped because
+    the env gate was unmet" (e.g. local ``python -m investing``)
+    from "notifier ran". Callers that suppress the summary line on
+    ``enabled=False`` keep local runs quiet without losing the CI
+    diagnostic.
+    """
+
+    enabled: bool = False
+    opened: list[str] = field(default_factory=list)
+    already_tracked: list[str] = field(default_factory=list)
+    failed: list[str] = field(default_factory=list)
+
+    @property
+    def is_empty(self) -> bool:
+        return not (self.opened or self.already_tracked or self.failed)
 
 
 def _ticker_label(ticker: str) -> str:
@@ -158,14 +190,24 @@ def _build_session(token: str) -> requests.Session:
     return session
 
 
+# Sentinels for the three possible outcomes of an issue lookup.
+# Plain strings (rather than an Enum) so the values render
+# self-explanatorily in stack traces and ``repr`` output of test
+# failures without requiring an import to interpret.
+_LOOKUP_FOUND = "found"
+_LOOKUP_NOT_FOUND = "not_found"
+_LOOKUP_FAILED = "failed"
+
+
 def _issue_exists(
     session: requests.Session,
     api_root: str,
     *,
     labels: list[str],
     title: str | None = None,
-) -> bool:
-    """Return ``True`` iff any issue (open or closed) matches.
+) -> str:
+    """Return one of :data:`_LOOKUP_FOUND` / :data:`_LOOKUP_NOT_FOUND`
+    / :data:`_LOOKUP_FAILED` for the lookup against ``api_root``.
 
     The lookup is intentionally **inclusive of closed issues**: the
     "once if ignored" contract relies on a maintainer-closed issue
@@ -179,6 +221,15 @@ def _issue_exists(
     override that gets fixed and then re-introduced as a different
     typo should produce a fresh issue, which the title-equality
     fallback achieves on top of the label intersection.
+
+    The :data:`_LOOKUP_FAILED` sentinel preserves the historical
+    "treat unknown as exists" safety net (the caller still skips
+    ``_create_issue`` on a failed lookup so a flaky API connection
+    can't spam duplicates) while letting the outcome counter
+    distinguish a real existing-issue dedupe from a transient
+    fault -- the operator needs that signal to spot a misconfigured
+    workflow (e.g. ``issues: write`` not granted, or Issues turned
+    off on the repository entirely).
     """
     encoded_labels = urllib.parse.quote(",".join(labels), safe=",:-")
     url = (
@@ -188,24 +239,19 @@ def _issue_exists(
     try:
         response = session.get(url, timeout=_REQUEST_TIMEOUT_S)
     except requests.RequestException as exc:
-        # Defensive: treat any network error as "we couldn't prove
-        # the issue is absent" and ABORT the create path. The
-        # alternative -- assume absence and POST anyway -- could
-        # spam duplicate issues on a flaky API connection, which is
-        # the failure mode the dedup pass exists to prevent.
         logger.warning(
             "maintenance notifier: GET %s failed (%s); skipping create",
             url,
             type(exc).__name__,
         )
-        return True
+        return _LOOKUP_FAILED
     if response.status_code != 200:
         logger.warning(
             "maintenance notifier: GET %s returned %d; skipping create",
             url,
             response.status_code,
         )
-        return True
+        return _LOOKUP_FAILED
     try:
         payload = response.json()
     except ValueError:
@@ -213,18 +259,22 @@ def _issue_exists(
             "maintenance notifier: non-JSON response from %s; skipping create",
             url,
         )
-        return True
+        return _LOOKUP_FAILED
     if not isinstance(payload, list):
-        return True
+        return _LOOKUP_FAILED
     if title is None:
         # Pure label-intersection match -- any returned issue means
         # "we've notified about this ticker / category before".
-        return len(payload) > 0
+        return _LOOKUP_FOUND if payload else _LOOKUP_NOT_FOUND
     # Title-equality narrowing for the invalid-override category.
     # GitHub returns the ``title`` field verbatim so a string
     # comparison is the right primitive here; no canonicalisation
     # needed.
-    return any(item.get("title") == title for item in payload)
+    return (
+        _LOOKUP_FOUND
+        if any(item.get("title") == title for item in payload)
+        else _LOOKUP_NOT_FOUND
+    )
 
 
 def _create_issue(
@@ -356,7 +406,7 @@ def _invalid_override_body(ticker: str, value: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def notify_github(hints: MaintenanceHints) -> None:
+def notify_github(hints: MaintenanceHints) -> NotifierOutcome:
     """Open / dedupe GitHub issues for every hint in ``hints``.
 
     The function is a strict no-op when any of the runtime
@@ -379,51 +429,86 @@ def notify_github(hints: MaintenanceHints) -> None:
       typo on the same ticker re-opens a conversation while a
       repeat of the same typo does not.
 
-    Returns nothing; the caller is the curated build summary in
-    :mod:`investing.cli`, which has already emitted its own
-    human-readable "Maintenance: ..." line by the time this runs.
+    Returns a :class:`NotifierOutcome` summarising the outcome (opt-in
+    gate, counts of opened / already-tracked / failed per category).
+    The caller (typically :func:`investing.cli.build_page`) renders a
+    one-line status into the curated build summary so the operator
+    sees, in the public job log, whether the notifier actually filed
+    issues or hit a permissions / configuration wall.
     """
     if hints.is_empty:
-        return
+        # No hints means nothing to notify about; outcome is the
+        # default "disabled" so the caller can suppress the status
+        # line entirely on clean builds.
+        return NotifierOutcome()
     ctx = _read_context()
     if ctx is None:
-        return
+        return NotifierOutcome(enabled=False)
     session = _build_session(ctx.token)
     api_root = _api_root(ctx)
 
+    opened: list[str] = []
+    already_tracked: list[str] = []
+    failed: list[str] = []
+
+    def _dispatch(
+        *,
+        ticker_label: str,
+        title: str,
+        body: str,
+        labels: list[str],
+        lookup_title: str | None = None,
+    ) -> None:
+        # Per-ticker dedupe + create, with the three lookup
+        # outcomes routed to the right counter. ``ticker_label``
+        # is what the operator reads on the status line; for the
+        # invalid-override category that's "ticker=value" so the
+        # value-changed dedupe key shows up in the summary too.
+        outcome = _issue_exists(
+            session, api_root, labels=labels, title=lookup_title,
+        )
+        if outcome == _LOOKUP_FAILED:
+            failed.append(ticker_label)
+            return
+        if outcome == _LOOKUP_FOUND:
+            already_tracked.append(ticker_label)
+            return
+        if _create_issue(
+            session, api_root, title=title, body=body, labels=labels,
+        ):
+            opened.append(ticker_label)
+        else:
+            failed.append(ticker_label)
+
     for ticker in hints.missing_sector:
-        labels = [_LABEL_ROOT, _LABEL_SECTOR, _ticker_label(ticker)]
-        if _issue_exists(session, api_root, labels=labels):
-            continue
-        _create_issue(
-            session,
-            api_root,
+        _dispatch(
+            ticker_label=ticker,
             title=f"Missing sector for {ticker}",
             body=_missing_sector_body(ticker),
-            labels=labels,
+            labels=[_LABEL_ROOT, _LABEL_SECTOR, _ticker_label(ticker)],
         )
 
     for ticker in hints.missing_logos:
-        labels = [_LABEL_ROOT, _LABEL_LOGO, _ticker_label(ticker)]
-        if _issue_exists(session, api_root, labels=labels):
-            continue
-        _create_issue(
-            session,
-            api_root,
+        _dispatch(
+            ticker_label=ticker,
             title=f"Missing logo for {ticker}",
             body=_missing_logo_body(ticker),
-            labels=labels,
+            labels=[_LABEL_ROOT, _LABEL_LOGO, _ticker_label(ticker)],
         )
 
     for ticker, value in sorted(hints.invalid_overrides.items()):
-        labels = [_LABEL_ROOT, _LABEL_INVALID_OVERRIDE, _ticker_label(ticker)]
         title = f"Invalid sector override {value!r} for {ticker}"
-        if _issue_exists(session, api_root, labels=labels, title=title):
-            continue
-        _create_issue(
-            session,
-            api_root,
+        _dispatch(
+            ticker_label=f"{ticker}={value!r}",
             title=title,
             body=_invalid_override_body(ticker, value),
-            labels=labels,
+            labels=[_LABEL_ROOT, _LABEL_INVALID_OVERRIDE, _ticker_label(ticker)],
+            lookup_title=title,
         )
+
+    return NotifierOutcome(
+        enabled=True,
+        opened=opened,
+        already_tracked=already_tracked,
+        failed=failed,
+    )

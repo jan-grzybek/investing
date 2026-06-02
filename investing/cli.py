@@ -23,7 +23,7 @@ from .clock import NowFn
 from .formatting import _fmt_pct, _format_duration
 from .fx import ExchangeRate, FxRate
 from .log import logger
-from .maintenance_notifier import notify_github
+from .maintenance_notifier import NotifierOutcome, notify_github
 from .performance import (
     apply_rollup,
     calc_twr,
@@ -31,7 +31,12 @@ from .performance import (
     get_benchmarks,
     get_holdings,
 )
-from .sector_overrides import MaintenanceHints, consume_hints, reset_hints
+from .sector_overrides import (
+    MaintenanceHints,
+    append_missing_sector_stubs,
+    consume_hints,
+    reset_hints,
+)
 from .sheets import pull_data as _pull_data
 from .types import (
     BenchmarkSummary,
@@ -132,6 +137,61 @@ def _format_maintenance_hints(hints: MaintenanceHints) -> str:
     return " | ".join(parts)
 
 
+def _format_notifier_outcome(outcome: NotifierOutcome) -> str:
+    """Render the notifier counters into a one-line status fragment.
+
+    Returns the empty string when the notifier was disabled OR ran
+    cleanly with nothing to report (no hints at all). Both cases
+    suppress the line so a clean build stays terse and a local
+    ``python -m investing`` run (no env vars set) doesn't surface a
+    "notifier: 0 opened" line that would be confusing without the
+    CI context.
+
+    A non-empty return ALWAYS prefixes ``"Notifier: "`` so the
+    operator can grep the public job log for it without ambiguity
+    when triaging a missing-issue report (the failure mode that
+    motivated this format: a repo with Issues turned off shows up
+    here as ``failed: N`` instead of the previous total opacity).
+    """
+    if not outcome.enabled or outcome.is_empty:
+        return ""
+    chunks: list[str] = []
+    if outcome.opened:
+        chunks.append(
+            f"{len(outcome.opened)} opened ("
+            + ", ".join(outcome.opened)
+            + ")"
+        )
+    if outcome.already_tracked:
+        chunks.append(f"{len(outcome.already_tracked)} already tracked")
+    if outcome.failed:
+        # Failures get the verbose ticker list because that's the
+        # debugging surface the operator needs to investigate (was
+        # it auth? was it Issues being disabled on the repo? is the
+        # API down for this one endpoint?).
+        chunks.append(
+            f"{len(outcome.failed)} failed ("
+            + ", ".join(outcome.failed)
+            + ")"
+        )
+    return " | ".join(chunks)
+
+
+def _format_appended_stubs(stubs: list[str]) -> str:
+    """Render the auto-populate counter into a one-line status fragment.
+
+    Returns the empty string when no stub was appended so a clean
+    build (or a CI run on a runner whose filesystem changes get
+    discarded anyway) doesn't surface a noisy line. The maintainer
+    on a local checkout reads the resulting "Auto-populated: ..."
+    note as a cue to open ``sector_overrides.toml`` and uncomment
+    the freshly added entries.
+    """
+    if not stubs:
+        return ""
+    return ", ".join(stubs)
+
+
 def _print_summary(
     total_return: TotalReturn,
     holdings: HoldingsRollup,
@@ -139,6 +199,8 @@ def _print_summary(
     *,
     now: NowFn = datetime.today,
     maintenance: MaintenanceHints | None = None,
+    notifier: NotifierOutcome | None = None,
+    appended_stubs: list[str] | None = None,
 ) -> None:
     """Emit a redacted one-line build summary on stdout.
 
@@ -197,6 +259,24 @@ def _print_summary(
         # public) and category labels, so it is safe to emit on the
         # real stdout under the leak-safe wrapper.
         emit_summary(f"Maintenance: {_format_maintenance_hints(maintenance)}\n")
+    if appended_stubs:
+        # Local-dev convenience: the auto-populate hook appended
+        # commented-out stubs to ``sector_overrides.toml`` for the
+        # missing tickers; let the operator know which lines to
+        # uncomment + fill in. On CI the runner's filesystem
+        # changes don't persist so this line is mostly informational
+        # there, but the same ticker list also shows up in any
+        # GitHub issue the notifier files, so the two signals
+        # complement rather than duplicate each other.
+        emit_summary(
+            "Auto-populated sector_overrides.toml stubs for: "
+            + _format_appended_stubs(appended_stubs)
+            + "\n"
+        )
+    if notifier is not None:
+        notifier_line = _format_notifier_outcome(notifier)
+        if notifier_line:
+            emit_summary(f"Notifier: {notifier_line}\n")
 
 
 # Pure data-source signature: ``pull()`` returns the same triple as
@@ -269,22 +349,37 @@ def build_page(
     total_return = calc_twr(valuations, rollup.total_value_usd, now=_now)
     benchmarks = get_benchmarks(total_return["history"], fx=_fx, now=_now)
     _save(total_return, benchmarks, holdings, output_dir=output_dir)
-    # Drain the hint registry once and share the snapshot between the
-    # curated build summary (always-on, public stdout) and the
+    # Drain the hint registry once and share the snapshot between
+    # every downstream consumer: the curated build summary
+    # (always-on, public stdout), the auto-populate hook (writes
+    # commented stubs into ``sector_overrides.toml``), and the
     # GitHub-Issues notifier (opt-in via ``INVESTING_NOTIFY_GITHUB``).
-    # Draining twice would lose hints on the second consumer because
-    # ``consume_hints`` clears the underlying registry as a side
-    # effect; passing the same snapshot keeps the two outputs in
-    # lockstep without leaking the abstraction.
+    # Draining twice would lose hints because ``consume_hints``
+    # clears the underlying registry as a side effect; passing the
+    # same snapshot keeps the consumers in lockstep without leaking
+    # the abstraction.
     hints = consume_hints()
+    # Auto-populate runs FIRST so the build summary's "appended"
+    # line reflects the file as it actually exists on disk after
+    # the build. The hook is a no-op when the TOML file is absent
+    # (a fresh fork) or when every ticker already has a stub
+    # (idempotent across rebuilds).
+    appended_stubs = append_missing_sector_stubs(hints.missing_sector)
+    # Notifier runs SECOND so its return value (filed / already-
+    # tracked / failed counts) is available to ``_print_summary``
+    # below. The order matters only for the call sequencing -- the
+    # outcome itself doesn't depend on whether the auto-populate
+    # hook ran first or second.
+    notifier_outcome = notify_github(hints)
     _print_summary(
         total_return,
         holdings,
         benchmarks,
         now=_now,
         maintenance=hints,
+        notifier=notifier_outcome,
+        appended_stubs=appended_stubs,
     )
-    notify_github(hints)
 
 
 def main() -> None:

@@ -22,6 +22,8 @@ needed to debug without any of the carriers that normally leak values.
 
 from __future__ import annotations
 
+import contextlib
+import io
 import os
 import sys
 
@@ -145,6 +147,62 @@ class TestCleanRun:
 
         assert exit_code is None
         assert marker in captured.out
+
+    def test_emit_summary_survives_fd1_redirection_to_devnull(
+        self, monkeypatch, tmp_path
+    ):
+        """Regression: ``_run_main_safely`` ``dup2``\u2009s ``/dev/null``
+        onto fd 1, so anything written through the *original*
+        ``sys.stdout`` (whose underlying file points at fd 1) lands
+        in /dev/null. ``emit_summary`` must therefore write through a
+        separate fd that the wrapper preserves out-of-band.
+
+        ``pytest``'s ``capfd`` masks this in
+        :meth:`test_emit_summary_during_main_reaches_real_stdout`
+        because it replaces ``sys.stdout`` with an in-memory object
+        whose ``write`` is divorced from fd 1; production, where
+        ``sys.stdout`` is the real ``TextIOWrapper`` over fd 1, used
+        to silently swallow the curated build summary line. This
+        test installs a real fd-backed ``sys.stdout`` (mirroring
+        production) so a future regression of the bypass writer
+        will fail loudly.
+        """
+        marker = "PROD-VISIBLE-MARKER"
+        log_path = tmp_path / "real_stdout.log"
+
+        saved_real_stdout = sys.stdout
+        saved_fd1 = os.dup(1)
+        log_file = log_path.open("w", encoding="utf-8")
+        try:
+            # Point fd 1 (and a fresh fd-backed ``sys.stdout``) at our
+            # tempfile. After this, the production-shape invariant
+            # holds: ``sys.stdout`` is an ``io.TextIOWrapper`` over a
+            # real fd, just like ``python -m investing`` sees in CI.
+            os.dup2(log_file.fileno(), 1)
+            sys.stdout = io.TextIOWrapper(
+                io.FileIO(1, mode="w", closefd=False),
+                encoding="utf-8",
+                write_through=True,
+            )
+
+            def fake_main():
+                _safe_run.emit_summary(marker + "\n")
+
+            monkeypatch.setattr(_safe_run, "main", fake_main)
+            _safe_run._run_main_safely()
+        finally:
+            with contextlib.suppress(OSError, ValueError):
+                sys.stdout.flush()
+            sys.stdout = saved_real_stdout
+            os.dup2(saved_fd1, 1)
+            os.close(saved_fd1)
+            log_file.close()
+
+        contents = log_path.read_text(encoding="utf-8")
+        assert marker in contents, (
+            f"emit_summary output never reached the real stdout; "
+            f"file contained {contents!r}"
+        )
 
     def test_stdout_is_restored_after_a_clean_run(self, monkeypatch, capfd):
         sentinel = "POST_RUN_STDOUT_SENTINEL"

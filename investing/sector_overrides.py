@@ -173,13 +173,19 @@ def consume_hints() -> MaintenanceHints:
 # ---------------------------------------------------------------------------
 
 
-# Cache for the parsed TOML payload. ``None`` is the unset sentinel
-# (an empty file legitimately parses to an empty dict and we don't
-# want that to trigger a re-read on every call). The cache is
-# in-process; tests that rewrite the file under a temp path should
-# call :func:`_clear_overrides_cache` so the next read picks up the
-# new bytes.
-_overrides_cache: dict[str, str] | None = None
+# Cache for the parsed TOML payload. Held as the sole attribute of
+# a tiny module-level container so reads and writes go through
+# attribute access -- this avoids a ``global`` statement (whose
+# write-side CodeQL fails to link back to the same-function read,
+# producing a spurious ``py/unused-global-variable`` note for each
+# assignment) and keeps the cache contract obvious at a glance.
+# ``value is None`` is the unset sentinel (an empty file legitimately
+# parses to an empty dict and we don't want that to trigger a re-read
+# on every call). The cache is in-process; tests that rewrite the
+# file under a temp path should call :func:`_clear_overrides_cache`
+# so the next read picks up the new bytes.
+class _OverridesCache:
+    value: dict[str, str] | None = None
 
 
 def _clear_overrides_cache() -> None:
@@ -190,8 +196,7 @@ def _clear_overrides_cache() -> None:
     against a temp file call it between runs so a fresh fixture
     doesn't see a stale parse from a previous test case.
     """
-    global _overrides_cache
-    _overrides_cache = None
+    _OverridesCache.value = None
 
 
 def _load_overrides(path: str | None = None) -> dict[str, str]:
@@ -212,16 +217,16 @@ def _load_overrides(path: str | None = None) -> dict[str, str]:
     cleanly); a malformed file logs a warning and falls back to the
     same empty-set behaviour rather than crashing the entire render.
     """
-    global _overrides_cache
-    if _overrides_cache is not None and path is None:
-        return _overrides_cache
+    cached = _OverridesCache.value
+    if cached is not None and path is None:
+        return cached
 
     effective_path = path if path is not None else _SECTOR_OVERRIDES_PATH
     parsed: dict[str, str] = {}
 
     if not os.path.exists(effective_path):
         if path is None:
-            _overrides_cache = parsed
+            _OverridesCache.value = parsed
         return parsed
 
     try:
@@ -235,7 +240,7 @@ def _load_overrides(path: str | None = None) -> dict[str, str]:
             type(exc).__name__,
         )
         if path is None:
-            _overrides_cache = parsed
+            _OverridesCache.value = parsed
         return parsed
 
     raw = data.get("sectors")
@@ -247,7 +252,7 @@ def _load_overrides(path: str | None = None) -> dict[str, str]:
                 effective_path,
             )
         if path is None:
-            _overrides_cache = parsed
+            _OverridesCache.value = parsed
         return parsed
 
     for ticker, sector in raw.items():
@@ -265,7 +270,7 @@ def _load_overrides(path: str | None = None) -> dict[str, str]:
         parsed[ticker] = sector
 
     if path is None:
-        _overrides_cache = parsed
+        _OverridesCache.value = parsed
     return parsed
 
 
@@ -331,4 +336,131 @@ def record_missing_sector(ticker: str) -> None:
         "treemap will group this ticker under the neutral ``Other`` "
         "tile -- add an entry under ``[sectors]`` to pin a real sector.",
         ticker,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Auto-populate hook
+# ---------------------------------------------------------------------------
+
+
+def append_missing_sector_stubs(
+    tickers: list[str],
+    *,
+    path: str | None = None,
+) -> list[str]:
+    """Append commented-out override stubs for ``tickers`` to the TOML
+    file at ``path``.
+
+    For each ticker not already mentioned anywhere in the file (open
+    or commented), the function appends a small block of the shape::
+
+        # Auto-detected: missing sector for "NMS:FISV". Uncomment the
+        # next line and replace "" with one of the canonical sectors
+        # documented at the top of this file (e.g. "Technology").
+        # "NMS:FISV" = ""
+
+    The maintainer's editing flow is then two keystrokes per ticker:
+    delete the leading ``# `` from the data line and type a sector
+    name inside the empty string.
+
+    Why "commented-out" rather than "active": an empty string fails
+    the :data:`KNOWN_SECTORS` validation in :func:`_load_overrides`
+    and would itself record an ``invalid_overrides`` hint on the very
+    next build, defeating the point of writing the stub. Leaving the
+    line commented keeps the file parseable until the maintainer
+    explicitly opts each ticker in.
+
+    The function is a strict no-op when ``path`` doesn't exist (a
+    fresh fork without the TOML file should still build cleanly) or
+    when ``tickers`` is empty. Tickers already mentioned in the file
+    -- by exact ``"TICKER"`` substring match, which catches both
+    active entries and the auto-appended commented stubs -- are
+    skipped so re-running the build is idempotent.
+
+    ``path`` defaults to :data:`_SECTOR_OVERRIDES_PATH` so production
+    callsites stay argument-free; tests pass an explicit temp file.
+
+    Returns the list of tickers actually appended (in input order),
+    primarily so the build summary can mention them on the curated
+    stdout stream. The ``[]`` return on a no-op makes the caller's
+    "did we mutate the file" predicate trivial.
+    """
+    if not tickers:
+        return []
+    effective_path = path if path is not None else _SECTOR_OVERRIDES_PATH
+    if not os.path.exists(effective_path):
+        # Don't conjure a TOML file out of thin air -- the maintainer
+        # may have deliberately removed it (a fork with no overrides
+        # needed). Logging would be noisy here so we stay silent;
+        # the file's absence already short-circuits ``_load_overrides``
+        # in the same module.
+        return []
+
+    try:
+        with open(effective_path, encoding="utf-8") as f:
+            existing = f.read()
+    except OSError as exc:
+        logger.warning(
+            "sector overrides auto-populate: failed to read %s (%s); "
+            "skipping stub append",
+            effective_path,
+            type(exc).__name__,
+        )
+        return []
+
+    appended: list[str] = []
+    blocks: list[str] = []
+    for ticker in tickers:
+        # Substring match against the quoted form catches both an
+        # active entry (``"NMS:FISV" = "Technology"``) and a
+        # previously-appended commented stub (``# "NMS:FISV" = ""``).
+        # The quotes anchor the match so a ticker that's a substring
+        # of another (``"NMS:A"`` vs ``"NMS:AAA"``) doesn't false-
+        # positive.
+        needle = f'"{ticker}"'
+        if needle in existing:
+            continue
+        blocks.append(_format_sector_stub(ticker))
+        appended.append(ticker)
+
+    if not appended:
+        return []
+
+    # Always lead with a blank line so the appended block visually
+    # separates from whatever the file currently ends with (which
+    # might be the header's example line, an earlier active entry,
+    # or another auto-appended stub). ``rstrip`` + ``\n\n`` is
+    # idempotent: re-running with the same input is a no-op (the
+    # needle check above bails before we reach the write).
+    new_tail = "\n\n" + "\n\n".join(blocks) + "\n"
+    try:
+        with open(effective_path, "a", encoding="utf-8") as f:
+            f.write(new_tail)
+    except OSError as exc:
+        logger.warning(
+            "sector overrides auto-populate: failed to append to %s (%s); "
+            "the stub for %s was NOT written",
+            effective_path,
+            type(exc).__name__,
+            ", ".join(appended),
+        )
+        return []
+    return appended
+
+
+def _format_sector_stub(ticker: str) -> str:
+    """Render the per-ticker commented stub block.
+
+    Kept as a tiny helper so the exact wording lives in one place
+    -- the maintainer's editing workflow depends on the "delete
+    ``# `` then fill in the sector" gesture being uniform across
+    every auto-appended block, and tests can pin the wording
+    without duplicating the format string.
+    """
+    return (
+        f"# Auto-detected: missing sector for {ticker!r}. Uncomment the\n"
+        f"# next line and replace \"\" with one of the canonical sectors\n"
+        f"# documented at the top of this file (e.g. \"Technology\").\n"
+        f'# "{ticker}" = ""'
     )

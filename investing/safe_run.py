@@ -5,6 +5,7 @@ emits a sanitized failure summary on exceptions.
 
 from __future__ import annotations
 
+import contextlib
 import io
 import os
 import sys
@@ -138,6 +139,16 @@ def _run_main_safely() -> None:
     devnull_py: io.TextIOWrapper | None = None
     saved_stderr_fd = -1
     saved_stdout_fd = -1
+    # Writer parked on ``cli._REAL_STDOUT`` while the redaction is
+    # in place. Must be backed by ``saved_stdout_fd`` (a separate fd
+    # that survives the ``dup2(devnull, 1)`` below) rather than the
+    # original ``sys.stdout`` -- the Python object still points at
+    # fd 1, so writes through it would land in ``/dev/null`` once
+    # the redirection is active. ``pytest``'s ``capfd`` masked this
+    # in tests because it replaces ``sys.stdout`` with an in-memory
+    # object before the wrapper runs; in production the parked
+    # reference was fd-backed and the curated summary disappeared.
+    real_stdout_writer: io.TextIOWrapper | None = None
     redirected = False
     restored = False
     captured_stdout = io.StringIO()
@@ -150,7 +161,25 @@ def _run_main_safely() -> None:
         if restored:
             return
         restored = True
+        # Drop the writer reference BEFORE clearing the global so a
+        # racing ``emit_summary`` either sees the parked writer (and
+        # writes through it while the fd is still valid) or sees
+        # ``None`` (and falls back to ``sys.stdout``). The writer
+        # wraps ``saved_stdout_fd`` with ``closefd=False`` so closing
+        # the writer here does NOT invalidate the fd we still need
+        # for the dup2-back step below.
         cli._REAL_STDOUT = None
+        if real_stdout_writer is not None:
+            # ``flush``/``close`` on a torn-down writer can raise either
+            # ``OSError`` (fd already invalid) or ``ValueError`` (file
+            # closed concurrently). Both signal "the resource is gone";
+            # the wrapper is already restoring state so swallowing them
+            # is the right answer rather than papering over a structural
+            # bug.
+            with contextlib.suppress(OSError, ValueError):
+                real_stdout_writer.flush()
+            with contextlib.suppress(OSError, ValueError):
+                real_stdout_writer.close()
         sys.stderr = real_stderr
         sys.stdout = real_stdout
         if redirected:
@@ -188,7 +217,17 @@ def _run_main_safely() -> None:
         saved_stderr_fd = os.dup(2)
         saved_stdout_fd = os.dup(1)
 
-        cli._REAL_STDOUT = real_stdout
+        # Build the bypass writer over ``saved_stdout_fd`` (which is
+        # a fresh dup of the operator's stdout fd) BEFORE the dup2
+        # below remaps fd 1 to /dev/null. ``closefd=False`` keeps
+        # the fd's lifecycle owned by ``_restore`` so the close path
+        # can dup2 it back onto fd 1 before releasing it.
+        real_stdout_writer = io.TextIOWrapper(
+            io.FileIO(saved_stdout_fd, mode="w", closefd=False),
+            encoding="utf-8",
+            write_through=True,
+        )
+        cli._REAL_STDOUT = real_stdout_writer
         os.dup2(devnull_py.fileno(), 2)
         os.dup2(devnull_py.fileno(), 1)
         redirected = True

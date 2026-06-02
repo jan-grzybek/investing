@@ -107,25 +107,33 @@ benefit from manual follow-up:
   back to the `courage.png` placeholder.
 
 The build records both kinds of gap as **maintenance hints** and
-surfaces them on a dedicated line of the curated stdout summary so
+surfaces them on dedicated lines of the curated stdout summary so
 the GitHub Actions log (and any local `python -m investing` run)
 reads e.g.:
 
 ```
 Build OK: TWR 48.4% / CAGR 10.5% over 4 years; 10 current / 2 historical holdings.
 Maintenance: missing sectors: NMS:XYZ | missing logos: NMS:NEW
+Auto-populated sector_overrides.toml stubs for: NMS:XYZ
+Notifier: 1 opened (NMS:XYZ) | 1 already tracked
 ```
 
 To clear a hint:
 
-* **Missing sector.** Add an entry to
-  [`sector_overrides.toml`](sector_overrides.toml) under
-  `[sectors]`, mapping the ticker to one of the canonical
+* **Missing sector.** The build's `append_missing_sector_stubs`
+  hook in [`investing/sector_overrides.py`](investing/sector_overrides.py)
+  already appended a commented-out template to
+  [`sector_overrides.toml`](sector_overrides.toml) for you; the
+  maintainer's edit is to delete the leading `# ` from the data
+  line and replace the empty `""` with one of the canonical
   GICS-style sectors documented at the top of that file (also
   listed in `investing.sector_overrides.KNOWN_SECTORS`). A bad
   sector value -- typo, removed-from-GICS, etc. -- is rejected at
   load time and re-surfaced as an `invalid sector overrides: ...`
-  hint, so the typo is easy to spot on the next build.
+  hint, so the typo is easy to spot on the next build. The hook
+  is a no-op when the file is absent (fresh fork) and idempotent
+  across rebuilds (a ticker already mentioned in the file -- open
+  entry OR commented stub -- is skipped on the next pass).
 * **Missing logo.** Drop a hand-curated SVG (preferred), PNG or
   JPG into `logos/<EXCHANGE>:<SYMBOL>.<ext>` -- the file naming
   matches the rest of the directory. The `tighten-logos`
@@ -158,6 +166,21 @@ Lifecycle:
   non-200 responses log a warning and skip), so a flaky GitHub
   API never blocks the deploy. The dedup pass on the next build
   re-attempts cleanly.
+* The notifier returns a `NotifierOutcome` (counts of opened /
+  already-tracked / failed tickers) that the curated build
+  summary emits as a `Notifier: ...` line on the public stdout
+  stream. A non-zero `failed` count points at a misconfigured
+  workflow (`issues: write` permission not granted, Issues
+  turned off on the repository entirely, transient API outage,
+  etc.) -- the operator's eye lands on the offending ticker
+  without having to read the redacted stderr.
+
+**Repository prerequisite.** The notifier needs Issues enabled
+on the target repository. Verify with
+`gh api /repos/<owner>/<name> -q .has_issues` -- a `false` here
+means every POST will 410 Gone and surface as a `Notifier: ...
+failed (...)` line. Toggle on the repo's Settings page (or via
+`gh api -X PATCH /repos/<owner>/<name> -f has_issues=true`).
 
 To clear an auto-filed issue:
 
