@@ -707,13 +707,20 @@ class TestInteractionStyles:
         chdir_tmp,
         freeze_today,
     ):
-        # The pause-on-hover rule lives inside ``@media (hover:
-        # hover)`` so a tap on a touch device (which historically
-        # latched into a sticky ``:hover`` state) never freezes
-        # the marquee. The ``:focus-within`` variant is gone too:
-        # mouse-clicking a marquee anchor focuses it by default,
-        # and the previous CSS used to keep the strip parked
-        # until the user clicked somewhere else.
+        # Pause-on-hover now lives in ``_TICKER_MARQUEE_SCRIPT``
+        # rather than in a CSS ``animation-play-state: paused`` rule:
+        # the marquee animation is driven from JS so the script
+        # gates the pause behind a ``matchMedia('(hover: hover)')``
+        # check (so taps on touch devices, where ``:hover`` used to
+        # latch into a sticky state, never freeze the bar) and
+        # attaches ``mouseenter``/``mouseleave`` listeners only when
+        # the user actually has a pointer device.
+        #
+        # The original ``:focus-within`` variant is gone in both the
+        # script and the stylesheet: pointer-clicking a marquee
+        # anchor would focus it by default and the previous CSS used
+        # to keep the strip parked until the user clicked somewhere
+        # else.
         freeze_today(datetime(2025, 6, 1))
         w = Webpage()
         w.add_return(_total_return(), [])
@@ -721,25 +728,21 @@ class TestInteractionStyles:
         w.save()
         out = (chdir_tmp / "index.html").read_text()
 
-        from tests._css_helpers import (
-            at_rule_bodies,
-            blocks_for,
-            has_declaration,
-            normalize,
-        )
+        from tests._css_helpers import normalize
 
-        # The pause rule is wrapped in a hover-capable media query.
-        # Multiple ``@media (hover: hover)`` blocks exist (one per
-        # topic); union them before searching.
-        hover_bodies = at_rule_bodies(out, "@media (hover: hover)")
-        assert hover_bodies, "@media (hover: hover) missing"
-        pause_rules: list[str] = []
-        for hb in hover_bodies:
-            pause_rules.extend(blocks_for(hb, ".ticker:hover .ticker__track"))
-        assert pause_rules, "pause rule missing inside @media (hover: hover)"
-        assert any(has_declaration(b, "animation-play-state", "paused") for b in pause_rules)
+        # The pause/resume listeners are gated behind a real-pointer
+        # ``matchMedia('(hover: hover)')`` check inside the marquee
+        # script. The exact source order is fixed by the IIFE so we
+        # can assert the gating literal-by-literal here.
+        assert "matchMedia('(hover: hover)')" in out
+        assert "mouseenter" in out
+        assert "mouseleave" in out
+        # The animation no longer runs as a CSS keyframe, so no
+        # ``animation-play-state: paused`` rule should remain in
+        # the stylesheet (the JS pause flag is the only path now).
+        assert "animation-play-state:paused" not in normalize(out)
         # And the focus-within variant that used to keep the bar
-        # parked after a click is gone.
+        # parked after a click is gone from the stylesheet too.
         assert ".ticker:focus-within" not in normalize(out)
         # Regression guard: the unconditional ``.ticker:hover``
         # rule grouped with ``:focus-within`` (the previous shape)

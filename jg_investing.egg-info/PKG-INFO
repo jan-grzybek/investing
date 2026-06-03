@@ -1,0 +1,42 @@
+Metadata-Version: 2.4
+Name: jg-investing
+Version: 0.1.0
+Summary: Generator for the JG Investment Portfolio webpage.
+Author: Jan Grzybek
+License-Expression: MIT
+Project-URL: Homepage, https://jan-grzybek.github.io/investing/
+Project-URL: Source, https://github.com/jan-grzybek/investing
+Project-URL: Issues, https://github.com/jan-grzybek/investing/issues
+Requires-Python: >=3.12
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: gspread>=6
+Requires-Dist: yfinance>=0.2.40
+Requires-Dist: requests>=2.32
+Requires-Dist: python-dateutil>=2.9
+Requires-Dist: Pillow>=10
+Requires-Dist: cairosvg>=2.7
+Requires-Dist: numpy>=2.0
+Provides-Extra: dev
+Requires-Dist: pytest>=8; extra == "dev"
+Requires-Dist: pytest-cov>=5; extra == "dev"
+Requires-Dist: ruff>=0.6; extra == "dev"
+Requires-Dist: mypy>=1.10; extra == "dev"
+Requires-Dist: beautifulsoup4>=4.12; extra == "dev"
+Requires-Dist: html5lib>=1.1; extra == "dev"
+Requires-Dist: pre-commit>=3.7; extra == "dev"
+Requires-Dist: rjsmin>=1.2; extra == "dev"
+Requires-Dist: csscompressor>=0.9; extra == "dev"
+Requires-Dist: pip-tools>=7; extra == "dev"
+Requires-Dist: types-python-dateutil; extra == "dev"
+Requires-Dist: types-requests; extra == "dev"
+Dynamic: license-file
+
+[Go here](https://jan-grzybek.github.io/investing/)
+
+<img src="https://jan-grzybek.github.io/investing/og-image.png" width="500" alt="Live snapshot of Jan Grzybek's investment portfolio"/>
+
+![Website](https://img.shields.io/website?url=https%3A%2F%2Fjan-grzybek.github.io%2Finvesting%2F&up_message=live&up_color=%232DA44E&down_message=down&down_color=%23CF222E&logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAwIiBoZWlnaHQ9IjEwMDAiIHZpZXdCb3g9IjAgMCAyNjQuNTgzIDI2NC41ODMiPjxjaXJjbGUgY3g9IjEzMi40OTciIGN5PSIxMzIuNTk5IiByPSIxMzEuNDc1IiBzdHlsZT0iZm9udC12YXJpYXRpb24tc2V0dGluZ3M6JnF1b3Q7d2dodCZxdW90OzQwMDtkaXNwbGF5OmlubGluZTtmaWxsOiNmZjdmMmE7c3Ryb2tlOm5vbmU7c3Ryb2tlLXdpZHRoOi40ODQ5MzYiLz48L3N2Zz4%3D&label=JG%20Investing&labelColor=%23555555)
+[![Update and deploy webpage](https://github.com/jan-grzybek/investing/actions/workflows/main.yml/badge.svg?event=schedule)](https://github.com/jan-grzybek/investing/actions/workflows/main.yml)
+[![Tests](https://github.com/jan-grzybek/investing/actions/workflows/test.yml/badge.svg)](https://github.com/jan-grzybek/investing/actions/workflows/test.yml)
+[![Security scans](https://github.com/jan-grzybek/investing/actions/workflows/security.yml/badge.svg)](https://github.com/jan-grzybek/investing/actions/workflows/security.yml)

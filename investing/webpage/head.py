@@ -18,6 +18,7 @@ from ..assets import (
     _NAV_SCROLL_SCRIPT,
     _PAGE_STYLES,
     _RETURN_CHART_SCRIPT,
+    _TICKER_MARQUEE_SCRIPT,
     _TRADES_SORT_SCRIPT,
 )
 from ..formatting import _sha256_b64
@@ -111,6 +112,7 @@ def build_csp(jsonld: SafeHtml) -> SafeHtml:
     hash_clear_hash = _sha256_b64(_HASH_CLEAR_SCRIPT)
     nav_scroll_hash = _sha256_b64(_NAV_SCROLL_SCRIPT)
     return_chart_hash = _sha256_b64(_RETURN_CHART_SCRIPT)
+    ticker_marquee_hash = _sha256_b64(_TICKER_MARQUEE_SCRIPT)
     trades_sort_hash = _sha256_b64(_TRADES_SORT_SCRIPT)
     holdings_sort_hash = _sha256_b64(_HOLDINGS_SORT_SCRIPT)
     return SafeHtml(
@@ -119,6 +121,7 @@ def build_csp(jsonld: SafeHtml) -> SafeHtml:
         f"'sha256-{hash_clear_hash}' "
         f"'sha256-{nav_scroll_hash}' "
         f"'sha256-{return_chart_hash}' "
+        f"'sha256-{ticker_marquee_hash}' "
         f"'sha256-{trades_sort_hash}' "
         f"'sha256-{holdings_sort_hash}' "
         "https://static.cloudflareinsights.com; "
@@ -187,6 +190,7 @@ def build_head(meta: SiteMeta) -> SafeHtml:
         f"<script>{_HASH_CLEAR_SCRIPT}</script>\n"
         f"<script>{_NAV_SCROLL_SCRIPT}</script>\n"
         f"<script>{_RETURN_CHART_SCRIPT}</script>\n"
+        f"<script>{_TICKER_MARQUEE_SCRIPT}</script>\n"
         f"<script>{_TRADES_SORT_SCRIPT}</script>\n"
         f"<script>{_HOLDINGS_SORT_SCRIPT}</script>\n"
         f"<style>{_PAGE_STYLES}</style>\n"

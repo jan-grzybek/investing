@@ -20,6 +20,7 @@ __all__ = [
     "_NAV_SCROLL_SCRIPT",
     "_PAGE_STYLES",
     "_RETURN_CHART_SCRIPT",
+    "_TICKER_MARQUEE_SCRIPT",
     "_TRADES_SORT_SCRIPT",
 ]
 
@@ -279,3 +280,62 @@ _TRADES_SORT_SCRIPT = _read_asset("trades_sort.js")
 # Kept as a tight ES5-flavoured IIFE so the inline payload stays
 # small and gets a single stable SHA-256 hash (pinned in CSP).
 _HOLDINGS_SORT_SCRIPT = _read_asset("holdings_sort.js")
+
+
+# Drives the decorative current-holdings marquee at the top of the
+# page. The track is a flex row of one ``<a class="ticker__link">``
+# per current holding, doubled (two identical copies of the logo
+# set) so a wrap-by-half-width strategy produces a seamless loop:
+# each ``requestAnimationFrame`` tick decrements an in-memory
+# ``offset`` variable and writes ``transform: translate3d(<offset>
+# px, 0, 0)`` to the track; once ``offset`` crosses ``-halfWidth``
+# (the natural width of one copy of the logo set), the script adds
+# ``halfWidth`` back so the second copy is now exactly where the
+# first one was. The visual is identical, but the offset variable
+# has just been rebased into the loop's valid range.
+#
+# The animation was previously a CSS ``@keyframes`` rule driving a
+# ``transform: translate3d(0, 0, 0) -> translate3d(-50%, 0, 0)``
+# cycle, with ``animation-duration`` switched at viewport
+# breakpoints and ``animation-play-state: paused`` on
+# ``.ticker:hover``. That implementation accumulated three distinct
+# failure modes that all surfaced as the user-reported "the bar
+# sometimes jams / blinks / resets position", and each new CSS-only
+# patch only addressed a subset:
+#
+#   * Tab-visibility resume: CSS animations are wall-clock timed
+#     and on some browsers the transform jumps to "where the
+#     animation would be now" when the tab becomes visible again,
+#     rather than continuing from the paused offset. The rAF loop
+#     stops on ``visibilitychange`` and resumes from the same
+#     offset variable, so the jump is structurally impossible.
+#   * Compositor layer demotion: the GPU layer carrying the
+#     animated transform can be evicted under memory pressure, by
+#     neighbouring repaints (sticky-header ``backdrop-filter``
+#     rebuild on iOS Safari while the URL bar collapses), or when
+#     ``animation-play-state`` flips on hover. The rebuild snaps
+#     the interpolated transform to a fresh raster, which the eye
+#     reads as a shift. Writing a single ``translate3d`` value per
+#     frame from the main thread leaves no keyframe interpolation
+#     for the compositor to lose.
+#   * Mid-flight ``animation-duration`` changes: crossing a
+#     breakpoint (or the iOS URL bar collapsing across one) instant-
+#     ly re-evaluates the keyframe position against the new
+#     duration, which jumps the transform. JS computes ``pxPerMs``
+#     from the current viewport and re-reads it on debounced
+#     ``resize``, so the offset variable stays continuous across
+#     breakpoints.
+#
+# Pause-on-hover is reimplemented in JS (only on real pointer
+# devices, gated on ``matchMedia('(hover: hover)')`` the same way
+# the previous CSS rule was) by flipping a ``paused`` flag that
+# skips the offset decrement -- ``offset`` is preserved verbatim,
+# so resume is byte-for-byte continuous with pause. ``prefers-
+# reduced-motion`` short-circuits boot entirely; the matching
+# CSS block collapses the ``width: max-content`` track into a
+# wrapping centred row so all logos remain visible at once
+# without any motion.
+#
+# Kept as a tight ES5-flavoured IIFE so the inline payload stays
+# small and gets a single stable SHA-256 hash (pinned in CSP).
+_TICKER_MARQUEE_SCRIPT = _read_asset("ticker_marquee.js")

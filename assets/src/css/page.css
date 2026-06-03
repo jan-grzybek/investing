@@ -254,9 +254,14 @@ main { display: block; }
    animation as the sole driver fixes it. */
 @media (prefers-reduced-motion: reduce) {
   /* Don't animate the ticker for users who request reduced motion;
-     wrap into a static row so all logos remain visible at once. */
+     wrap into a static row so all logos remain visible at once.
+     ``_TICKER_MARQUEE_SCRIPT`` short-circuits on the same media
+     query so the inline ``transform`` it would normally write
+     never lands; this rule handles the layout side (collapse the
+     ``width: max-content`` track into a centred wrapping row so
+     the off-screen second copy of logos shares space with the
+     visible first copy rather than parading off the right edge). */
   .ticker__track {
-    animation: none;
     flex-wrap: wrap;
     width: auto;
     justify-content: center;
@@ -353,9 +358,13 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
   outline: none;
 }
 /* Slow horizontal "stocks tape" of current-holdings logos. The track
-   contains two copies of the logo set so a 0 -> -50% translate3d
-   keyframe loops seamlessly. The mask gradient fades both ends so
-   logos enter and exit gracefully rather than popping at the edges. */
+   contains two copies of the logo set so a JS-driven translate3d
+   loop wraps seamlessly: ``_TICKER_MARQUEE_SCRIPT`` decrements the
+   ``transform`` each frame and wraps the offset by ``halfWidth``
+   (the natural width of one set of logos) whenever it crosses the
+   threshold, which puts the second copy exactly where the first
+   was. The mask gradient fades both ends so logos enter and exit
+   gracefully rather than popping at the edges. */
 .ticker {
   margin: 0 -24px 24px;
   overflow: hidden;
@@ -367,62 +376,60 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
           mask-image: linear-gradient(to right,
     transparent 0%, #000 6%, #000 94%, transparent 100%);
 }
+/* Track positioning is driven entirely by JS (see
+   ``_TICKER_MARQUEE_SCRIPT``): each ``requestAnimationFrame`` tick
+   subtracts ``pxPerMs * dt`` from a JS-held offset variable and
+   writes it back via ``element.style.transform = translate3d(..px,
+   0, 0)``. The reason the animation lives in JS rather than as a
+   CSS ``@keyframes`` declaration is that the CSS form had three
+   distinct failure modes that all surface as the user-reported
+   "the bar sometimes blinks / shifts / resets position":
+
+     1. **Tab-visibility resume.** CSS animations are wall-clock
+        timed. Some browsers (notably Chromium) pause the
+        animation while the tab is hidden but keep the wall clock
+        running; on resume they jump the transform to "where the
+        animation would be now" rather than continuing from where
+        it paused. JS pauses the rAF loop on ``visibilitychange``
+        and resumes from the same offset variable, so the jump
+        is impossible.
+     2. **Compositor layer demotion.** A CSS ``transform``
+        animation runs on the GPU compositor, but the layer can
+        be evicted under memory pressure, by neighbouring layer
+        repaints (e.g. the sticky header's ``backdrop-filter``
+        rebuild on iOS Safari while the URL bar collapses), or
+        when ``animation-play-state`` flips on hover. The rebuild
+        snaps the interpolated transform to a fresh raster, which
+        the eye reads as a shift. Driving the transform from the
+        main thread via ``element.style.transform`` writes a
+        single ``translate3d`` value per frame; there is no
+        keyframe interpolation to snap to.
+     3. **Mid-flight duration changes at viewport breakpoints.**
+        The previous CSS had ``animation-duration: 60s / 45s /
+        35s`` per breakpoint; crossing one mid-animation
+        (e.g. iOS Safari URL-bar collapse changing the viewport
+        width past 540px) instantly re-evaluates the keyframe
+        position against the new duration, which jumps the
+        transform. JS computes ``pxPerMs`` from the current
+        viewport and re-reads it on debounced ``resize``, so the
+        offset variable stays continuous across breakpoints.
+
+   ``will-change: transform`` is kept as a hint so the browser
+   keeps the layer warm; ``backface-visibility: hidden`` is the
+   belt-and-braces 3D-context hint for older WebKit. Neither is
+   load-bearing the way they had to be with the CSS animation --
+   the JS writes a fresh ``translate3d`` every frame so the
+   compositor cannot lose the 3D matrix -- but they cost nothing
+   and keep the initial paint on the GPU before the rAF loop is
+   scheduled. */
 .ticker__track {
   display: flex;
   align-items: center;
   gap: 40px;
   width: max-content;
-  animation: ticker-scroll 60s linear infinite;
-  /* Keep the track on its own GPU compositor layer at all times,
-     and force that layer into a 3D rendering context.
-
-     Without these hints, Chrome only promotes the element while
-     ``animation-play-state`` is ``running``; the moment ``:hover``
-     flips it to ``paused`` (or the cursor moves over a child link
-     and triggers an opacity repaint), the layer is eligible for
-     demotion back to the main thread. The demote/re-rasterize
-     cycle snaps the live ``translateX`` value to the nearest
-     whole pixel, which the eye reads as the bar drifting / jumping
-     a couple of pixels when the cursor enters, moves across, and
-     leaves the strip. ``will-change`` (and a ``backface-visibility:
-     hidden`` belt-and-braces hint for older WebKit) keeps the
-     transform in floating-point GPU storage so hover-triggered
-     descendant repaints can't rebase it.
-
-     The static ``translate3d(0, 0, 0)`` here is also load-bearing
-     and pairs with the matching 3D form in the ``ticker-scroll``
-     keyframes below. ``will-change`` on its own is *advisory*: it
-     tells the engine the property is going to animate but doesn't
-     guarantee a 3D-accelerated layer survives every paint cycle.
-     The user-reported "the bar sometimes blinks / shifts / resets
-     position" was the visible symptom: when the sticky header
-     above re-rasterised its ``backdrop-filter`` (iOS Safari does
-     this on scroll while the URL bar collapses), or the tab came
-     back from background, the compositor would tear down the 2D
-     ``translateX`` layer and rebuild it from the current keyframe
-     interpolation -- which on iOS Safari snaps to a wall-clock-
-     adjusted position and reads as a jump. Forcing a 3D matrix on
-     the element (both in its baseline and in every keyframe step)
-     pins it as a 3D-accelerated layer the compositor never
-     demotes, so the animation runs continuously through whatever
-     repaint storms happen in neighbouring layers. */
   transform: translate3d(0, 0, 0);
   will-change: transform;
   backface-visibility: hidden;
-}
-/* Pause the marquee while a real pointer is hovering over it
-   (mouse / trackpad / pen) so a reader can study a passing logo.
-   Gated on ``@media (hover: hover)`` so it never fires on touch
-   devices, where a tap was previously latching into a sticky
-   :hover state and freezing the bar mid-loop; and the
-   ``:focus-within`` variant is gone entirely so a click on a
-   marquee anchor (which focuses that anchor by browser default)
-   no longer keeps the strip parked until the user clicks
-   elsewhere. The marquee itself is ``aria-hidden`` and every
-   link is ``tabindex="-1"``, so there's no keyboard pathway in
-   that needs the focus-based pause anyway. */
-@media (hover: hover) {
-  .ticker:hover .ticker__track { animation-play-state: paused; }
 }
 /* Normalize logos to a uniform-area cell so every holding reads
    at the same visual prominence along the marquee. The portfolio's
@@ -497,20 +504,6 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
 .ticker__link:focus-visible .ticker__logo { opacity: 1; }
 @media (hover: hover) {
   .ticker__link:hover .ticker__logo { opacity: 1; }
-}
-/* The 3D form (``translate3d`` rather than the equivalent
-   ``translateX``) is intentional and pairs with the static
-   ``transform: translate3d(0, 0, 0)`` on ``.ticker__track``: it
-   keeps the animated property in a 3D matrix the entire way
-   through the cycle so the compositor never has a frame on which
-   the layer collapses back to a 2D affine transform. See the
-   explanatory comment on ``.ticker__track`` for the symptoms a
-   2D transform produced (blink / shift / reset on iOS Safari
-   URL-bar collapse, sticky-header backdrop-filter rebuild, and
-   tab-visibility resume). */
-@keyframes ticker-scroll {
-  from { transform: translate3d(0, 0, 0); }
-  to { transform: translate3d(-50%, 0, 0); }
 }
 /* ``scroll-margin-top`` reserves space at the top of the viewport
    when an anchor (``#trades`` etc.) targets the section so the
@@ -2089,7 +2082,11 @@ footer a:focus-visible {
     margin: 0 -16px 20px;
     padding: 12px 0;
   }
-  .ticker__track { gap: 28px; animation-duration: 45s; }
+  /* Per-breakpoint loop speed lives in JS (see ``loopDur`` inside
+     ``_TICKER_MARQUEE_SCRIPT``): 60s on desktop, 45s under 540px,
+     35s under 380px. The gap is purely visual and matches the
+     smaller logo cell below. */
+  .ticker__track { gap: 28px; }
   .ticker__logo { width: 48px; height: 24px; }
   /* With the compacted mobile nav above, the header collapses to a
      single row at iPhone widths (~81px tall). 100px of reserve
@@ -2280,7 +2277,7 @@ footer a:focus-visible {
   }
   .site-title { font-size: 1.25rem; }
   .ticker { margin: 0 -12px 16px; padding: 10px 0; }
-  .ticker__track { gap: 22px; animation-duration: 35s; }
+  .ticker__track { gap: 22px; }
   .ticker__logo { width: 40px; height: 20px; }
   .holding {
     grid-template-columns: 44px minmax(0, 1fr);
