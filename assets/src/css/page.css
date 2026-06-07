@@ -234,7 +234,59 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 img { max-width: 100%; height: auto; }
-main { display: block; }
+/* ``<main>`` is the single grid container that anchors the
+   cross-section column alignment for the holdings capsules
+   nested inside ``<section id="current">`` and ``<section
+   id="historical">``. Declaring four explicit tracks here
+   (logo / body / stats-label / stats-value) and chaining
+   ``grid-template-columns: subgrid`` down through the holdings
+   sections, their ``.holdings__list`` wrappers, each ``.holding``
+   capsule, and finally the ``.holding__stats`` <dl> means every
+   ``<dt>`` / ``<dd>`` ultimately lives in cols 3-4 of *this*
+   grid. Cols 3-4 are sized via ``max-content``, which considers
+   ALL items placed in those tracks regardless of subgrid
+   nesting depth -- including dt/dd from BOTH the Current and
+   Historical lists -- so the two sections always derive the
+   same Return / IRR (and Weight, where it appears) column
+   widths regardless of which one happens to hold the widest
+   value. This is what fixes the cross-section misalignment
+   that the per-list ``minmax(<floor>, max-content)`` approach
+   couldn't deliver: each ``.holdings__list`` is its own grid
+   container, so it could only ever see its own list's
+   max-content; lifting the grid up to ``<main>`` is what makes
+   cross-list maxes possible.
+
+   Sections that don't contain a ``.holdings__list`` (the
+   performance and trades sections, plus the optional ticker
+   marquee) span ``1 / -1`` via the ``main > *`` rule below and
+   contribute no items to cols 3-4, so their internal layout is
+   unaffected. The 1fr body track absorbs whatever leftover
+   width those sections need.
+
+   The mobile media query at ``@media (max-width: 540px)``
+   reverts ``<main>`` to ``display: block`` (and drops the
+   subgrid chain at every level below it) since the per-capsule
+   reflow on mobile uses its own ``"logo body" / "stats stats"``
+   named-areas grid that is independent of cross-capsule
+   alignment. */
+main {
+  display: grid;
+  grid-template-columns:
+    88px
+    minmax(0, 1fr)
+    minmax(4.5em, max-content)
+    minmax(4.5em, max-content);
+  column-gap: 24px;
+}
+/* Every direct child of ``<main>`` -- the 4 sections plus the
+   optional ticker marquee at the top -- spans the full width by
+   default. The two holdings sections override the inner column
+   layout below by switching to ``grid-template-columns:
+   subgrid`` so their descendants can keep walking down the
+   chain. The other sections just sit in this row and use the
+   1fr + 88px + 2 * stats tracks as a single 832px-wide block,
+   exactly as they did before ``<main>`` became a grid. */
+main > * { grid-column: 1 / -1; }
 /* Smooth-scroll for in-page nav (clicking ``Performance`` /
    ``Current`` / ``Historical`` in the sticky header). The
    ``:focus-within`` gate is intentional and not an accident:
@@ -517,6 +569,22 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
    against the header edge. */
 .section { margin-top: 36px; scroll-margin-top: 120px; }
 .section:first-of-type { margin-top: 8px; }
+/* The two holdings sections become subgrids that pass ``<main>``'s
+   four-track layout (logo / body / stats label / stats value)
+   through to their inner ``.holdings__list``. Their direct
+   children (h2, h3 subtitles, allocation bars, sector treemap,
+   sort toolbar, holdings list itself) each span ``1 / -1`` so
+   they sit on a single row of the inherited columns and don't
+   contribute items to cols 3-4 -- only the dt/dd inside each
+   ``.holding__stats`` does, which is what we want. The mobile
+   media query reverts these to ``display: block``. */
+.section--current,
+.section--historical {
+  display: grid;
+  grid-template-columns: subgrid;
+}
+.section--current > *,
+.section--historical > * { grid-column: 1 / -1; }
 .section__title {
   font-size: 1.375rem;
   font-weight: 700;
@@ -852,81 +920,38 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
 .holdings__sort-btn[aria-sort="descending"] .holdings__sort-indicator {
   border-top-color: var(--fg);
 }
-/* The list wrapper anchors the cross-capsule column alignment for
-   the ``.holding`` capsules nested below. The sort script also
-   keys off this element so it can re-order capsules within their
-   own section without touching the surrounding allocation chart
-   / subtitle.
+/* The list wrapper is the third link in the subgrid chain anchored
+   on ``<main>`` (see the ``main { display: grid; ... }`` rule
+   near the top of the file for the full architecture comment).
+   ``grid-template-columns: subgrid`` here passes the four outer
+   tracks down so each ``.holding`` capsule can in turn ``subgrid``
+   into them and place its dt/dd into cols 3-4 of ``<main>``'s
+   grid -- the level at which ``max-content`` sees the union of
+   dt/dd items across BOTH the Current and Historical lists, so
+   the two sections always pick the same column widths.
 
-   Declaring the four explicit tracks here (logo, body, stats
-   label, stats value) and then having each capsule pull them in
-   via ``grid-template-columns: subgrid`` is what makes Return /
-   IRR / Weight align vertically across cards: the parent grid
-   sizes the label / value tracks via the fixed widths below, so
-   every "Return:" label shares an x and every value shares a
-   right-aligned x.
+   The wrapper still exists as its own DOM node (rather than
+   being absorbed via ``display: contents``) because the holdings
+   sort script keys off it: each ``data-holdings-list="<scope>"``
+   wrapper is the parent ``parentNode.removeChild`` / ``appendChild``
+   target for re-ordering its capsules without touching the
+   surrounding allocation bars / treemap / sort toolbar.
 
-   The label / value tracks combine a fixed *floor* (so that the
-   Current and Historical lists -- which are sibling grid
-   containers under separate ``<section>`` parents and therefore
-   can't share a single ``max-content`` track -- still derive
-   identical column widths in the common case) with a
-   ``max-content`` *ceiling* on the value column (so a single
-   outsized value like ``5522.7%`` or ``-12345.6%`` doesn't
-   overflow into the label / body columns and visually break the
-   right-alignment a fixed-width track was meant to deliver).
-   Cross-section alignment is preserved whenever both lists'
-   widest values stay below the floor (the typical case --
-   essentially every realistic IRR or Return ladder); a section
-   that legitimately holds an order-of-magnitude wider value
-   simply lets that one column relax to fit, and the values
-   inside *that* section stay perfectly right-aligned with each
-   other (which was the explicit user complaint -- the alignment
-   inside a section must never break, the cross-section spread
-   is a "nice to have" on top).
-
-     * ``--holding-label-width`` fits the widest of "Return:" /
-       "IRR:" / "Weight:" labels (proportional-width text). The
-       label column is a fixed length because the labels are
-       deterministic -- there is no equivalent "outsized label"
-       failure mode to defend against.
-     * ``--holding-value-width`` is the floor for the value
-       column; the actual track sizes to ``max(floor,
-       max-content)`` so any value that won't fit in the floor
-       expands the column instead of overflowing it. The floor
-       fits the widest *common* signed 3-digit-plus-decimal
-       percentage (e.g. "-217.4%") plus a small margin, with
-       the ``tabular-nums`` font feature already enabled on
-       ``.holding__stats``; "TBA" fits the same column with
-       room to spare. Values are right-aligned via the
-       ``.holding__stats dd { text-align: right }`` rule below
-       so a 2-digit value sits at the same x as a 4-character
-       one within the same list.
-
-   The variables are declared on the same selector so a sibling
-   page or a future tweak can override them in one place; both
-   lists pick them up by virtue of sharing this rule.
-
-   Capsules space themselves vertically via the historical
-   ``.holding`` ``margin-top: 12px``, which still applies because
-   grid items don't margin-collapse and the per-row track sizes
-   to its content + margins. The ``column-gap: 24px`` matches the
-   capsule's pre-subgrid logo-to-body gap so the layout reads
-   visually unchanged for everything except the now-aligned
-   stats stack on the right. The mobile media query below
-   reverts this to ``display: block`` since the per-capsule
-   reflow into ``"logo body" / "stats stats"`` named areas is
-   independent of cross-capsule alignment. */
+   Capsules continue to space themselves vertically via the
+   ``.holding`` ``margin-top: 12px`` rule (grid items don't
+   margin-collapse and the auto-row sizing absorbs each capsule's
+   margin into its row track). The ``column-gap: 24px`` declared
+   on ``<main>`` propagates down through every subgrid in the
+   chain unchanged so the visual spacing between logo / body /
+   label / value columns stays the same as the pre-cross-section
+   layout. The mobile media query below reverts this rule to
+   ``display: block`` (alongside ``main`` and the holdings
+   sections) since the per-capsule reflow into ``"logo body" /
+   "stats stats"`` named areas is independent of cross-capsule
+   alignment. */
 .holdings__list {
-  --holding-label-width: 4.5em;
-  --holding-value-width: 4.5em;
   display: grid;
-  grid-template-columns:
-    88px
-    minmax(0, 1fr)
-    var(--holding-label-width)
-    minmax(var(--holding-value-width), max-content);
-  column-gap: 24px;
+  grid-template-columns: subgrid;
 }
 /* Intro paragraph under a section title (e.g. the methodology note
    beneath the "Trades" section heading). Sits on its own row,
@@ -2224,13 +2249,19 @@ footer a:focus-visible {
   .return-chart svg { aspect-ratio: 5 / 3; height: auto; }
   /* On mobile each capsule reflows internally into a "logo body"
      row plus a "stats stats" row (see ``.holding`` below), so the
-     desktop cross-capsule subgrid alignment has no role to play
-     -- and a 4-track outer grid would in fact fight the per-
-     capsule named-areas declared below (the capsule stops being
-     a subgrid, the inner reflow takes over). Revert the list
-     wrapper to plain block stacking so each capsule lays itself
-     out independently, and the mobile column / row gaps declared
-     on ``.holding`` apply directly. */
+     desktop cross-section subgrid chain (``<main>`` -> holdings
+     section -> ``.holdings__list`` -> ``.holding`` -> stats <dl>)
+     has no role to play -- and the four-track outer grid would
+     in fact fight the per-capsule named-areas declared below (the
+     capsule stops being a subgrid, its inner reflow takes over).
+     Revert every link in the chain to ``display: block`` so each
+     element lays itself out independently in normal flow; the
+     mobile column / row gaps declared on ``.holding`` and the
+     mobile-only ``grid-template-areas`` apply directly without
+     having to override anything inherited from ``<main>``. */
+  main { display: block; }
+  .section--current,
+  .section--historical { display: block; }
   .holdings__list { display: block; }
   .holding {
     grid-template-columns: 56px minmax(0, 1fr);
