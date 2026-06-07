@@ -37,7 +37,7 @@ google-auth-oauthlib==1.4.0
     # via gspread
 gspread==6.2.1
     # via jg-investing (pyproject.toml)
-idna==3.17
+idna==3.18
     # via requests
 markdown-it-py==4.2.0
     # via rich

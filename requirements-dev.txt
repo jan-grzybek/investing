@@ -43,9 +43,9 @@ curl-cffi==0.15.0
     # via yfinance
 defusedxml==0.7.1
     # via cairosvg
-distlib==0.4.0
+distlib==0.4.1
     # via virtualenv
-filelock==3.29.0
+filelock==3.29.1
     # via
     #   python-discovery
     #   virtualenv
@@ -61,7 +61,7 @@ html5lib==1.1
     # via jg-investing (pyproject.toml)
 identify==2.6.19
     # via pre-commit
-idna==3.17
+idna==3.18
     # via requests
 iniconfig==2.3.0
     # via pytest
@@ -157,7 +157,7 @@ rich==15.0.0
     # via curl-cffi
 rjsmin==1.2.5
     # via jg-investing (pyproject.toml)
-ruff==0.15.15
+ruff==0.15.16
     # via jg-investing (pyproject.toml)
 six==1.17.0
     # via
