@@ -549,10 +549,31 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
 }
 .holding {
   display: grid;
-  grid-template-columns: 88px minmax(0, 1fr) auto;
+  /* Inherit the logo / body / stats-label / stats-value tracks
+     defined on the parent ``.holdings__list`` (declared below the
+     ``.holding__stats`` rule -- see the comment there for the
+     cross-capsule alignment rationale). ``grid-column: 1 / -1``
+     spans the capsule across all four outer tracks; the explicit
+     placements on ``.holding__logo`` / ``.holding__body`` /
+     ``.holding__stats`` slot each child into its column.
+     ``column-gap`` inherits 24px from the parent (matching the
+     pre-subgrid value) so the visual spacing between logo / body
+     / stats columns stays unchanged; the ``row-gap`` here is a
+     no-op on the desktop single-row capsule but mirrors the
+     historical ``gap: 14px 24px`` so the mobile media query
+     below has a consistent shorthand to override. */
+  grid-template-columns: subgrid;
+  grid-column: 1 / -1;
   align-items: center;
-  gap: 14px 24px;
+  row-gap: 14px;
   padding: 16px 20px;
+  /* Margin-top still drives the inter-capsule spacing on desktop:
+     grid items don't margin-collapse, so each capsule contributes
+     its own 12px to the row-track size and the visible gap
+     between consecutive capsules stays at 12px. Keeping the
+     margin (rather than switching to ``row-gap`` on the parent)
+     also preserves the 12px breathing room above the very first
+     capsule, where the sort toolbar sits immediately above. */
   margin-top: 12px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -564,6 +585,15 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
      consistent with the section-level nav. */
   scroll-margin-top: 120px;
 }
+/* Either the bare ``<img class="holding__logo">`` or the
+   ``<a class="holding__logo-link">`` wrapper (when the holding
+   has a website URL wired in) ends up as the capsule's first
+   grid child. Pin both to column 1 of the subgrid explicitly so
+   a future re-ordering of the markup doesn't shift the layout,
+   and so the body and stats placements below don't have to rely
+   on auto-flow visiting children in DOM order. */
+.holding > .holding__logo,
+.holding > .holding__logo-link { grid-column: 1; }
 .holding__logo {
   width: 100%;
   max-width: 88px;
@@ -609,7 +639,7 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
     opacity: 0.78;
   }
 }
-.holding__body { min-width: 0; }
+.holding__body { grid-column: 2; min-width: 0; }
 .holding__title {
   font-size: 1.0625rem;
   font-weight: 600;
@@ -709,9 +739,24 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
   max-width: 60ch;
 }
 .holding__stats {
+  /* Span columns 3-4 of the capsule's subgrid (= columns 3-4 of
+     ``.holdings__list`` -- the stats label and value tracks).
+     ``display: grid; grid-template-columns: subgrid`` makes the
+     dt/dd pairs participate in those parent columns directly so
+     the widest "Weight:" label and the widest "217.4%" value pin
+     both column widths once for the entire holdings list -- every
+     capsule's Return / IRR / Weight rows then line up vertically
+     down the right side of the section instead of each row's
+     offset being driven by its own value width.
+     ``column-gap`` ultimately resolves to the 24px declared on
+     ``.holdings__list`` (per the CSS Grid Level 2 rule that a
+     subgrid's effective gutter is the max of the parent's and
+     its own at each shared gridline). The pre-subgrid layout
+     used a 14px label-to-value gap; the slightly wider 24px gap
+     is the trade-off for cross-capsule column alignment. */
+  grid-column: 3 / -1;
   display: grid;
-  grid-template-columns: max-content max-content;
-  column-gap: 14px;
+  grid-template-columns: subgrid;
   row-gap: 3px;
   margin: 0;
   font-variant-numeric: tabular-nums;
@@ -807,13 +852,34 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
 .holdings__sort-btn[aria-sort="descending"] .holdings__sort-indicator {
   border-top-color: var(--fg);
 }
-/* The list wrapper exists purely so the sort script can re-order
-   capsules within their own section without touching the
-   surrounding allocation chart / subtitle. It carries no visual
-   styling of its own; capsules continue to space themselves via
-   the existing ``.holding`` ``margin-top`` rule. */
+/* The list wrapper anchors the cross-capsule column alignment for
+   the ``.holding`` capsules nested below. The sort script also
+   keys off this element so it can re-order capsules within their
+   own section without touching the surrounding allocation chart
+   / subtitle.
+
+   Declaring the four explicit tracks here (logo, body, stats
+   label, stats value) and then having each capsule pull them in
+   via ``grid-template-columns: subgrid`` is what makes Return /
+   IRR / Weight align vertically across cards: the parent grid
+   sizes the label / value tracks to ``max-content`` of the
+   widest content across *every* capsule, so all "Return:" labels
+   share an x and all values share a right-aligned x.
+
+   Capsules space themselves vertically via the historical
+   ``.holding`` ``margin-top: 12px``, which still applies because
+   grid items don't margin-collapse and the per-row track sizes
+   to its content + margins. The ``column-gap: 24px`` matches the
+   capsule's pre-subgrid logo-to-body gap so the layout reads
+   visually unchanged for everything except the now-aligned
+   stats stack on the right. The mobile media query below
+   reverts this to ``display: block`` since the per-capsule
+   reflow into ``"logo body" / "stats stats"`` named areas is
+   independent of cross-capsule alignment. */
 .holdings__list {
-  display: block;
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr) max-content max-content;
+  column-gap: 24px;
 }
 /* Intro paragraph under a section title (e.g. the methodology note
    beneath the "Trades" section heading). Sits on its own row,
@@ -2109,6 +2175,16 @@ footer a:focus-visible {
      a glance again. ``preserveAspectRatio="none"`` already
      allows the SVG to stretch to whatever box CSS hands it. */
   .return-chart svg { aspect-ratio: 5 / 3; height: auto; }
+  /* On mobile each capsule reflows internally into a "logo body"
+     row plus a "stats stats" row (see ``.holding`` below), so the
+     desktop cross-capsule subgrid alignment has no role to play
+     -- and a 4-track outer grid would in fact fight the per-
+     capsule named-areas declared below (the capsule stops being
+     a subgrid, the inner reflow takes over). Revert the list
+     wrapper to plain block stacking so each capsule lays itself
+     out independently, and the mobile column / row gaps declared
+     on ``.holding`` apply directly. */
+  .holdings__list { display: block; }
   .holding {
     grid-template-columns: 56px minmax(0, 1fr);
     grid-template-areas:
