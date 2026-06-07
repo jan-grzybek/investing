@@ -1077,15 +1077,16 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
 @media (prefers-color-scheme: dark) {
   .trade__badge { color: var(--bg); }
 }
-/* "Details" column. ``--label`` rows (Initial stake / Disposal)
-   are qualitative and ride muted-grey so the action badge keeps
-   visual primacy; ``--pct`` rows (+30% / -25%) are quantitative
-   and pick up the page's standard green / red value colours via
-   the ``.value--positive`` / ``.value--negative`` modifier the
-   row already carries -- those classes are defined further up
-   and shared with the holding capsules' TSR / CAGR readouts so
-   the whole page speaks one colour-coding language. */
-.trades__detail--label { color: var(--muted); }
+/* "Details" column. Every row -- ``--label`` (Initiated /
+   Divested) and ``--pct`` (+30% / -25%) alike -- picks up the
+   page's standard green / red value colours via the
+   ``.value--positive`` / ``.value--negative`` modifier the row
+   already carries: OPEN / INCREASE read as growth (green),
+   CLOSE / DECREASE as reduction (red). Those colour classes are
+   defined further up and shared with the holding capsules' TSR
+   / CAGR readouts so the whole page speaks one colour-coding
+   language. ``--pct`` rows additionally get a heavier weight so
+   the signed percentage stands out as a numeric readout. */
 .trades__detail--pct {
   font-weight: 600;
 }

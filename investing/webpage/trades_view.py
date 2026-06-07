@@ -106,18 +106,24 @@ def build_row(event: TradeEvent) -> str:
     category = event["category"]
     action_label, action_modifier = _TRADE_ACTION_DISPLAY[category]
     detail_label = _detail_text(event)
-    # The two "boundary" labels (Initial stake / Disposal) are
+    # The two "boundary" labels (Initiated / Divested) are
     # qualitative; the magnitude rows (+30% / -25%) are
     # quantitative and benefit from a tabular-numbers
-    # treatment plus a sign-driven colour cue.
+    # treatment. Both branches pick up the page's standard
+    # green / red value colours so the whole column speaks
+    # the same direction-of-travel language: OPEN / INCREASE
+    # are growth (green), CLOSE / DECREASE are reduction
+    # (red), matching the buy-vs-sell axis of the adjacent
+    # Action badge without needing a second glance.
+    value_modifier = (
+        "value--positive" if category in ("OPEN", "INCREASE") else "value--negative"
+    )
     if category in ("INCREASE", "DECREASE"):
         detail_modifier = "pct"
-        detail_class = "trades__detail trades__detail--pct " + (
-            "value--positive" if category == "INCREASE" else "value--negative"
-        )
+        detail_class = f"trades__detail trades__detail--pct {value_modifier}"
     else:
         detail_modifier = "label"
-        detail_class = "trades__detail trades__detail--label"
+        detail_class = f"trades__detail trades__detail--label {value_modifier}"
     start = event["start_date"]
     end = event["end_date"]
     # Quarter-granularity timing -- see ``_fmt_quarter_range``

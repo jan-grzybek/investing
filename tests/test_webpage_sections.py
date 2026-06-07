@@ -1109,11 +1109,17 @@ class TestAddTrades:
             assert "Initial stake" not in row
             assert "Disposal" not in row
         for row in (open_row, close_row):
-            # Boundary rows ride the muted ``--label`` modifier so
-            # the action badge stays the column's visual primary;
-            # no percentage / minus glyph is rendered.
+            # Boundary rows carry the ``--label`` modifier (no
+            # percentage / minus glyph is rendered) but still pick
+            # up the page's standard green / red value colour so
+            # the column reads as a single direction-of-travel
+            # cue: Initiated is growth (green), Divested is
+            # reduction (red), matching the buy-vs-sell axis of
+            # the adjacent Action badge.
             assert "trades__detail--label" in row
             assert "%" not in row.split("trades__cell--detail")[1].split("</td>")[0]
+        assert "value--positive" in open_row
+        assert "value--negative" in close_row
         # INCREASE / DECREASE: signed-percent readouts with the
         # ``--pct`` modifier and the page's standard
         # ``value--positive`` / ``value--negative`` colour classes

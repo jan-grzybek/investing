@@ -10,6 +10,12 @@ __pycache__/
 coverage.xml
 htmlcov/
 *.pyc
+# Setuptools metadata regenerated on every ``pip install -e .`` /
+# ``python -m build`` -- the contents are derived from
+# ``pyproject.toml`` and would otherwise drift between checkouts.
+*.egg-info/
+build/
+dist/
 # Generated at build time by ``python -m investing`` (uploaded as the
 # GitHub Pages artifact).
 index.html
