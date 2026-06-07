@@ -866,26 +866,42 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
    every "Return:" label shares an x and every value shares a
    right-aligned x.
 
-   The label / value widths are *fixed* (rather than the natural
-   ``max-content max-content``) so that the Current and Historical
-   lists -- which are sibling grid containers under separate
-   ``<section>`` parents and therefore can't share a single
-   ``max-content`` track -- still derive identical column widths.
-   Cross-section alignment was the explicit ask: scanning down
-   the whole page, Return / IRR (the two columns the historical
-   list shares with current) line up regardless of which section
-   the row lives in. The widths are calibrated to the widest
-   realistic content with a small safety margin:
+   The label / value tracks combine a fixed *floor* (so that the
+   Current and Historical lists -- which are sibling grid
+   containers under separate ``<section>`` parents and therefore
+   can't share a single ``max-content`` track -- still derive
+   identical column widths in the common case) with a
+   ``max-content`` *ceiling* on the value column (so a single
+   outsized value like ``5522.7%`` or ``-12345.6%`` doesn't
+   overflow into the label / body columns and visually break the
+   right-alignment a fixed-width track was meant to deliver).
+   Cross-section alignment is preserved whenever both lists'
+   widest values stay below the floor (the typical case --
+   essentially every realistic IRR or Return ladder); a section
+   that legitimately holds an order-of-magnitude wider value
+   simply lets that one column relax to fit, and the values
+   inside *that* section stay perfectly right-aligned with each
+   other (which was the explicit user complaint -- the alignment
+   inside a section must never break, the cross-section spread
+   is a "nice to have" on top).
 
      * ``--holding-label-width`` fits the widest of "Return:" /
-       "IRR:" / "Weight:" (proportional-width text).
-     * ``--holding-value-width`` fits the widest realistic signed
-       3-digit-plus-decimal percentage ("-217.4%") with the
-       ``tabular-nums`` font feature already enabled on
-       ``.holding__stats``; the same column also fits "TBA" with
+       "IRR:" / "Weight:" labels (proportional-width text). The
+       label column is a fixed length because the labels are
+       deterministic -- there is no equivalent "outsized label"
+       failure mode to defend against.
+     * ``--holding-value-width`` is the floor for the value
+       column; the actual track sizes to ``max(floor,
+       max-content)`` so any value that won't fit in the floor
+       expands the column instead of overflowing it. The floor
+       fits the widest *common* signed 3-digit-plus-decimal
+       percentage (e.g. "-217.4%") plus a small margin, with
+       the ``tabular-nums`` font feature already enabled on
+       ``.holding__stats``; "TBA" fits the same column with
        room to spare. Values are right-aligned via the
        ``.holding__stats dd { text-align: right }`` rule below
-       so a 2-digit value sits at the same x as a 4-character one.
+       so a 2-digit value sits at the same x as a 4-character
+       one within the same list.
 
    The variables are declared on the same selector so a sibling
    page or a future tweak can override them in one place; both
@@ -903,13 +919,13 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
    independent of cross-capsule alignment. */
 .holdings__list {
   --holding-label-width: 4.5em;
-  --holding-value-width: 4.25em;
+  --holding-value-width: 4.5em;
   display: grid;
   grid-template-columns:
     88px
     minmax(0, 1fr)
     var(--holding-label-width)
-    var(--holding-value-width);
+    minmax(var(--holding-value-width), max-content);
   column-gap: 24px;
 }
 /* Intro paragraph under a section title (e.g. the methodology note
