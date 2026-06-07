@@ -862,9 +862,34 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
    label, stats value) and then having each capsule pull them in
    via ``grid-template-columns: subgrid`` is what makes Return /
    IRR / Weight align vertically across cards: the parent grid
-   sizes the label / value tracks to ``max-content`` of the
-   widest content across *every* capsule, so all "Return:" labels
-   share an x and all values share a right-aligned x.
+   sizes the label / value tracks via the fixed widths below, so
+   every "Return:" label shares an x and every value shares a
+   right-aligned x.
+
+   The label / value widths are *fixed* (rather than the natural
+   ``max-content max-content``) so that the Current and Historical
+   lists -- which are sibling grid containers under separate
+   ``<section>`` parents and therefore can't share a single
+   ``max-content`` track -- still derive identical column widths.
+   Cross-section alignment was the explicit ask: scanning down
+   the whole page, Return / IRR (the two columns the historical
+   list shares with current) line up regardless of which section
+   the row lives in. The widths are calibrated to the widest
+   realistic content with a small safety margin:
+
+     * ``--holding-label-width`` fits the widest of "Return:" /
+       "IRR:" / "Weight:" (proportional-width text).
+     * ``--holding-value-width`` fits the widest realistic signed
+       3-digit-plus-decimal percentage ("-217.4%") with the
+       ``tabular-nums`` font feature already enabled on
+       ``.holding__stats``; the same column also fits "TBA" with
+       room to spare. Values are right-aligned via the
+       ``.holding__stats dd { text-align: right }`` rule below
+       so a 2-digit value sits at the same x as a 4-character one.
+
+   The variables are declared on the same selector so a sibling
+   page or a future tweak can override them in one place; both
+   lists pick them up by virtue of sharing this rule.
 
    Capsules space themselves vertically via the historical
    ``.holding`` ``margin-top: 12px``, which still applies because
@@ -877,8 +902,14 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
    reflow into ``"logo body" / "stats stats"`` named areas is
    independent of cross-capsule alignment. */
 .holdings__list {
+  --holding-label-width: 4.5em;
+  --holding-value-width: 4.25em;
   display: grid;
-  grid-template-columns: 88px minmax(0, 1fr) max-content max-content;
+  grid-template-columns:
+    88px
+    minmax(0, 1fr)
+    var(--holding-label-width)
+    var(--holding-value-width);
   column-gap: 24px;
 }
 /* Intro paragraph under a section title (e.g. the methodology note
