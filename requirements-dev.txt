@@ -6,7 +6,7 @@
 #
 ast-serialize==0.5.0
     # via mypy
-beautifulsoup4==4.14.3
+beautifulsoup4==4.15.0
     # via
     #   jg-investing (pyproject.toml)
     #   yfinance
@@ -33,7 +33,7 @@ click==8.4.1
     # via pip-tools
 coverage==7.14.1
     # via pytest-cov
-cryptography==48.0.0
+cryptography==48.0.1
     # via google-auth
 csscompressor==0.9.5
     # via jg-investing (pyproject.toml)
@@ -43,9 +43,9 @@ curl-cffi==0.15.0
     # via yfinance
 defusedxml==0.7.1
     # via cairosvg
-distlib==0.4.1
+distlib==0.4.3
     # via virtualenv
-filelock==3.29.1
+filelock==3.29.3
     # via
     #   python-discovery
     #   virtualenv
@@ -95,7 +95,7 @@ pandas==3.0.3
     # via yfinance
 pathspec==1.1.1
     # via mypy
-peewee==4.0.6
+peewee==4.0.7
     # via yfinance
 pillow==12.2.0
     # via
@@ -114,7 +114,7 @@ pluggy==1.6.0
     #   pytest-cov
 pre-commit==4.6.0
     # via jg-investing (pyproject.toml)
-protobuf==7.35.0
+protobuf==7.35.1
     # via yfinance
 pyasn1==0.6.3
     # via pyasn1-modules
@@ -140,7 +140,7 @@ python-dateutil==2.9.0.post0
     # via
     #   jg-investing (pyproject.toml)
     #   pandas
-python-discovery==1.4.0
+python-discovery==1.4.2
     # via virtualenv
 pytz==2026.2
     # via yfinance
@@ -157,7 +157,7 @@ rich==15.0.0
     # via curl-cffi
 rjsmin==1.2.5
     # via jg-investing (pyproject.toml)
-ruff==0.15.16
+ruff==0.15.17
     # via jg-investing (pyproject.toml)
 six==1.17.0
     # via
@@ -181,7 +181,7 @@ urllib3==2.7.0
     # via
     #   requests
     #   types-requests
-virtualenv==21.4.2
+virtualenv==21.4.3
     # via pre-commit
 webencodings==0.5.1
     # via
