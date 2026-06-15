@@ -751,9 +751,24 @@ class Holding:
             # an upstream sector and a manual override -- the missing
             # entry is also recorded as a maintenance hint so the
             # build summary prompts the maintainer to add an override.
-            "sector": resolve_sector(
-                f"{self._info['exchange']}:{self._info['symbol']}",
-                self._info.get("sector") or "",
+            #
+            # Fixed-income holdings (bonds, treasuries, fixed-income
+            # ETFs) skip the resolver entirely: yfinance reliably
+            # returns no sector for these instruments, the renderer
+            # never feeds them into the equity treemap, and recording
+            # a "missing sector" maintenance hint for every bond
+            # holding would just spam the build summary with entries
+            # the maintainer cannot meaningfully act on (no GICS-style
+            # sector applies to a treasury ETF). Returning a stable
+            # empty string keeps the dict shape uniform across asset
+            # classes while bypassing the hint registry.
+            "sector": (
+                ""
+                if self._asset_class == "fixed_income"
+                else resolve_sector(
+                    f"{self._info['exchange']}:{self._info['symbol']}",
+                    self._info.get("sector") or "",
+                )
             ),
             # Asset class tag: ``"equity"`` (default) or
             # ``"fixed_income"``. Drives the renderer's bucketing

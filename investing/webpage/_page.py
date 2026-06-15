@@ -1022,13 +1022,23 @@ def generate_webpage(
     preview / test callers can pin an explicit destination directory;
     ``None`` falls back to the current working directory to preserve
     the historical ``chdir_tmp``-style fixture path.
+
+    Fixed-income buckets ride alongside the equity buckets so a
+    portfolio that grows a fixed-income sleeve surfaces it on the
+    rendered page without any further changes to the orchestrator;
+    ``Webpage.add_holding`` reads the per-summary ``asset_class``
+    tag and routes each capsule into the matching sub-section.
     """
     webpage = Webpage()
     webpage.add_return(total_return, benchmarks)
     webpage.add_allocations(holdings.get("allocation%"), holdings.get("top_10"))
     for holding in holdings["current"]:
         webpage.add_holding(holding)
+    for holding in holdings.get("current_fixed_income") or []:
+        webpage.add_holding(holding)
     for holding in holdings["historical"]:
+        webpage.add_holding(holding)
+    for holding in holdings.get("historical_fixed_income") or []:
         webpage.add_holding(holding)
     webpage.add_trades(holdings.get("trades") or [])
     webpage.save(output_dir)

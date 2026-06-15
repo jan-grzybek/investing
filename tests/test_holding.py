@@ -572,3 +572,36 @@ class TestAssetClass:
                 fx=stub_exchange_rate,
                 asset_class="commodity",
             )
+
+    def test_fixed_income_summary_skips_sector_resolver(
+        self, install_ticker, stub_exchange_rate, freeze_today
+    ):
+        # Fixed-income instruments (treasury / corporate-bond ETFs)
+        # never carry a GICS-style sector and the renderer never
+        # feeds them into the equity treemap, so the resolver should
+        # be skipped entirely for ``asset_class="fixed_income"`` --
+        # otherwise every bond holding would record a "missing
+        # sector" maintenance hint that the maintainer cannot
+        # meaningfully act on (no GICS sector applies). The ``sector``
+        # field stays as a stable empty string so the dict shape
+        # is uniform across asset classes.
+        from investing.sector_overrides import consume_hints
+
+        freeze_today(datetime(2025, 1, 1))
+        # No ``sector`` field on the upstream info -- mimics the
+        # blank yfinance response a treasury ETF would actually
+        # produce. Were the resolver still invoked, the empty string
+        # would fall through and record a maintenance hint.
+        install_ticker(_make_ticker(price=92.5))
+        holding = Holding(
+            "TST",
+            fx=stub_exchange_rate,
+            asset_class="fixed_income",
+        )
+        holding.buy(Trade(datetime(2024, 1, 1), "TST", 100, 90.0, "BUY"))
+
+        summary = holding.summary()
+        assert summary["sector"] == ""
+        # Crucially: no maintenance hint recorded -- the resolver
+        # never ran, so the registry stays empty.
+        assert consume_hints().is_empty

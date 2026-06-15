@@ -216,3 +216,65 @@ class TestGenerateWebpage:
         assert "S&amp;P 500" in html
         assert "50.0%" in html  # TWR
         assert "Current holdings" in html
+
+    def test_full_render_includes_fixed_income_subsection(
+        self, stub_world, stub_fx, chdir_tmp, freeze_today, monkeypatch
+    ):
+        # End-to-end coverage of the fixed-income render path:
+        # ``get_holdings`` produces ``current_fixed_income`` /
+        # ``historical_fixed_income`` buckets which
+        # ``generate_webpage`` must explicitly iterate alongside the
+        # equity buckets, otherwise the rendered page would silently
+        # drop every FI holding (the regression that motivated this
+        # test).
+        freeze_today(datetime(2025, 6, 1))
+        equities = [
+            {
+                "date": "01-01-2024",
+                "ticker": "AAA",
+                "quantity": 10,
+                "price_per_share": 100.0,
+                "action": "BUY",
+            },
+        ]
+        fixed_income = [
+            {
+                "date": "01-02-2024",
+                "ticker": "BBB",
+                "quantity": 5,
+                "price_per_share": 70.0,
+                "action": "BUY",
+            },
+        ]
+        holdings = get_holdings(equities, fixed_income=fixed_income, fx=stub_fx)
+        # Manually fill the weights ``summarize()`` would have set in
+        # production; we exercise the renderer directly here.
+        holdings["current"][0]["current_weight%"] = 60.0
+        holdings["current_fixed_income"][0]["current_weight%"] = 40.0
+        holdings["allocation%"] = {
+            "Equities": 60.0,
+            "Fixed Income": 40.0,
+            "Cash & Cash Equivalents": 0.0,
+        }
+        holdings["top_10"] = {"NMS:AAA": 60.0}
+
+        total_return = {
+            "start_date": datetime(2024, 1, 1),
+            "history": [(datetime(2024, 1, 1), 1.0)],
+            "twr%": 50.0,
+            "cagr%": 50.0,
+        }
+        generate_webpage(total_return, [], holdings)
+
+        html = (chdir_tmp / "index.html").read_text()
+        # Both sub-sections appear with their dedicated anchor IDs.
+        assert 'id="equities"' in html
+        assert 'id="fixed-income"' in html
+        # Both holdings are rendered as capsules; the FI capsule
+        # carries the ``data-sort-ticker`` attribute the holdings
+        # sort script reads off the ``<article>`` element.
+        assert "NMS:AAA" in html
+        assert "NMS:BBB" in html
+        # Allocation chart's "Fixed Income" row is wired as a link
+        # to the matching sub-section heading.
+        assert 'href="#fixed-income"' in html
