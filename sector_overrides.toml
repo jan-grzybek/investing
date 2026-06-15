@@ -47,3 +47,9 @@
 [sectors]
 "DUS:SSU.DU" = "Technology"
 "NMS:FISV" = "Technology"
+
+
+# Auto-detected: missing sector for 'LSE:IB01.L'. Uncomment the
+# next line and replace "" with one of the canonical sectors
+# documented at the top of this file (e.g. "Technology").
+# "LSE:IB01.L" = ""
