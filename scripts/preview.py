@@ -165,6 +165,7 @@ def _holding(
     *,
     website: str | None = None,
     sector: str = "",
+    asset_class: str = "equity",
 ) -> dict:
     return {
         "ticker": ticker,
@@ -189,6 +190,12 @@ def _holding(
         # preview exercises that branch by leaving at least one row
         # unset.
         "sector": sector,
+        # Asset class tag the renderer's bucketing reads. Defaults to
+        # ``"equity"`` so the rest of the synthetic dataset keeps the
+        # historical equity-side rendering; pass
+        # ``asset_class="fixed_income"`` to feed the dedicated Fixed
+        # Income sub-section so the preview exercises that path.
+        "asset_class": asset_class,
     }
 
 
@@ -280,6 +287,23 @@ def _build_dataset() -> dict:
         # exercised end-to-end in the preview render.
         _holding("DUS:SSU.DU", "SAP SE", 46.9, 19.1, 3.5, datetime(2026, 4, 1)),
     ]
+    # Two current fixed-income holdings exercise the dedicated
+    # sub-section: header + sort toolbar (>1 row gates the toolbar)
+    # + capsule list. The treemap is intentionally absent for fixed
+    # income so the preview confirms the renderer keeps it equity-only.
+    current_fixed_income = [
+        _holding(
+            "NMS:TLT", "iShares 20+ Year Treasury Bond ETF", 4.8, 1.6, 6.2,
+            datetime(2024, 2, 1), website="https://www.ishares.com",
+            sector="Government", asset_class="fixed_income",
+        ),
+        _holding(
+            "NMS:LQD", "iShares iBoxx $ Investment Grade Corporate Bond ETF",
+            7.4, 2.4, 4.5, datetime(2024, 5, 10),
+            website="https://www.ishares.com",
+            sector="Corporate", asset_class="fixed_income",
+        ),
+    ]
     historical = [
         {
             "ticker": "NMS:BIDU",
@@ -311,14 +335,42 @@ def _build_dataset() -> dict:
             "website": "https://www.freshworks.com",
         },
     ]
-    allocation = {"Equities": 88.3, "Cash & Cash Equivalents": 11.7}
+    # One historical fixed-income row so the dedicated sub-heading
+    # appears under "Historical holdings" (the renderer hides the
+    # sub-section when the bucket is empty). The single row also
+    # gates the sort toolbar off, so the preview demonstrates the
+    # "no toolbar for one row" branch alongside the multi-row
+    # fixed-income sort toolbar in "Current holdings" above.
+    historical_fixed_income = [
+        {
+            "ticker": "NMS:SHY",
+            "name": "iShares 1-3 Year Treasury Bond ETF",
+            "tsr%": 1.7,
+            "cagr%": 0.9,
+            "is_current": False,
+            "current_weight%": None,
+            "current_value_usd": 0.0,
+            "periods": [
+                {"start": datetime(2023, 6, 1), "end": datetime(2024, 1, 31)},
+            ],
+            "website": "https://www.ishares.com",
+            "asset_class": "fixed_income",
+        },
+    ]
+    allocation = {
+        "Equities": 78.7,
+        "Fixed Income": 10.7,
+        "Cash & Cash Equivalents": 10.6,
+    }
     top_10 = {h["ticker"]: h["current_weight%"] for h in current}
     trades = _build_trade_events(end)
     return {
         "total_return": total_return,
         "benchmarks": benchmarks,
         "current": current,
+        "current_fixed_income": current_fixed_income,
         "historical": historical,
+        "historical_fixed_income": historical_fixed_income,
         "allocation": allocation,
         "top_10": top_10,
         "trades": trades,
@@ -387,6 +439,19 @@ def _build_trade_events(today: datetime) -> list[dict]:
             datetime(2026, 5, 14),
             delta_pct=32.0,
         ),
+        # Fixed-income fills sit alongside equity trades in the same
+        # log -- the section reads as a chronological activity feed
+        # rather than a per-asset-class report. The LQD entries here
+        # demonstrate that intermix in the preview render.
+        _trade(
+            "NMS:LQD",
+            "iShares iBoxx $ Investment Grade Corporate Bond ETF",
+            "USD",
+            "INCREASE",
+            108.85,
+            datetime(2026, 4, 22),
+            delta_pct=18.0,
+        ),
         _trade("DUS:SSU.DU", "SAP SE", "EUR", "OPEN", 181.25, datetime(2026, 4, 1)),
         _trade(
             "NMS:META",
@@ -420,6 +485,38 @@ def _build_trade_events(today: datetime) -> list[dict]:
         ),
         _trade("NMS:GOOGL", "Alphabet Inc.", "USD", "OPEN", 142.65, datetime(2025, 9, 1)),
         _trade("NMS:FRSH", "Freshworks Inc.", "USD", "OPEN", 13.40, datetime(2025, 7, 22)),
+        _trade(
+            "NMS:LQD",
+            "iShares iBoxx $ Investment Grade Corporate Bond ETF",
+            "USD",
+            "OPEN",
+            104.30,
+            datetime(2024, 5, 10),
+        ),
+        _trade(
+            "NMS:TLT",
+            "iShares 20+ Year Treasury Bond ETF",
+            "USD",
+            "OPEN",
+            93.40,
+            datetime(2024, 2, 1),
+        ),
+        _trade(
+            "NMS:SHY",
+            "iShares 1-3 Year Treasury Bond ETF",
+            "USD",
+            "CLOSE",
+            81.55,
+            datetime(2024, 1, 31),
+        ),
+        _trade(
+            "NMS:SHY",
+            "iShares 1-3 Year Treasury Bond ETF",
+            "USD",
+            "OPEN",
+            80.20,
+            datetime(2023, 6, 1),
+        ),
         _trade(
             "NMS:LRCX",
             "Lam Research Corporation",
@@ -477,7 +574,11 @@ def render(out_dir: Path) -> Path:
     page.add_allocations(data["allocation"], data["top_10"])
     for h in data["current"]:
         page.add_holding(h)
+    for h in data["current_fixed_income"]:
+        page.add_holding(h)
     for h in data["historical"]:
+        page.add_holding(h)
+    for h in data["historical_fixed_income"]:
         page.add_holding(h)
     page.add_trades(data["trades"])
     page.save(out_dir)

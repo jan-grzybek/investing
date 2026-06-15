@@ -124,7 +124,29 @@ def build_sort_control(*, scope: str, include_weight: bool) -> str:
             f"{html.escape(label)}{indicator_html}"
             "</button>"
         )
-    scope_label = "current" if scope == "current" else "historical"
+    # Aria label flexes per scope so screen readers announce the
+    # sub-section the toolbar reorders ("current equity holdings" /
+    # "current fixed income holdings" / "historical equity
+    # holdings" / "historical fixed income holdings"). Falls back
+    # to a generic "current" / "historical" wording when the scope
+    # doesn't carry an explicit asset-class suffix, preserving the
+    # historical equity-only labelling for the legacy
+    # ``"current"`` / ``"historical"`` scopes.
+    if scope.startswith("current"):
+        scope_label = "current"
+    elif scope.startswith("historical"):
+        scope_label = "historical"
+    else:
+        scope_label = scope
+    if scope.endswith("-fixed-income"):
+        scope_label += " fixed income"
+    elif scope in ("current", "historical"):
+        # Pure-equity legacy scope: keep the historical wording so
+        # tests and existing snapshots don't churn on the new
+        # explicit "equity" qualifier.
+        pass
+    else:
+        scope_label += " equity"
     return (
         f'<div class="holdings__sort" role="group" '
         f'aria-label="Sort {scope_label} holdings" '

@@ -103,6 +103,7 @@ _BENCHMARK_DISPLAY_NAMES = _display_name_map()
 def get_holdings(
     transactions: list[EquityTransaction],
     *,
+    fixed_income: list[EquityTransaction] | None = None,
     fx: FxRate | None = None,
     now: NowFn | None = None,
 ) -> HoldingsRollup:
@@ -114,9 +115,30 @@ def get_holdings(
     wall-clock plug used by :meth:`Holding.summary` to anchor any
     open-ended period; ``None`` keeps the legacy
     ``datetime.today`` behaviour.
+
+    ``fixed_income`` is the second transaction list -- rows out of
+    the upstream "Fixed Income" worksheet. It shares the
+    :class:`EquityTransaction` shape (the source schema is identical)
+    but the resulting :class:`Holding` objects are tagged with
+    ``asset_class="fixed_income"`` so the renderer can bucket their
+    summaries into the dedicated fixed-income sub-sections. The list
+    defaults to empty for backwards compatibility with callers that
+    only carry equities.
     """
     fx = _fx_or_default(fx)
-    trades = combine_and_sort(transactions)
+    fixed_income = list(fixed_income or [])
+    # Each ticker is parsed into trades inside its own asset-class
+    # bucket. The ticker -> asset_class map captures the binding so
+    # the per-ticker constructor below can pick the right tag and
+    # the renderer can downstream split the resulting summaries into
+    # the matching Current / Historical sections.
+    asset_class_by_ticker: dict[str, str] = {}
+    for txn in transactions:
+        asset_class_by_ticker.setdefault(txn["ticker"], "equity")
+    for txn in fixed_income:
+        asset_class_by_ticker.setdefault(txn["ticker"], "fixed_income")
+
+    trades = combine_and_sort(transactions + fixed_income)
 
     # ``Holding.__init__`` is dominated by sequential yfinance round
     # trips (``get_info``, ``splits``, ``get_dividends`` -- each a
@@ -144,7 +166,15 @@ def get_holdings(
         max_workers = min(8, len(unique_tickers))
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
             constructed = pool.map(
-                lambda t: (t, Holding(t, fx=fx, now=now)),
+                lambda t: (
+                    t,
+                    Holding(
+                        t,
+                        fx=fx,
+                        now=now,
+                        asset_class=asset_class_by_ticker.get(t, "equity"),
+                    ),
+                ),
                 unique_tickers,
             )
             for ticker, holding in constructed:
@@ -160,19 +190,24 @@ def get_holdings(
         else:
             holdings[trade.ticker].sell(trade)
 
-    current_holdings: list[HoldingSummary] = []
-    historical_holdings: list[HoldingSummary] = []
+    current_equities: list[HoldingSummary] = []
+    historical_equities: list[HoldingSummary] = []
+    current_fi: list[HoldingSummary] = []
+    historical_fi: list[HoldingSummary] = []
     trade_events: list[TradeEvent] = []
     for holding in holdings.values():
         summary = holding.summary()
+        is_fi = summary.get("asset_class") == "fixed_income"
         if summary["is_current"]:
-            current_holdings.append(summary)
+            (current_fi if is_fi else current_equities).append(summary)
         else:
-            historical_holdings.append(summary)
+            (historical_fi if is_fi else historical_equities).append(summary)
         # Per-ticker bursts are grouped within each ``Holding`` and
         # then merged into one global, newest-first list so the page
         # reads like a chronological activity log across the whole
-        # portfolio.
+        # portfolio. Equity and fixed-income trades intermix in this
+        # single section by design -- the user-facing log reads as a
+        # chronological activity feed, not as an asset-class report.
         trade_events.extend(holding.trade_events())
 
     # ``latest_sell`` is typed ``datetime | None`` on the TypedDict
@@ -181,13 +216,21 @@ def get_holdings(
     # which only happens after a closing SELL, so every entry has a
     # concrete date. The ``or _MIN_SORT_DATE`` fallback satisfies
     # ``sorted`` typing without altering the runtime behaviour.
-    rollup: HoldingsRollup = {
-        "current": sorted(current_holdings, key=lambda item: item["latest_buy"], reverse=True),
-        "historical": sorted(
-            historical_holdings,
+    def _sort_current(items: list[HoldingSummary]) -> list[HoldingSummary]:
+        return sorted(items, key=lambda item: item["latest_buy"], reverse=True)
+
+    def _sort_historical(items: list[HoldingSummary]) -> list[HoldingSummary]:
+        return sorted(
+            items,
             key=lambda item: item["latest_sell"] or datetime.min,
             reverse=True,
-        ),
+        )
+
+    rollup: HoldingsRollup = {
+        "current": _sort_current(current_equities),
+        "historical": _sort_historical(historical_equities),
+        "current_fixed_income": _sort_current(current_fi),
+        "historical_fixed_income": _sort_historical(historical_fi),
         # Sort by the burst's most recent event (so a multi-day burst
         # ranks by when it finished). Ties are broken by start date,
         # which only matters on synthetic / same-day-only data sets.
@@ -293,25 +336,40 @@ def compute_rollup(
     Accepts an explicit ``fx`` rather than reaching for a module
     global so callers can plug in a stub for tests and a single
     shared :class:`investing.fx.ExchangeRate` for production.
+
+    Asset-class allocation: equities and fixed income each get their
+    own row in ``allocation%``. The cash row trails so the natural
+    reading order ("riskiest first, cash last") matches the
+    rendered Asset Allocation chart.
     """
     fx = _fx_or_default(fx)
     total_equity_value_usd = 0.0
+    total_fixed_income_value_usd = 0.0
     total_cash_value_usd = 0.0
-    for holding in holdings["current"]:
+    # Single guard helper that rejects zero/negative USD valuations
+    # for any current holding regardless of asset class -- both
+    # equities and fixed income sit on the same upstream price feed
+    # (yfinance) and a degenerate value on either side is the same
+    # data fault.
+    def _check_value(holding: HoldingSummary) -> None:
         if holding["current_value_usd"] <= 0.0:
-            # A current holding with zero/negative USD valuation is a
-            # data fault upstream (yfinance returning no price, FX
-            # collapsing to zero, ...). Bail out loudly so the build
-            # stops rather than silently shipping a degenerate page.
             raise InvariantError(
                 f"current holding {holding['ticker']!r} has non-positive "
                 f"USD valuation: {holding['current_value_usd']!r}",
             )
+
+    for holding in holdings["current"]:
+        _check_value(holding)
         total_equity_value_usd += holding["current_value_usd"]
+    for holding in holdings.get("current_fixed_income", []) or []:
+        _check_value(holding)
+        total_fixed_income_value_usd += holding["current_value_usd"]
     for currency in cash:
         total_cash_value_usd += currency["amount"] * fx(currency["currency_code"])
 
-    total_value_usd = total_equity_value_usd + total_cash_value_usd
+    total_value_usd = (
+        total_equity_value_usd + total_fixed_income_value_usd + total_cash_value_usd
+    )
 
     allocation_pct: dict[str, float] | None
     if total_value_usd > 0.0:
@@ -320,14 +378,34 @@ def compute_rollup(
         # entries are read directly elsewhere. Rounding here would
         # leak into those derived numbers; we round only at display
         # time (``_render_bars`` formats with ``:.1f`` / ``:.2f``).
+        # Reading order is Equities -> Fixed Income -> Cash so the
+        # rendered chart leads with the riskiest bucket and ends on
+        # the cash row.
         allocation_pct = {
             "Equities": 100 * total_equity_value_usd / total_value_usd,
-            "Cash & Cash Equivalents": 100 * total_cash_value_usd / total_value_usd,
         }
+        # Fixed Income only appears in the rollup when the portfolio
+        # actually carries a fixed-income sleeve. Including a 0%
+        # row for portfolios that don't would surface a confusing
+        # empty bar chart entry; the equity / cash rows have always
+        # been emitted unconditionally so that contract is
+        # preserved for them.
+        if total_fixed_income_value_usd > 0.0:
+            allocation_pct["Fixed Income"] = (
+                100 * total_fixed_income_value_usd / total_value_usd
+            )
+        allocation_pct["Cash & Cash Equivalents"] = (
+            100 * total_cash_value_usd / total_value_usd
+        )
         logger.info(
             "Equity allocation: %s%%",
             _fmt_pct(allocation_pct["Equities"]),
         )
+        if "Fixed Income" in allocation_pct:
+            logger.info(
+                "Fixed Income allocation: %s%%",
+                _fmt_pct(allocation_pct["Fixed Income"]),
+            )
         logger.info(
             "Cash allocation: %s%%",
             _fmt_pct(allocation_pct["Cash & Cash Equivalents"]),
@@ -336,6 +414,12 @@ def compute_rollup(
         allocation_pct = None
 
     weights: dict[str, float] = {}
+    # Equities first -- they're the only buckets that feed the
+    # top-10 weights below (the bar chart / OG image strip is
+    # equity-only by design). Fixed-income holdings still get a
+    # ``current_weight%`` so their capsules can show the same
+    # Weight stat as equity capsules; the dict is just not consumed
+    # by the top-10 chart.
     for holding in holdings["current"]:
         # ``total_value_usd`` is guaranteed positive here: every
         # ``current`` holding has been validated as strictly positive
@@ -346,6 +430,18 @@ def compute_rollup(
         weights[holding["ticker"]] = weight
         logger.info(
             "%s - %s - Weight: %s%% - Return: %s%% - IRR: %s%%",
+            holding["ticker"],
+            holding["name"],
+            _fmt_pct(weight),
+            _fmt_pct(holding["tsr%"]),
+            _fmt_pct(holding["cagr%"]),
+        )
+    fi_weights: dict[str, float] = {}
+    for holding in holdings.get("current_fixed_income", []) or []:
+        weight = 100 * holding["current_value_usd"] / total_value_usd
+        fi_weights[holding["ticker"]] = weight
+        logger.info(
+            "%s - %s - Weight: %s%% - Return: %s%% - IRR: %s%% (fixed income)",
             holding["ticker"],
             holding["name"],
             _fmt_pct(weight),
@@ -363,11 +459,17 @@ def compute_rollup(
         else:
             top_10 = dict(ranked)
 
+    # Combined map fed to ``apply_rollup`` so each per-class capsule
+    # picks up its own weight regardless of bucket. The dicts are
+    # disjoint (equities vs fixed-income tickers can't collide --
+    # the same ticker can't be in both worksheets).
+    weights_combined = {**weights, **fi_weights}
+
     return PortfolioRollup(
         total_value_usd=total_value_usd,
         allocation_pct=allocation_pct,
         top_10=top_10,
-        weights_by_ticker=weights,
+        weights_by_ticker=weights_combined,
     )
 
 
@@ -384,6 +486,15 @@ def apply_rollup(holdings: HoldingsRollup, rollup: PortfolioRollup) -> None:
     holdings["allocation%"] = rollup.allocation_pct
     holdings["top_10"] = rollup.top_10
     for holding in holdings["current"]:
+        holding["current_weight%"] = rollup.weights_by_ticker.get(
+            holding["ticker"],
+        )
+    # Fixed-income capsules render the same Weight stat as equities
+    # do; the weight is computed against the same total portfolio
+    # USD denominator so the percentages across both buckets read
+    # apples-to-apples ("this position is X% of the whole
+    # portfolio").
+    for holding in holdings.get("current_fixed_income", []) or []:
         holding["current_weight%"] = rollup.weights_by_ticker.get(
             holding["ticker"],
         )

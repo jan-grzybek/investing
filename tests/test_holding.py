@@ -514,3 +514,61 @@ class TestSummarySector:
 
         holding.summary()
         assert consume_hints().missing_sector == ["NMS:TST"]
+
+
+class TestAssetClass:
+    """Per-Holding asset-class tag exposed through ``Holding.summary``.
+
+    Drives the renderer's bucketing into the dedicated Equities /
+    Fixed Income sub-sections. Defaults to ``"equity"`` so the
+    historical equity-only call path stays unchanged; bond /
+    treasury / fixed-income-ETF holdings opt in via the explicit
+    ``asset_class="fixed_income"`` kwarg.
+    """
+
+    def test_summary_defaults_to_equity_asset_class(
+        self, install_ticker, stub_exchange_rate, freeze_today
+    ):
+        freeze_today(datetime(2025, 1, 1))
+        install_ticker(_make_ticker(price=200.0, sector="Technology"))
+        holding = Holding("TST", fx=stub_exchange_rate)
+        holding.buy(Trade(datetime(2024, 1, 1), "TST", 10, 100.0, "BUY"))
+
+        summary = holding.summary()
+        assert summary["asset_class"] == "equity"
+
+    def test_summary_carries_explicit_fixed_income_tag(
+        self, install_ticker, stub_exchange_rate, freeze_today
+    ):
+        freeze_today(datetime(2025, 1, 1))
+        # Fixed-income tickers go through yfinance the same way
+        # equities do; the only call-site difference is the explicit
+        # ``asset_class`` kwarg on the constructor.
+        install_ticker(_make_ticker(price=92.5, sector="Government"))
+        holding = Holding(
+            "TST",
+            fx=stub_exchange_rate,
+            asset_class="fixed_income",
+        )
+        holding.buy(Trade(datetime(2024, 1, 1), "TST", 100, 90.0, "BUY"))
+
+        summary = holding.summary()
+        assert summary["asset_class"] == "fixed_income"
+
+    def test_unknown_asset_class_raises(
+        self, install_ticker, stub_exchange_rate
+    ):
+        # Guards against typos / future expansions slipping through
+        # silently. The renderer only knows the two canonical values
+        # so a misspelling here would land the holding in the equity
+        # bucket by default and the maintainer would have no signal
+        # the tag was wrong.
+        from investing.errors import InvariantError
+
+        install_ticker(_make_ticker(price=100.0, sector="Technology"))
+        with pytest.raises(InvariantError):
+            Holding(
+                "TST",
+                fx=stub_exchange_rate,
+                asset_class="commodity",
+            )

@@ -151,6 +151,9 @@ def _xirr(
 # ---------------------------------------------------------------------------
 
 
+_VALID_ASSET_CLASSES = frozenset({"equity", "fixed_income"})
+
+
 class Holding:
     def __init__(
         self,
@@ -158,7 +161,23 @@ class Holding:
         *,
         fx: FxRate | None = None,
         now: NowFn | None = None,
+        asset_class: str = "equity",
     ):
+        if asset_class not in _VALID_ASSET_CLASSES:
+            raise InvariantError(
+                f"asset_class {asset_class!r} is not one of "
+                f"{sorted(_VALID_ASSET_CLASSES)}",
+            )
+        # Carried verbatim onto the per-ticker summary so the renderer
+        # can bucket the resulting capsule into the right Current /
+        # Historical sub-section ("Equities" vs "Fixed Income"). The
+        # rest of the bookkeeping (positions / periods / cashflows /
+        # dividends) is identical across asset classes -- we lean on
+        # yfinance for the price / dividend timeline regardless of
+        # whether the underlying is a share, a bond ETF, or a single
+        # treasury -- so this attribute is the only piece of state
+        # that distinguishes the two paths inside the model.
+        self._asset_class = asset_class
         # ``yf.Ticker(...)`` construction is cheap (no network); the
         # subsequent ``get_info`` call is what crosses the wire and
         # earns the retry wrapper. ``_get_splits_dividends`` reaches
@@ -736,4 +755,10 @@ class Holding:
                 f"{self._info['exchange']}:{self._info['symbol']}",
                 self._info.get("sector") or "",
             ),
+            # Asset class tag: ``"equity"`` (default) or
+            # ``"fixed_income"``. Drives the renderer's bucketing
+            # into the per-class Current / Historical sub-sections
+            # and keeps the equity-only sector treemap from picking
+            # up bond / treasury tickers.
+            "asset_class": self._asset_class,
         }

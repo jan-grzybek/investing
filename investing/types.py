@@ -111,6 +111,13 @@ HoldingSummary = TypedDict(
         # exotic instruments) are bucketed under "Other" by the
         # renderer so the chart stays self-consistent.
         "sector": str,
+        # Asset class the underlying instrument belongs to. ``"equity"``
+        # for stocks and ETFs (the historical default) and
+        # ``"fixed_income"`` for bonds / treasuries / fixed-income
+        # ETFs. Drives the renderer's bucketing into the per-class
+        # Current / Historical sections and keeps the equity-only
+        # sector treemap from picking up fixed-income tickers.
+        "asset_class": str,
     },
     total=False,
 )
@@ -149,8 +156,17 @@ class TradeEvent(TypedDict, total=False):
 HoldingsRollup = TypedDict(
     "HoldingsRollup",
     {
+        # Equity buckets (the historical default; the renderer keeps
+        # these key names so the existing JS / sort-control / treemap
+        # callsites don't have to migrate).
         "current": list[HoldingSummary],
         "historical": list[HoldingSummary],
+        # Fixed-income buckets. Populated alongside the equity
+        # buckets when the source spreadsheet's "Fixed Income" sheet
+        # carries any non-zero positions; the renderer skips both
+        # sub-sections silently when a list is empty.
+        "current_fixed_income": list[HoldingSummary],
+        "historical_fixed_income": list[HoldingSummary],
         "trades": list[TradeEvent],
         "allocation%": dict[str, float] | None,
         "top_10": dict[str, float] | None,

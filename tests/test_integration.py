@@ -127,6 +127,46 @@ class TestGetHoldings:
         # BBB bought later -> appears first.
         assert [h["ticker"] for h in result["current"]] == ["NMS:BBB", "NMS:AAA"]
 
+    def test_fixed_income_routed_to_dedicated_buckets(
+        self, stub_world, stub_fx, freeze_today
+    ):
+        # ``get_holdings`` accepts a second list of transactions for
+        # fixed-income tickers; the resulting summaries are tagged
+        # ``asset_class="fixed_income"`` and routed into the
+        # ``current_fixed_income`` / ``historical_fixed_income``
+        # buckets so the renderer can keep them out of the equity
+        # treemap and Top-10 chart.
+        freeze_today(datetime(2025, 1, 1))
+        equities = [
+            {
+                "date": "01-01-2024",
+                "ticker": "AAA",
+                "quantity": 10,
+                "price_per_share": 100.0,
+                "action": "BUY",
+            },
+        ]
+        fixed_income = [
+            {
+                "date": "01-02-2024",
+                "ticker": "BBB",
+                "quantity": 5,
+                "price_per_share": 70.0,
+                "action": "BUY",
+            },
+        ]
+        result = get_holdings(equities, fixed_income=fixed_income, fx=stub_fx)
+
+        assert [h["ticker"] for h in result["current"]] == ["NMS:AAA"]
+        assert result["current"][0]["asset_class"] == "equity"
+        assert [h["ticker"] for h in result["current_fixed_income"]] == ["NMS:BBB"]
+        assert result["current_fixed_income"][0]["asset_class"] == "fixed_income"
+        # Trades feed the unified Trades log: both an equity and an
+        # FI fill should appear (intermixed by date) so the
+        # renderer's table reads as a chronological activity log.
+        trade_tickers = {t["ticker"] for t in result["trades"]}
+        assert {"NMS:AAA", "NMS:BBB"}.issubset(trade_tickers)
+
 
 class TestGenerateWebpage:
     def test_full_render_writes_index_html(

@@ -1716,10 +1716,14 @@ class TestHoldingsSortControl:
         # so first paint reads as the upstream order
         # (most-recent-trade-first) rather than an ambiguous
         # "no sort applied" state.
+        # The toolbar only renders when more than one capsule sits
+        # in the list (sorting a single row is a no-op), so the
+        # fixture deliberately seeds two current holdings.
         freeze_today(datetime(2025, 6, 1))
         w = Webpage()
         w.add_return(_total_return(), [])
-        w.add_holding(_holding(ticker="NMS:CURR"))
+        w.add_holding(_holding(ticker="NMS:CURR", name="Curr Co."))
+        w.add_holding(_holding(ticker="NMS:OTHR", name="Other Co."))
         w.save()
 
         out = (chdir_tmp / "index.html").read_text()
@@ -1740,6 +1744,10 @@ class TestHoldingsSortControl:
         chdir_tmp,
         freeze_today,
     ):
+        # Two historical rows so the >1 toolbar gate emits the
+        # sort buttons; otherwise sort options would be (correctly)
+        # suppressed and the test would have nothing to assert
+        # against.
         freeze_today(datetime(2025, 6, 1))
         w = Webpage()
         w.add_return(_total_return(), [])
@@ -1749,6 +1757,15 @@ class TestHoldingsSortControl:
                 is_current=False,
                 weight=None,
                 periods=[{"start": datetime(2022, 1, 1), "end": datetime(2023, 1, 1)}],
+            )
+        )
+        w.add_holding(
+            _holding(
+                ticker="NMS:OLD2",
+                name="Older Co.",
+                is_current=False,
+                weight=None,
+                periods=[{"start": datetime(2021, 1, 1), "end": datetime(2022, 1, 1)}],
             )
         )
         w.save()
@@ -1775,17 +1792,28 @@ class TestHoldingsSortControl:
         # lists on the page must each carry their own scoped
         # wrapper -- a single shared container would let a "Sort
         # current by Weight" click also reorder the historical
-        # rows below.
+        # rows below. Two rows per side so the >1 toolbar gate
+        # emits the sortable scopes the assertion below checks.
         freeze_today(datetime(2025, 6, 1))
         w = Webpage()
         w.add_return(_total_return(), [])
-        w.add_holding(_holding(ticker="NMS:CURR"))
+        w.add_holding(_holding(ticker="NMS:CURR", name="Curr Co."))
+        w.add_holding(_holding(ticker="NMS:CURR2", name="Curr2 Co."))
         w.add_holding(
             _holding(
                 ticker="NMS:OLD",
                 is_current=False,
                 weight=None,
                 periods=[{"start": datetime(2022, 1, 1), "end": datetime(2023, 1, 1)}],
+            )
+        )
+        w.add_holding(
+            _holding(
+                ticker="NMS:OLD2",
+                name="Older Co.",
+                is_current=False,
+                weight=None,
+                periods=[{"start": datetime(2021, 1, 1), "end": datetime(2022, 1, 1)}],
             )
         )
         w.save()
@@ -1842,10 +1870,13 @@ class TestHoldingsSortControl:
         # button represents "no direction" so a triangle on it
         # would be misleading. Guards against a refactor that
         # accidentally folds the indicator into every button.
+        # Two holdings so the toolbar emits at all under the
+        # >1 sort-control gate.
         freeze_today(datetime(2025, 6, 1))
         w = Webpage()
         w.add_return(_total_return(), [])
-        w.add_holding(_holding(ticker="NMS:CURR"))
+        w.add_holding(_holding(ticker="NMS:CURR", name="Curr Co."))
+        w.add_holding(_holding(ticker="NMS:OTHR", name="Other Co."))
         w.save()
 
         out = (chdir_tmp / "index.html").read_text()
@@ -2271,15 +2302,26 @@ class TestEquitySectorTreemap:
         # top-N ticker bar chart), and the holdings sort toolbar
         # + capsule list close out the section. Any future shuffle
         # has to update this guard intentionally.
+        # Two holdings so the >1 toolbar gate also fires; otherwise
+        # the section's sort-toolbar slot disappears and the layout
+        # contract below has nothing to anchor on.
         freeze_today(datetime(2025, 6, 1))
         w = Webpage()
         w.add_return(_total_return(), [])
         w.add_allocations(
             {"Equities": 100.0, "Cash & Cash Equivalents": 0.0},
-            {"NMS:AAA": 100.0},
+            {"NMS:AAA": 60.0, "NMS:BBB": 40.0},
         )
         w.add_holding(
-            _holding(ticker="NMS:AAA", weight=100.0, sector="Technology"),
+            _holding(ticker="NMS:AAA", weight=60.0, sector="Technology"),
+        )
+        w.add_holding(
+            _holding(
+                ticker="NMS:BBB",
+                name="Beta",
+                weight=40.0,
+                sector="Healthcare",
+            ),
         )
         w.save()
 
@@ -2292,3 +2334,293 @@ class TestEquitySectorTreemap:
         # the ticker-level equities bar chart between the heading
         # and the treemap.
         assert '<div class="bars bars--equities"' not in out
+
+
+class TestFixedIncomeSection:
+    """The dedicated Fixed Income sub-section inside Current /
+    Historical holdings. Mirrors the equity sub-section's capsule
+    + sort affordances but skips the sector treemap (the chart
+    exists to surface the equity sleeve's GICS-style sector
+    composition, and bond / treasury tickers don't carry that
+    signal).
+    """
+
+    def _fi(self, *, is_current=True, ticker="NMS:TLT", **kwargs):
+        return _holding(
+            ticker=ticker,
+            asset_class="fixed_income",
+            is_current=is_current,
+            **kwargs,
+        )
+
+    def test_current_fi_subsection_renders_below_equities_with_no_treemap(
+        self,
+        stub_logo_lookup,
+        chdir_tmp,
+        freeze_today,
+    ):
+        # Adds an equity + a single FI position so both Current
+        # sub-sections are present. The FI sub-section should sit
+        # AFTER the Equities sub-section, carry its own ``<h3>``
+        # subheading + capsule list, and NOT render a treemap.
+        freeze_today(datetime(2025, 6, 1))
+        w = Webpage()
+        w.add_return(_total_return(), [])
+        w.add_holding(_holding(ticker="NMS:AAA", weight=80.0, sector="Technology"))
+        w.add_holding(self._fi(ticker="NMS:TLT", name="Treasuries", weight=20.0))
+        w.save()
+
+        out = (chdir_tmp / "index.html").read_text()
+        equities_idx = out.index('id="equities" class="section__subtitle"')
+        fi_idx = out.index('id="fixed-income" class="section__subtitle"')
+        assert equities_idx < fi_idx
+        # Treemap renders for equities; nothing FI-specific should
+        # spawn another one. The single ``<figure class="treemap">``
+        # in the document is the equity treemap.
+        assert out.count('<figure class="treemap"') == 1
+        # FI capsules feed their own list scope so the renderer
+        # can wire sort toolbars per sub-section.
+        assert 'data-holdings-list="current-fixed-income"' in out
+
+    def test_fixed_income_subsection_omitted_when_no_fi_positions(
+        self,
+        stub_logo_lookup,
+        chdir_tmp,
+        freeze_today,
+    ):
+        # An equity-only portfolio renders no Fixed Income subheading
+        # under either Current or Historical -- empty sub-sections
+        # contribute no titles to the DOM.
+        freeze_today(datetime(2025, 6, 1))
+        w = Webpage()
+        w.add_return(_total_return(), [])
+        w.add_holding(_holding(ticker="NMS:AAA"))
+        w.save()
+
+        out = (chdir_tmp / "index.html").read_text()
+        assert 'id="fixed-income"' not in out
+        assert 'id="historical-fixed-income"' not in out
+        assert 'data-holdings-list="current-fixed-income"' not in out
+        assert 'data-holdings-list="historical-fixed-income"' not in out
+
+    def test_single_fi_position_omits_sort_toolbar(
+        self,
+        stub_logo_lookup,
+        chdir_tmp,
+        freeze_today,
+    ):
+        # Sort toolbar gates on >1 position; a single FI position
+        # renders the heading + the capsule but no toolbar (sorting
+        # one row is a no-op).
+        freeze_today(datetime(2025, 6, 1))
+        w = Webpage()
+        w.add_return(_total_return(), [])
+        w.add_holding(self._fi(ticker="NMS:TLT", weight=100.0))
+        w.save()
+
+        out = (chdir_tmp / "index.html").read_text()
+        # Sub-section heading present.
+        assert 'id="fixed-income"' in out
+        # The list itself renders, but the toolbar does not.
+        assert 'data-holdings-list="current-fixed-income"' in out
+        assert 'data-holdings-sort="current-fixed-income"' not in out
+
+    def test_two_fi_positions_emit_sort_toolbar(
+        self,
+        stub_logo_lookup,
+        chdir_tmp,
+        freeze_today,
+    ):
+        # >1 position -> sort toolbar wired to the FI scope so the
+        # script can reorder the FI list independently of the
+        # equity list above.
+        freeze_today(datetime(2025, 6, 1))
+        w = Webpage()
+        w.add_return(_total_return(), [])
+        w.add_holding(self._fi(ticker="NMS:TLT", name="Treasuries", weight=12.0))
+        w.add_holding(self._fi(ticker="NMS:LQD", name="Corp Bonds", weight=8.0))
+        w.save()
+
+        out = (chdir_tmp / "index.html").read_text()
+        assert 'data-holdings-sort="current-fixed-income"' in out
+        # Toolbar carries the same Weight button as the equity
+        # toolbar (FI capsules also carry a current weight).
+        toolbar_idx = out.index('data-holdings-sort="current-fixed-income"')
+        toolbar_end = out.index("</div>", toolbar_idx)
+        toolbar = out[toolbar_idx:toolbar_end]
+        assert 'data-holdings-sort-key="weight"' in toolbar
+
+    def test_historical_fi_subsection_below_historical_equities(
+        self,
+        stub_logo_lookup,
+        chdir_tmp,
+        freeze_today,
+    ):
+        # Mirrors the Current behaviour for historical holdings:
+        # Historical Equities -> Historical Fixed Income, both
+        # gated on at least one position. The historical toolbar
+        # never carries a Weight button (closed positions have no
+        # current weight).
+        freeze_today(datetime(2025, 6, 1))
+        w = Webpage()
+        w.add_return(_total_return(), [])
+        w.add_holding(
+            _holding(
+                ticker="NMS:OLD",
+                is_current=False,
+                weight=None,
+                periods=[{"start": datetime(2022, 1, 1), "end": datetime(2023, 1, 1)}],
+            ),
+        )
+        w.add_holding(
+            _holding(
+                ticker="NMS:OLD2",
+                name="Older",
+                is_current=False,
+                weight=None,
+                periods=[{"start": datetime(2021, 1, 1), "end": datetime(2022, 1, 1)}],
+            ),
+        )
+        w.add_holding(
+            self._fi(
+                ticker="NMS:SHY",
+                name="Short Treasuries",
+                is_current=False,
+                weight=None,
+                periods=[{"start": datetime(2023, 6, 1), "end": datetime(2024, 1, 31)}],
+            ),
+        )
+        w.add_holding(
+            self._fi(
+                ticker="NMS:IEF",
+                name="Intermediate Treasuries",
+                is_current=False,
+                weight=None,
+                periods=[{"start": datetime(2022, 6, 1), "end": datetime(2023, 6, 1)}],
+            ),
+        )
+        w.save()
+
+        out = (chdir_tmp / "index.html").read_text()
+        eq_idx = out.index('id="historical-equities"')
+        fi_idx = out.index('id="historical-fixed-income"')
+        assert eq_idx < fi_idx
+        # FI toolbar present (>1 row) but with no Weight button.
+        toolbar_idx = out.index('data-holdings-sort="historical-fixed-income"')
+        toolbar_end = out.index("</div>", toolbar_idx)
+        toolbar = out[toolbar_idx:toolbar_end]
+        assert 'data-holdings-sort-key="weight"' not in toolbar
+
+    def test_allocation_chart_links_fixed_income_row_when_present(
+        self,
+        stub_logo_lookup,
+        chdir_tmp,
+        freeze_today,
+    ):
+        # When the allocation dict carries a ``"Fixed Income"``
+        # entry AND the renderer has at least one FI capsule, the
+        # corresponding bar row is emitted as a link to the FI
+        # sub-section (analogous to the equity row).
+        freeze_today(datetime(2025, 6, 1))
+        w = Webpage()
+        w.add_return(_total_return(), [])
+        w.add_allocations(
+            {"Equities": 70.0, "Fixed Income": 20.0, "Cash & Cash Equivalents": 10.0},
+            {"NMS:AAA": 70.0},
+        )
+        w.add_holding(_holding(ticker="NMS:AAA", weight=70.0))
+        w.add_holding(self._fi(ticker="NMS:TLT", weight=20.0))
+        w.save()
+
+        out = (chdir_tmp / "index.html").read_text()
+        assert 'href="#equities"' in out
+        assert 'href="#fixed-income"' in out
+        # Cash row stays unlinked.
+        cash_block = out.split("Cash &amp;", 1)[1].split("</div></div>", 1)[0]
+        assert "bars__row--link" not in cash_block
+
+    def test_allocation_chart_does_not_link_missing_fi_subsection(
+        self,
+        stub_logo_lookup,
+        chdir_tmp,
+        freeze_today,
+    ):
+        # Defensive guard: even if a caller hands the renderer an
+        # allocation dict that names "Fixed Income" but never adds
+        # any FI capsules (the sub-section therefore doesn't
+        # render), the bar row must NOT carry an anchor pointing
+        # at a missing target -- the row stays a plain ``<div>``.
+        freeze_today(datetime(2025, 6, 1))
+        w = Webpage()
+        w.add_return(_total_return(), [])
+        w.add_allocations(
+            {"Equities": 70.0, "Fixed Income": 20.0, "Cash & Cash Equivalents": 10.0},
+            {"NMS:AAA": 70.0},
+        )
+        w.add_holding(_holding(ticker="NMS:AAA", weight=70.0))
+        w.save()
+
+        out = (chdir_tmp / "index.html").read_text()
+        assert 'href="#fixed-income"' not in out
+        assert 'id="fixed-income"' not in out
+
+    def test_nav_link_to_current_present_when_only_fi_positions(
+        self,
+        stub_logo_lookup,
+        chdir_tmp,
+        freeze_today,
+    ):
+        # Asymmetric portfolio (no equities, only FI) still
+        # surfaces the "Current" nav link and the "Current
+        # holdings" section -- the gate looks at either bucket
+        # being non-empty rather than the equity bucket alone.
+        freeze_today(datetime(2025, 6, 1))
+        w = Webpage()
+        w.add_return(_total_return(), [])
+        w.add_holding(self._fi(ticker="NMS:TLT", weight=100.0))
+        w.save()
+
+        out = (chdir_tmp / "index.html").read_text()
+        assert 'href="#current"' in out
+        assert 'id="current"' in out
+        assert "Current holdings" in out
+        # Equities sub-section absent (no equity capsules).
+        assert 'id="equities" class="section__subtitle"' not in out
+        # FI sub-section is the only one in the section.
+        assert 'id="fixed-income"' in out
+
+    def test_trades_intermix_fi_and_equity_tickers(
+        self,
+        stub_logo_lookup,
+        chdir_tmp,
+        freeze_today,
+    ):
+        # The Trades section reads as a chronological feed of
+        # every executed fill; FI and equity entries appear in
+        # the same table without an asset-class split -- the
+        # renderer takes the events in whatever order
+        # ``add_trades`` was called with.
+        freeze_today(datetime(2025, 6, 1))
+        w = Webpage()
+        w.add_return(_total_return(), [])
+        w.add_holding(_holding(ticker="NMS:AAA"))
+        w.add_holding(self._fi(ticker="NMS:TLT"))
+        w.add_trades(
+            [
+                _trade_event(ticker="NMS:AAA", name="Alpha Inc."),
+                _trade_event(ticker="NMS:TLT", name="Treasuries"),
+            ]
+        )
+        w.save()
+
+        out = (chdir_tmp / "index.html").read_text()
+        # Both rows live inside a single ``<section id="trades">``
+        # so the table renders as a single body. The trades table
+        # strips the exchange prefix (``NMS:AAA`` -> ``AAA``) but
+        # keeps the bare symbol in the ticker cell, so we anchor on
+        # the symbol portion.
+        trades_idx = out.index('id="trades"')
+        trades_end = out.index("</section>", trades_idx)
+        trades_block = out[trades_idx:trades_end]
+        assert ">AAA<" in trades_block
+        assert ">TLT<" in trades_block

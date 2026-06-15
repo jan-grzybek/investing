@@ -40,14 +40,22 @@ def _cash_row(currency, amount, include="YES"):
     return ["", "", currency, amount, include]
 
 
-def _build_spreadsheet(equities, returns, cash):
-    """Build the nested gspread API mock chain."""
+def _build_spreadsheet(equities, returns, cash, fixed_income=None):
+    """Build the nested gspread API mock chain.
+
+    ``fixed_income`` mirrors the equities sheet (identical column
+    schema; rows are parsed by the same row parser). Defaulting to
+    an empty list keeps the historical equity-only tests honest.
+    """
     sh = MagicMock()
+    fixed_income = fixed_income if fixed_income is not None else []
 
     def _worksheet(name):
         ws = MagicMock()
         if name == "Equities":
             ws.get_all_values.return_value = _equities_header() + equities
+        elif name == "Fixed Income":
+            ws.get_all_values.return_value = _equities_header() + fixed_income
         elif name == "Return":
             ws.get_all_values.return_value = _return_header() + returns
         elif name == "Cash & Cash Equivalents":
@@ -87,7 +95,7 @@ class TestPullData:
         )
         patch_gspread(sh)
 
-        transactions, valuations, cash = pull_data()
+        transactions, fixed_income, valuations, cash = pull_data()
 
         assert transactions == [
             {
@@ -105,6 +113,7 @@ class TestPullData:
                 "action": "SELL",
             },
         ]
+        assert fixed_income == []
         assert valuations == [{"date": datetime(2024, 1, 1), "value": 1000.0, "flow": 0.0}]
         assert cash == [{"currency_code": "USD", "amount": 250.0}]
 
@@ -116,7 +125,7 @@ class TestPullData:
         )
         patch_gspread(sh)
 
-        transactions, valuations, cash = pull_data()
+        transactions, _fixed_income, valuations, cash = pull_data()
         assert transactions[0]["quantity"] == 1234
         assert transactions[0]["price_per_share"] == pytest.approx(1500.75)
         assert valuations[0]["value"] == pytest.approx(1_000_000.0)
@@ -132,7 +141,7 @@ class TestPullData:
         )
         patch_gspread(sh)
 
-        transactions, valuations, cash = pull_data()
+        transactions, _fixed_income, valuations, cash = pull_data()
         assert transactions == []
         assert valuations == []
         assert cash == []
@@ -146,7 +155,7 @@ class TestPullData:
         )
         patch_gspread(sh)
 
-        transactions, valuations, cash = pull_data()
+        transactions, _fixed_income, valuations, cash = pull_data()
         assert len(transactions) == 1
         assert len(valuations) == 1
         assert len(cash) == 1
@@ -159,7 +168,7 @@ class TestPullData:
             cash=[],
         )
         patch_gspread(sh)
-        transactions, _, _ = pull_data()
+        transactions, _, _, _ = pull_data()
         assert transactions[0]["action"] == "BUY"
 
     @pytest.mark.parametrize("token", ["S", "SELL", "s", "sell"])
@@ -170,7 +179,7 @@ class TestPullData:
             cash=[],
         )
         patch_gspread(sh)
-        transactions, _, _ = pull_data()
+        transactions, _, _, _ = pull_data()
         assert transactions[0]["action"] == "SELL"
 
     def test_unknown_action_token_raises(self, patch_gspread):
@@ -227,13 +236,78 @@ class TestPullData:
     def test_empty_sheets_return_empty_collections(self, patch_gspread):
         sh = _build_spreadsheet(equities=[], returns=[], cash=[])
         patch_gspread(sh)
-        transactions, valuations, cash = pull_data()
+        transactions, fixed_income, valuations, cash = pull_data()
         assert transactions == []
+        assert fixed_income == []
         assert valuations == []
         assert cash == []
 
+    def test_fixed_income_sheet_is_parsed_with_equities_schema(self, patch_gspread):
+        # The "Fixed Income" worksheet uses the same column layout
+        # as "Equities" -- shared row parser + shared schema constant.
+        # Two BUYs land in the dedicated fixed-income list while the
+        # equities list stays untouched, so the renderer can later
+        # bucket them into the dedicated "Fixed Income" sub-section
+        # without confusing them with stock positions.
+        sh = _build_spreadsheet(
+            equities=[
+                _equity_row("01-01-2024", "AAPL", "10", "150.50", "BUY"),
+            ],
+            returns=[],
+            cash=[],
+            fixed_income=[
+                _equity_row("15-03-2024", "TLT", "100", "90.25", "BUY"),
+                _equity_row("01-06-2024", "TLT", "50", "92.10", "SELL"),
+            ],
+        )
+        patch_gspread(sh)
+        transactions, fixed_income, _valuations, _cash = pull_data()
 
-def _batched_response(equities, returns, cash):
+        assert transactions == [
+            {
+                "date": "01-01-2024",
+                "ticker": "AAPL",
+                "quantity": 10,
+                "price_per_share": 150.5,
+                "action": "BUY",
+            },
+        ]
+        assert fixed_income == [
+            {
+                "date": "15-03-2024",
+                "ticker": "TLT",
+                "quantity": 100,
+                "price_per_share": 90.25,
+                "action": "BUY",
+            },
+            {
+                "date": "01-06-2024",
+                "ticker": "TLT",
+                "quantity": 50,
+                "price_per_share": 92.10,
+                "action": "SELL",
+            },
+        ]
+
+    def test_fixed_income_parse_error_points_at_fixed_income_sheet(self, patch_gspread):
+        # Errors in the fixed-income sheet must surface
+        # ``worksheet="Fixed Income"`` so an operator editing the
+        # source can find the offending row. Reuses the same
+        # SheetParseError contract the equities sheet uses.
+        sh = _build_spreadsheet(
+            equities=[],
+            returns=[],
+            cash=[],
+            fixed_income=[_equity_row("01-01-2024", "TLT", "10", "1.0", "HOLD")],
+        )
+        patch_gspread(sh)
+        with pytest.raises(SheetParseError) as excinfo:
+            pull_data()
+        assert excinfo.value.worksheet == "Fixed Income"
+        assert "HOLD" in str(excinfo.value)
+
+
+def _batched_response(equities, returns, cash, fixed_income=None):
     """Compose a gspread ``values_batch_get`` response payload.
 
     The batched endpoint trims trailing empty cells per row -- a
@@ -242,6 +316,11 @@ def _batched_response(equities, returns, cash):
     direct control over the per-row shape so the regression case
     (a row whose right-most column is blank and therefore comes
     back narrower than the schema) can be expressed verbatim.
+
+    The Fixed Income worksheet is added as a second value range
+    between Equities and Return so production callers always see
+    the full four-sheet payload regardless of whether the test
+    cares about fixed income rows.
     """
 
     def _value_range(rows):
@@ -251,6 +330,7 @@ def _batched_response(equities, returns, cash):
         "spreadsheetId": "fake-sheet-id",
         "valueRanges": [
             _value_range(_equities_header() + equities),
+            _value_range(_equities_header() + (fixed_income or [])),
             _value_range(_return_header() + returns),
             _value_range(_cash_header() + cash),
         ],
@@ -315,7 +395,7 @@ class TestBatchedPath:
         )
         patch_gspread_batched(payload)
 
-        transactions, _, _ = pull_data()
+        transactions, _fixed_income, _, _ = pull_data()
         # Padded include flag ("") is not a YES token, so the row
         # is silently skipped -- which is the same outcome the
         # legacy per-worksheet path would have produced for a
@@ -335,7 +415,7 @@ class TestBatchedPath:
         )
         patch_gspread_batched(payload)
 
-        transactions, _, _ = pull_data()
+        transactions, _fixed_income, _, _ = pull_data()
         assert len(transactions) == 1
         assert transactions[0]["ticker"] == "AAPL"
 
@@ -350,14 +430,39 @@ class TestBatchedPath:
                 {"range": "ignored"},
                 {"range": "ignored"},
                 {"range": "ignored"},
+                {"range": "ignored"},
             ],
         }
         patch_gspread_batched(payload)
 
-        transactions, valuations, cash = pull_data()
+        transactions, fixed_income, valuations, cash = pull_data()
         assert transactions == []
+        assert fixed_income == []
         assert valuations == []
         assert cash == []
+
+    def test_fixed_income_value_range_is_parsed_in_batched_path(
+        self, patch_gspread_batched
+    ):
+        # The batched response carries the Fixed Income range
+        # alongside Equities / Return / Cash; ensure the loader
+        # routes it to the dedicated bucket rather than mixing it
+        # into the equities list.
+        payload = _batched_response(
+            equities=[
+                ["", "01-01-2024", "AAPL", "1", "100.0", "BUY", "YES"],
+            ],
+            returns=[],
+            cash=[],
+            fixed_income=[
+                ["", "01-02-2024", "TLT", "5", "90.0", "BUY", "YES"],
+            ],
+        )
+        patch_gspread_batched(payload)
+
+        transactions, fixed_income, _, _ = pull_data()
+        assert [t["ticker"] for t in transactions] == ["AAPL"]
+        assert [t["ticker"] for t in fixed_income] == ["TLT"]
 
 
 class TestPadRows:

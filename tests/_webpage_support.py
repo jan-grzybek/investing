@@ -24,6 +24,7 @@ def _holding(
     periods=None,
     website="https://www.alpha.example",
     sector="Technology",
+    asset_class="equity",
 ):
     return {
         "ticker": ticker,
@@ -48,6 +49,11 @@ def _holding(
         # that exercise the empty-sector / "Other" fallback can
         # pass ``sector=""`` explicitly.
         "sector": sector,
+        # Asset class tag the renderer's bucketing reads. Defaults to
+        # ``"equity"`` so the legacy fixture path keeps producing
+        # equity-side cards; pass ``asset_class="fixed_income"`` to
+        # exercise the dedicated Fixed Income sub-section paths.
+        "asset_class": asset_class,
     }
 
 

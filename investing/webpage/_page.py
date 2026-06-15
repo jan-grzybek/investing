@@ -84,6 +84,15 @@ class Webpage:
         self.return_html: str = ""
         self.current: list[str] = []
         self.historical: list[str] = []
+        # Pre-rendered capsule HTML for the fixed-income sub-sections.
+        # Populated alongside ``current`` / ``historical`` from
+        # ``add_holding`` based on each summary's ``asset_class``
+        # tag (``"fixed_income"`` lands here, anything else lands in
+        # the equity buckets above). The renderer skips the dedicated
+        # sub-section block silently when a list is empty -- "no title
+        # for an empty section" is the asymmetric-portfolio contract.
+        self.current_fixed_income: list[str] = []
+        self.historical_fixed_income: list[str] = []
         self.allocation_pct: dict[str, float] | None = None
         self.top_10: dict[str, float] | None = None
         # Pre-rendered HTML for each row in the "Trades"
@@ -136,6 +145,12 @@ class Webpage:
         self.return_html = self._build_return_section(total_return, benchmarks)
 
     def add_holding(self, holding: HoldingSummary) -> None:
+        # ``asset_class`` defaults to ``"equity"`` so historical
+        # callers that hand-build summary dicts without the new key
+        # still bucket exactly the same as before -- only summaries
+        # tagged ``"fixed_income"`` route to the dedicated FI lists.
+        asset_class = holding.get("asset_class") or "equity"
+        is_fixed_income = asset_class == "fixed_income"
         if holding["is_current"]:
             self._current_logos.append(
                 (
@@ -144,22 +159,35 @@ class Webpage:
                     self._get_logo_url(holding["ticker"]),
                 )
             )
-            # Stash the four fields the sector treemap needs.
-            # Historical / closed holdings have no current weight
-            # so they would be rejected by the renderer's
-            # ``weight is None or <= 0`` guard anyway; filtering
-            # here keeps the list payload aligned with the chart's
-            # equity-only contract.
-            self._current_equity_for_treemap.append(
-                {
-                    "ticker": holding["ticker"],
-                    "name": holding["name"],
-                    "sector": holding.get("sector") or "",
-                    "current_weight%": holding.get("current_weight%"),
-                }
-            )
+            if not is_fixed_income:
+                # Stash the four fields the sector treemap needs.
+                # Historical / closed holdings have no current weight
+                # so they would be rejected by the renderer's
+                # ``weight is None or <= 0`` guard anyway; filtering
+                # here keeps the list payload aligned with the chart's
+                # equity-only contract. Fixed-income holdings are
+                # also excluded -- the treemap exists to surface the
+                # equity sleeve's sector composition; bond / treasury
+                # tickers don't carry an upstream GICS sector and
+                # would either land in "Other" or break the chart's
+                # contract entirely.
+                self._current_equity_for_treemap.append(
+                    {
+                        "ticker": holding["ticker"],
+                        "name": holding["name"],
+                        "sector": holding.get("sector") or "",
+                        "current_weight%": holding.get("current_weight%"),
+                    }
+                )
         card = self._build_holding_card(holding)
-        bucket = self.current if holding["is_current"] else self.historical
+        if is_fixed_income:
+            bucket = (
+                self.current_fixed_income
+                if holding["is_current"]
+                else self.historical_fixed_income
+            )
+        else:
+            bucket = self.current if holding["is_current"] else self.historical
         bucket.append(card)
 
     def add_allocations(
@@ -226,57 +254,129 @@ class Webpage:
         parts.append(self.return_html or "<p>No data yet.</p>")
         parts.append("</section>")
 
-        if self.current:
+        if self.current or self.current_fixed_income:
             parts.append('<section id="current" class="section section--current">')
             parts.append('<h2 class="section__title">Current holdings</h2>')
             if self.allocation_pct:
                 parts.append('<h3 class="section__subtitle">Asset allocation</h3>')
-                # The "Equities" allocation row is clickable: it
-                # jumps to the equities sub-section directly below
-                # (where the sector treemap + individual capsules
-                # live). The cash row has no dedicated section to
-                # point at and stays a plain bar.
+                # The "Equities" / "Fixed Income" allocation rows are
+                # clickable when the corresponding sub-section is
+                # rendered below: they jump straight to the matching
+                # sub-section heading. The cash row has no dedicated
+                # sub-section to point at and stays a plain bar
+                # regardless. Anchor entries for empty buckets are
+                # silently dropped from the renderer (the row stays
+                # un-linked) so a portfolio that's all-equities-no-FI
+                # doesn't dangle a Fixed Income link onto a missing
+                # heading.
+                allocation_anchors: dict[str, str] = {}
+                if self.current:
+                    allocation_anchors["Equities"] = "equities"
+                if self.current_fixed_income:
+                    allocation_anchors["Fixed Income"] = "fixed-income"
                 parts.append(
                     self._render_bars(
                         list(self.allocation_pct.items()),
                         "allocation",
-                        anchors={"Equities": "equities"},
+                        anchors=allocation_anchors,
                     )
                 )
-            parts.append('<h3 id="equities" class="section__subtitle">Equities</h3>')
-            # Sector treemap: equities only (cash and historical
-            # positions are filtered out by ``add_holding`` upstream).
-            # The renderer returns an empty string when there are no
-            # current equity holdings, in which case the block is
-            # silently omitted. The treemap subsumes the older
-            # ticker-level horizontal bar chart that used to sit
-            # here: tile area is proportional to weight (same
-            # ordering signal the bars provided) and the sector
-            # grouping adds an axis the bars couldn't show.
-            parts.append(self._render_sector_treemap())
-            parts.append(
-                self._build_holdings_sort_control(
-                    scope="current",
-                    include_weight=True,
+            if self.current:
+                parts.append(
+                    '<h3 id="equities" class="section__subtitle">Equities</h3>'
                 )
-            )
-            parts.append('<div class="holdings__list" data-holdings-list="current">')
-            parts.append("\n".join(self.current))
-            parts.append("</div>")
+                # Sector treemap: equities only (cash, fixed-income and
+                # historical positions are filtered out by
+                # ``add_holding`` upstream). The renderer returns an
+                # empty string when there are no current equity
+                # holdings, in which case the block is silently
+                # omitted. The treemap subsumes the older
+                # ticker-level horizontal bar chart that used to sit
+                # here: tile area is proportional to weight (same
+                # ordering signal the bars provided) and the sector
+                # grouping adds an axis the bars couldn't show.
+                parts.append(self._render_sector_treemap())
+                # Sort toolbar is gated on >1 capsule: a single-row
+                # list has nothing to sort, so the toolbar would just
+                # be inert chrome. Same gate applies to every other
+                # asset-class / current-vs-historical bucket below so
+                # the rule reads symmetric across the page.
+                if len(self.current) > 1:
+                    parts.append(
+                        self._build_holdings_sort_control(
+                            scope="current",
+                            include_weight=True,
+                        )
+                    )
+                parts.append(
+                    '<div class="holdings__list" data-holdings-list="current">'
+                )
+                parts.append("\n".join(self.current))
+                parts.append("</div>")
+            if self.current_fixed_income:
+                parts.append(
+                    '<h3 id="fixed-income" class="section__subtitle">Fixed Income</h3>'
+                )
+                # Fixed income mirrors the equities sub-section's
+                # capsule + sort affordances but skips the sector
+                # treemap -- the chart exists to surface the equity
+                # sleeve's GICS-style sector composition, and bond /
+                # treasury tickers don't carry that signal.
+                if len(self.current_fixed_income) > 1:
+                    parts.append(
+                        self._build_holdings_sort_control(
+                            scope="current-fixed-income",
+                            include_weight=True,
+                        )
+                    )
+                parts.append(
+                    '<div class="holdings__list" '
+                    'data-holdings-list="current-fixed-income">'
+                )
+                parts.append("\n".join(self.current_fixed_income))
+                parts.append("</div>")
             parts.append("</section>")
 
-        if self.historical:
+        if self.historical or self.historical_fixed_income:
             parts.append('<section id="historical" class="section section--historical">')
             parts.append('<h2 class="section__title">Historical holdings</h2>')
-            parts.append(
-                self._build_holdings_sort_control(
-                    scope="historical",
-                    include_weight=False,
+            if self.historical:
+                parts.append(
+                    '<h3 id="historical-equities" class="section__subtitle">'
+                    "Equities"
+                    "</h3>"
                 )
-            )
-            parts.append('<div class="holdings__list" data-holdings-list="historical">')
-            parts.append("\n".join(self.historical))
-            parts.append("</div>")
+                if len(self.historical) > 1:
+                    parts.append(
+                        self._build_holdings_sort_control(
+                            scope="historical",
+                            include_weight=False,
+                        )
+                    )
+                parts.append(
+                    '<div class="holdings__list" data-holdings-list="historical">'
+                )
+                parts.append("\n".join(self.historical))
+                parts.append("</div>")
+            if self.historical_fixed_income:
+                parts.append(
+                    '<h3 id="historical-fixed-income" class="section__subtitle">'
+                    "Fixed Income"
+                    "</h3>"
+                )
+                if len(self.historical_fixed_income) > 1:
+                    parts.append(
+                        self._build_holdings_sort_control(
+                            scope="historical-fixed-income",
+                            include_weight=False,
+                        )
+                    )
+                parts.append(
+                    '<div class="holdings__list" '
+                    'data-holdings-list="historical-fixed-income">'
+                )
+                parts.append("\n".join(self.historical_fixed_income))
+                parts.append("</div>")
             parts.append("</section>")
 
         if self.trades:
@@ -353,18 +453,24 @@ class Webpage:
     # numbers baked in. Cache-busting on the social-platform side
     # happens via the ``og:updated_time`` header below.
     SOCIAL_IMAGE = _SOCIAL_IMAGE
-    _NAV_ITEMS: tuple[tuple[str, str, str], ...] = (
-        ("performance", "Performance", "return_html"),
-        ("current", "Current", "current"),
-        ("historical", "Historical", "historical"),
-        ("trades", "Trades", "trades"),
+    # Each entry maps an anchor to a label and a list of attribute
+    # names: the link is emitted iff at least one of the named
+    # attributes is truthy. The Current / Historical entries each
+    # collapse the equity-bucket and fixed-income-bucket lists into
+    # a single "either is non-empty" gate so the nav link survives
+    # an asset-class-asymmetric portfolio (e.g. fixed-income only)
+    # without resurrecting a section that has no content.
+    _NAV_ITEMS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+        ("performance", "Performance", ("return_html",)),
+        ("current", "Current", ("current", "current_fixed_income")),
+        ("historical", "Historical", ("historical", "historical_fixed_income")),
+        ("trades", "Trades", ("trades",)),
     )
 
     def _build_site_header(self) -> str:
         links = []
-        for anchor, label, attr in self._NAV_ITEMS:
-            value = getattr(self, attr)
-            if value:
+        for anchor, label, attrs in self._NAV_ITEMS:
+            if any(getattr(self, attr) for attr in attrs):
                 links.append(f'<a href="#{anchor}">{html.escape(label)}</a>')
         nav_html = (
             f'<nav class="site-nav" aria-label="Page sections">{"".join(links)}</nav>'

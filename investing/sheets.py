@@ -169,6 +169,26 @@ _EQUITIES_SCHEMA = _WorksheetSchema(
 )
 
 
+# Fixed Income worksheet shares the Equities row schema column-for-column
+# (date / ticker / quantity / price / action / include); the only
+# difference is the worksheet name + the asset class the resulting
+# transactions are tagged with downstream. Re-using ``_EquitiesCols`` for
+# the column indices keeps the maintenance contract honest -- a future
+# column move only has to update one ``_ColSpec``.
+_FIXED_INCOME_SCHEMA = _WorksheetSchema(
+    name="Fixed Income",
+    columns=(
+        _ColSpec("(unused)", 0),
+        _EquitiesCols.DATE,
+        _EquitiesCols.TICKER,
+        _EquitiesCols.QUANTITY,
+        _EquitiesCols.PRICE,
+        _EquitiesCols.ACTION,
+        _EquitiesCols.INCLUDE,
+    ),
+)
+
+
 _RETURN_SCHEMA = _WorksheetSchema(
     name="Return",
     columns=(
@@ -194,7 +214,8 @@ _CASH_SCHEMA = _WorksheetSchema(
 
 
 _SCHEMAS_BY_NAME: dict[str, _WorksheetSchema] = {
-    s.name: s for s in (_EQUITIES_SCHEMA, _RETURN_SCHEMA, _CASH_SCHEMA)
+    s.name: s
+    for s in (_EQUITIES_SCHEMA, _FIXED_INCOME_SCHEMA, _RETURN_SCHEMA, _CASH_SCHEMA)
 }
 
 
@@ -234,16 +255,26 @@ def _parse_number_cell(
         ) from None
 
 
-def _parse_equity_row(row_index: int, row: list[str]) -> EquityTransaction | None:
-    """Parse one ``Equities`` row into the transaction dict shape.
+def _parse_equity_row(
+    row_index: int,
+    row: list[str],
+    *,
+    schema: _WorksheetSchema = _EQUITIES_SCHEMA,
+) -> EquityTransaction | None:
+    """Parse one ``Equities`` (or ``Fixed Income``) row into the transaction dict shape.
 
     Returns ``None`` when the include flag is anything other than a YES
     token (matches the historical "skip" semantics). Raises
     :class:`SheetParseError` with row / column context on any other
     validation failure so the caller knows precisely what to fix in
     the source sheet.
+
+    The ``Fixed Income`` worksheet shares the equity row schema
+    column-for-column, so the parser is reused for both inputs by
+    swapping the active ``schema``. The worksheet name still
+    propagates into any raised :class:`SheetParseError` so the
+    operator sees the correct sheet name in error messages.
     """
-    schema = _EQUITIES_SCHEMA
     schema.check_shape(row_index, row)
     if schema.cell(row, _EquitiesCols.INCLUDE) not in _YES_TOKENS:
         return None
@@ -367,26 +398,53 @@ def _iter_data_rows(rows: list[list[str]]):
     yield from enumerate(rows[_SHEET_DATA_OFFSET:], start=_SHEET_DATA_OFFSET + 1)
 
 
-def pull_data() -> tuple[list[EquityTransaction], list[Valuation], list[CashBalance]]:
+def pull_data() -> tuple[
+    list[EquityTransaction],
+    list[EquityTransaction],
+    list[Valuation],
+    list[CashBalance],
+]:
+    """Pull every input worksheet through the gspread API in one round trip.
+
+    Returns four lists in a fixed order: equity transactions, fixed-income
+    transactions, return-series valuations, and cash balances. The
+    fixed-income list shares the :class:`EquityTransaction` shape because
+    the upstream "Fixed Income" worksheet is column-for-column identical
+    to "Equities"; the asset-class distinction is propagated into the
+    pipeline downstream by tagging the resulting :class:`Holding`
+    objects rather than by carrying a flag on every row dict.
+    """
     gc = _gspread_client()
     sh = gc.open_by_key(os.environ["GSHEET_ID"])
 
-    # Single batched request for all three worksheets. The legacy
+    # Single batched request for every worksheet. The legacy
     # implementation called ``sh.worksheet(name).get_all_values()``
     # three times in sequence -- each call is a separate Sheets
     # API round-trip, which dominated the cold-start latency of
     # the build. ``values_batch_get`` ships one HTTPS request and
-    # comes back with all three ranges; the per-sheet shape stays
+    # comes back with every range; the per-sheet shape stays
     # identical to ``get_all_values`` (a 2-D list of strings) so
-    # the parsers below need no changes.
-    range_names = ("Equities", "Return", "Cash & Cash Equivalents")
+    # the parsers below need no changes. The Fixed Income range
+    # rides alongside Equities so a portfolio that grows a
+    # fixed-income sleeve costs the build no extra HTTPS hops.
+    range_names = ("Equities", "Fixed Income", "Return", "Cash & Cash Equivalents")
     sheets = _batch_get_values(sh, range_names)
 
     transactions: list[EquityTransaction] = []
     for row_index, row in _iter_data_rows(sheets["Equities"]):
-        parsed_txn = _parse_equity_row(row_index, row)
+        parsed_txn = _parse_equity_row(row_index, row, schema=_EQUITIES_SCHEMA)
         if parsed_txn is not None:
             transactions.append(parsed_txn)
+
+    fixed_income_transactions: list[EquityTransaction] = []
+    for row_index, row in _iter_data_rows(sheets["Fixed Income"]):
+        parsed_txn = _parse_equity_row(
+            row_index,
+            row,
+            schema=_FIXED_INCOME_SCHEMA,
+        )
+        if parsed_txn is not None:
+            fixed_income_transactions.append(parsed_txn)
 
     valuations: list[Valuation] = []
     for row_index, row in _iter_data_rows(sheets["Return"]):
@@ -400,7 +458,7 @@ def pull_data() -> tuple[list[EquityTransaction], list[Valuation], list[CashBala
         if parsed_cash is not None:
             cash.append(parsed_cash)
 
-    return transactions, valuations, cash
+    return transactions, fixed_income_transactions, valuations, cash
 
 
 def _batch_get_values(

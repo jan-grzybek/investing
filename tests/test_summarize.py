@@ -163,3 +163,72 @@ class TestSummarize:
 
         assert total == pytest.approx(100.0)
         assert holdings["current"][0]["current_weight%"] == pytest.approx(100.0)
+
+    def test_fixed_income_contributes_to_total_and_allocation(self, fx_one_to_one):
+        # Fixed income carries its own bucket in the rollup; equities
+        # and FI both contribute to the total portfolio USD value
+        # (the denominator every per-ticker weight is computed
+        # against), and the allocation chart gains a dedicated
+        # "Fixed Income" row sitting between Equities and Cash.
+        fi = _holding("TLT", 200.0)
+        fi["asset_class"] = "fixed_income"
+        holdings = {
+            "current": [_holding("AAA", 600.0)],
+            "current_fixed_income": [fi],
+            "historical": [],
+            "historical_fixed_income": [],
+        }
+        total = summarize(
+            holdings,
+            cash=[{"currency_code": "USD", "amount": 200.0}],
+            fx=fx_one_to_one,
+        )
+
+        # 600 (equity) + 200 (FI) + 200 (cash) = 1000.
+        assert total == pytest.approx(1000.0)
+        assert holdings["allocation%"] == {
+            "Equities": 60.0,
+            "Fixed Income": 20.0,
+            "Cash & Cash Equivalents": 20.0,
+        }
+        # Weight is computed against the whole portfolio so the
+        # equity capsule reads as 60% and the fixed-income capsule as
+        # 20% -- the same denominator on both sides keeps the per-
+        # capsule "Weight" stat apples-to-apples across asset classes.
+        assert holdings["current"][0]["current_weight%"] == pytest.approx(60.0)
+        assert holdings["current_fixed_income"][0]["current_weight%"] == pytest.approx(
+            20.0
+        )
+        # Top-10 only consumes the equity sleeve: a fixed-income
+        # holding never appears in the bar chart / OG image strip
+        # because the chart is "Top equities by weight".
+        assert "TLT" not in holdings["top_10"]
+        assert "AAA" in holdings["top_10"]
+
+    def test_fixed_income_only_portfolio_lists_fi_row(self, fx_one_to_one):
+        # A portfolio with no equities still emits a ``"Fixed Income"``
+        # row in the allocation rollup; the equities row sits at 0 by
+        # the existing convention so the chart doesn't suddenly hide
+        # the asset class in the asymmetric case.
+        fi = _holding("TLT", 500.0)
+        fi["asset_class"] = "fixed_income"
+        holdings = {
+            "current": [],
+            "current_fixed_income": [fi],
+            "historical": [],
+            "historical_fixed_income": [],
+        }
+        total = summarize(
+            holdings,
+            cash=[{"currency_code": "USD", "amount": 500.0}],
+            fx=fx_one_to_one,
+        )
+
+        assert total == pytest.approx(1000.0)
+        assert holdings["allocation%"] == {
+            "Equities": 0.0,
+            "Fixed Income": 50.0,
+            "Cash & Cash Equivalents": 50.0,
+        }
+        # No equities -> no top-10 chart.
+        assert holdings["top_10"] is None

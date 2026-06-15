@@ -577,7 +577,8 @@ class TestBuildPageWiring:
 
         def stub_pull():
             sector_overrides.record_missing_sector("NMS:STUB")
-            return ([], [], [])
+            # 4-tuple: equities, fixed income, valuations, cash.
+            return ([], [], [], [])
 
         monkeypatch.setattr(
             cli, "get_holdings",

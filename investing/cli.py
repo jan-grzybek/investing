@@ -221,8 +221,12 @@ def _print_summary(
     twr = total_return.get("twr%")
     cagr = total_return.get("cagr%")
     start_date = total_return.get("start_date")
-    current_count = len(holdings.get("current", []) or [])
-    historical_count = len(holdings.get("historical", []) or [])
+    current_count = len(holdings.get("current", []) or []) + len(
+        holdings.get("current_fixed_income", []) or []
+    )
+    historical_count = len(holdings.get("historical", []) or []) + len(
+        holdings.get("historical_fixed_income", []) or []
+    )
     bench_part = ""
     if benchmarks:
         bench = benchmarks[0]
@@ -279,13 +283,19 @@ def _print_summary(
             emit_summary(f"Notifier: {notifier_line}\n")
 
 
-# Pure data-source signature: ``pull()`` returns the same triple as
-# ``investing.sheets.pull_data``. Lifted as a named type so test
-# harnesses, preview scripts, and the production entrypoint all
-# share one shape rather than depending on the module-level callable.
+# Pure data-source signature: ``pull()`` returns the same 4-tuple as
+# ``investing.sheets.pull_data`` -- equities, fixed-income, valuations,
+# cash. Lifted as a named type so test harnesses, preview scripts,
+# and the production entrypoint all share one shape rather than
+# depending on the module-level callable.
 PullFn = Callable[
     [],
-    tuple[list[EquityTransaction], list[Valuation], list[CashBalance]],
+    tuple[
+        list[EquityTransaction],
+        list[EquityTransaction],
+        list[Valuation],
+        list[CashBalance],
+    ],
 ]
 
 # Rendering side-effect: takes the three dicts the page consumes plus
@@ -342,8 +352,13 @@ def build_page(
     # and there are captured in the curated build summary line.
     reset_hints()
 
-    transactions, valuations, cash = _pull()
-    holdings = get_holdings(transactions, fx=_fx, now=_now)
+    transactions, fixed_income, valuations, cash = _pull()
+    holdings = get_holdings(
+        transactions,
+        fixed_income=fixed_income,
+        fx=_fx,
+        now=_now,
+    )
     rollup = compute_rollup(holdings, cash, fx=_fx)
     apply_rollup(holdings, rollup)
     total_return = calc_twr(valuations, rollup.total_value_usd, now=_now)
