@@ -607,13 +607,45 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
   font-size: 1.0625rem;
   font-weight: 700;
   letter-spacing: -0.01em;
-  margin: 24px 0 10px;
-  padding-bottom: 6px;
-  border-bottom: 1px solid var(--line);
+  margin: 32px 0 12px;
+  /* Subsection ownership is signalled by a vertical brand-accent
+     rule on the left, mirroring the horizontal brand-accent rule
+     under the parent ``.section__title``. The two heading levels
+     read as a coherent hierarchy -- the h2 marks the chapter and
+     the h3 marks its subdivision -- and a subsection clearly
+     belongs to its parent section visually, not as a parallel
+     divider. Replaces an earlier ``border-bottom: 1px solid
+     var(--line)`` treatment which read as a generic divider and
+     competed visually with the h2 accent rule above it, leaving
+     the parent-child relationship ambiguous. */
+  border-left: 3px solid var(--accent);
+  padding: 2px 0 2px 10px;
   /* Mirrors ``.section``'s reserve so an anchor jump to
      ``#equities`` (clicked from the allocation chart) lands the
      subtitle below the sticky header rather than under it. */
   scroll-margin-top: 120px;
+}
+/* The first subsection title inside a holdings section sits tight
+   under the parent ``.section__title`` so the two read as nested.
+   The default 32px top margin would otherwise compound with the
+   h2's own ``margin-bottom`` + ``padding-bottom`` and stretch the
+   gap below the orange chapter rule into a ~50px stripe that made
+   the first subsection feel like a sibling section. */
+.section--current > .section__title + .section__subtitle,
+.section--historical > .section__title + .section__subtitle {
+  margin-top: 10px;
+}
+/* The asset-allocation bars sit between the first and second
+   subsections inside ``.section--current``. Their own 24px bottom
+   margin would compound with the next subtitle's 32px top margin
+   and push the gap above "Equities" to ~56px -- noticeably wider
+   than the holdings-list-to-"Fixed Income" gap below, which is
+   driven by the h3 ``margin-top`` alone. Stripping the bottom
+   margin in this context lets a single rule (the h3 top margin)
+   govern the subsection rhythm so both transitions land on the
+   same vertical beat. */
+.section--current > .bars {
+  margin-bottom: 0;
 }
 .holding {
   display: grid;
@@ -963,6 +995,21 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
   font-size: 0.9375rem;
   line-height: 1.5;
   max-width: 64ch;
+}
+/* The trades-section intro carries a denser two-sentence
+   methodology note that runs ~150 chars long; the default 64ch
+   cap wraps it into four narrow lines on desktop even though the
+   sortable table below it spans the full content width and would
+   happily host a wider paragraph. Releasing the cap here lets the
+   intro flow alongside the table's natural width so the lead-in
+   reads as ``column header for the table that follows'' rather
+   than a narrow column floating in the same row as 800px of
+   table real estate. The shorter ``.section--return`` intro
+   keeps the 64ch cap because it sits above a comparison capsule
+   layout, not a wide table, and benefits from the tighter
+   line-length. */
+.section--trades .section__intro {
+  max-width: none;
 }
 /* Burst-aggregated trades, rendered as a dense sortable table.
 
@@ -1670,6 +1717,56 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
     display: none;
   }
 }
+/* Responsive "drop the labels when they would overflow the tile"
+   rule for the aggregated ``Other`` pseudo-row. The Python merge
+   loop in ``_merge_small_into_other`` only guarantees that every
+   tile clears the 12 %-canvas area threshold; on a worst-case
+   mobile canvas (~358 x 268 px) that resolves to ~43 x 32 px,
+   which is too tight for the "Other" label (5-char, 700-weight,
+   ~50 px wide at the min font clamp) and the stacked weight
+   percent to fit without crashing through the tile boundary. The
+   legend chip in the figcaption below the canvas already names
+   the swatch, so a color-only fallback on the smallest tiles
+   stays self-documenting -- and the labels still appear on every
+   tile that actually has the room for them.
+
+   The threshold is split across two figure-width tiers because
+   the ticker / weight font sizes scale with the figure container
+   via the ``cqi`` clamps further down. A single per-tile pixel
+   threshold would either be too tight on mobile (hiding tiles
+   whose text would fit at the smaller clamped font) or too
+   loose on desktop (showing tiles whose text would clip at the
+   larger clamped font). The 540 px figure-width boundary
+   mirrors the ``@media (max-width: 540px)`` block at the end of
+   this stylesheet that already switches the canvas aspect ratio
+   to 4:3 and the inner-tile padding to 4 / 5 px for the same
+   mobile / desktop split, so the responsive contract here lines
+   up with the rest of the chart's mobile reflow.
+
+   The rule targets ``.treemap__tile-text`` (the parent of both
+   the ``Other`` label and the weight percent), so when the tile
+   falls below the threshold both pieces drop together -- the
+   half-hidden "Other 0.5" residue that fits but reads as
+   broken-up text wouldn't help the user. Real (non-aggregated)
+   tiles are unaffected: they keep their default ``display:
+   flex`` from the base ``.treemap__tile-text`` rule above. */
+.treemap__tile--aggregated .treemap__tile-text {
+  display: none;
+}
+@container treemap (max-width: 540px) {
+  @container tile (min-width: 60px) and (min-height: 44px) {
+    .treemap__tile--aggregated .treemap__tile-text {
+      display: flex;
+    }
+  }
+}
+@container treemap (min-width: 541px) {
+  @container tile (min-width: 90px) and (min-height: 64px) {
+    .treemap__tile--aggregated .treemap__tile-text {
+      display: flex;
+    }
+  }
+}
 .treemap__tile-weight {
   font-weight: 600;
   opacity: 0.94;
@@ -2234,7 +2331,17 @@ footer a:focus-visible {
      anchor-jump feel is consistent across viewports. */
   .section { margin-top: 28px; scroll-margin-top: 100px; }
   .section__title { font-size: 1.1875rem; margin-bottom: 12px; }
-  .section__subtitle { font-size: 1rem; margin: 22px 0 10px; scroll-margin-top: 100px; }
+  /* Mobile keeps the left-accent treatment from the desktop rule
+     (border + padding inherit) but shrinks the type and tightens
+     the rhythm so subsections stay legible in a phone-width
+     column. The ``:first-of-type`` override below mirrors the
+     desktop "first subsection sits tight" rule scaled for the
+     smaller chapter rule above it. */
+  .section__subtitle { font-size: 1rem; margin: 26px 0 10px; scroll-margin-top: 100px; }
+  .section--current > .section__title + .section__subtitle,
+  .section--historical > .section__title + .section__subtitle {
+    margin-top: 8px;
+  }
   .return-chart { margin-bottom: 16px; }
   /* The chart SVG is authored with a 1000x400 viewBox (a wide
      2.5:1 aspect ratio that suits desktop). On phone widths

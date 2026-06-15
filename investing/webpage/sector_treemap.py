@@ -964,6 +964,20 @@ def _ticker_tile(*, row: _Row, tile: _Tile) -> str:
         # viewports: a tall narrow Other tile on mobile reads
         # "Other"; a wide one on desktop reads "Other equities";
         # no JS / build-time tile-width measurement needed.
+        #
+        # On the smallest tiles -- e.g. the worst-case mobile canvas
+        # where the aggregated tile lands near the 12 %-canvas merge
+        # floor (~43 x 32 px) -- CSS hides the entire
+        # ``.treemap__tile-text`` span so neither label nor weight
+        # try to render in a box too small to hold them without
+        # overflowing the tile boundary. The legend chip below the
+        # canvas still identifies the swatch, keeping the chart
+        # self-documenting. The drop threshold lives in
+        # ``page.css`` (the per-figure-tier ``@container treemap`` /
+        # ``@container tile`` rules next to the long / short swap
+        # block) rather than here because the decision needs the
+        # tile's rendered px dimensions on the current viewport,
+        # which the build-time renderer doesn't have access to.
         return (
             '<div class="treemap__tile treemap__tile--aggregated" '
             f'data-sector="{html.escape(row.sector)}" '

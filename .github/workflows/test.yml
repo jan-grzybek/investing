@@ -71,10 +71,24 @@ jobs:
         # ``logos/tight/`` from ``logos/``, and CI fails when the
         # committed crops don't match a fresh regeneration. The
         # production pre-commit hook (``tighten-logos``) keeps this
-        # in sync locally and the ``regenerate-logos`` workflow
-        # recovers any drift that lands on ``main`` despite the
-        # hook, so this step is the PR gate that prevents a
-        # half-updated mirror from merging in the first place.
+        # in sync locally, so this step is the PR gate that prevents
+        # a half-updated mirror from merging in the first place.
+        #
+        # Deliberately scoped to ``pull_request`` only: a push to
+        # ``main`` that introduces drift (e.g. a new source logo
+        # committed without rerunning the cropper) is recovered
+        # server-side by ``regenerate-logos.yml``, which rebuilds
+        # ``logos/tight/`` and commits the mirror back. Failing this
+        # step on push would block ``main.yml`` -- whose deploy is
+        # gated on ``Tests`` success via ``workflow_run`` -- from
+        # ever publishing the new logo, because the auto-commit from
+        # ``regenerate-logos.yml`` uses the default ``GITHUB_TOKEN``
+        # which by design does not retrigger workflows. The
+        # ``WaitForRegenerate`` guard in ``main.yml`` already
+        # serialises the deploy behind the regenerate workflow's
+        # commit, so by the time we ship the page the mirror is
+        # back in sync.
+        if: github.event_name == 'pull_request'
         run: python scripts/tighten_logos.py --check
 
       - name: Run pytest with coverage
