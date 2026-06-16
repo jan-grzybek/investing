@@ -872,6 +872,92 @@ class TestInteractionStyles:
         assert ".bars__row--link:hover,.bars__row--link:focus-visible" not in normalize(out)
 
 
+class TestOgImageHeroCaption:
+    """Direct unit tests on :func:`investing.webpage.og_image._hero_caption`
+    -- the share preview's headline caption.
+
+    Lives at unit-helper granularity rather than driving the full
+    PNG renderer because the rendered text isn't easily round-
+    trippable out of the raster output. Pinning the helper's
+    contract here guards against the share preview drifting back
+    to the historical bug where a negative CAGR delta still
+    rendered "Outperformance of S&P 500 on CAGR" (the red hero
+    number contradicting its own caption)."""
+
+    def test_positive_delta_claims_outperformance(self):
+        from investing.webpage.og_image import _hero_caption
+
+        assert _hero_caption(5.2, "S&P 500") == (
+            "Outperformance of ",
+            "S&P 500",
+            " on CAGR",
+        )
+
+    def test_zero_delta_still_reads_as_outperformance(self):
+        # A dead-flat tie sits on the positive side of the
+        # green / red split because the hero colour does too
+        # (``cagr_delta >= 0`` -> ``POS``). The caption and the
+        # colour must agree on the boundary so the preview never
+        # shows a green ``+0.0 pp`` hero with an "Underperformance"
+        # caption underneath it.
+        from investing.webpage.og_image import _hero_caption
+
+        prefix, _, _ = _hero_caption(0.0, "S&P 500")
+        assert prefix == "Outperformance of "
+
+    def test_negative_delta_claims_underperformance(self):
+        # The headline regression this whole helper exists for:
+        # the prior static "Outperformance of ..." copy stayed put
+        # even when ``cagr_delta`` was negative, so the share
+        # preview would claim a lead the portfolio didn't have.
+        from investing.webpage.og_image import _hero_caption
+
+        assert _hero_caption(-3.4, "S&P 500") == (
+            "Underperformance of ",
+            "S&P 500",
+            " on CAGR",
+        )
+
+    def test_uses_benchmark_label_in_emph_piece(self):
+        # The middle (bold) piece is the benchmark display name,
+        # not a hardcoded "S&P 500" -- so a non-S&P benchmark
+        # (e.g. swapped MSCI World) still reads correctly.
+        from investing.webpage.og_image import _hero_caption
+
+        assert _hero_caption(2.0, "MSCI World")[1] == "MSCI World"
+        assert _hero_caption(-2.0, "MSCI World")[1] == "MSCI World"
+
+    def test_falls_back_to_sp500_when_bench_label_missing(self):
+        # ``bench_label`` can legitimately be ``None`` (no benchmark
+        # known to the display-name map *and* no ``name`` on the
+        # benchmark payload). The caption falls back to "S&P 500"
+        # so the rendered line stays a complete sentence rather
+        # than collapsing to "Outperformance of  on CAGR".
+        from investing.webpage.og_image import _hero_caption
+
+        assert _hero_caption(1.0, None)[1] == "S&P 500"
+        assert _hero_caption(1.0, "")[1] == "S&P 500"
+
+    def test_no_benchmark_reads_as_standalone_metric(self):
+        # Without a benchmark the OG hero shows the absolute CAGR
+        # rather than a delta, so the caption switches to a
+        # neutral "Annualized return (CAGR)" frame -- no
+        # out/underperformance claim against an absent reference.
+        from investing.webpage.og_image import _hero_caption
+
+        assert _hero_caption(None, "S&P 500") == (
+            "Annualized return (",
+            "CAGR",
+            ")",
+        )
+        # Same fallback even when no benchmark label is available.
+        assert _hero_caption(None, None) == (
+            "Annualized return (",
+            "CAGR",
+            ")",
+        )
+
+
 class TestSave:
     def test_writes_index_html_with_key_sections(self, stub_logo_lookup, chdir_tmp, freeze_today):
         freeze_today(datetime(2025, 6, 1))

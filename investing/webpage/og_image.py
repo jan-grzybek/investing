@@ -2,11 +2,13 @@
 to whenever the portfolio URL is pasted into a feed.
 
 The composition is tuned for a single-glance share preview: a
-prominent ``Jan Grzybek`` byline, the headline outperformance vs
-the S&P 500 on CAGR (the metric that earns its way once the
-track record is long enough), and a strip of the top-10 equity
-holdings' logos so the preview hints at *what* sits in the
-portfolio without needing a click.
+prominent ``Jan Grzybek`` byline, the headline out/underperformance
+vs the S&P 500 on CAGR (the metric that earns its way once the
+track record is long enough -- the caption flips between
+"Outperformance" and "Underperformance" with the sign so the
+share preview never claims a lead it doesn't have), and a strip
+of the top-10 equity holdings' logos so the preview hints at
+*what* sits in the portfolio without needing a click.
 
 Extracted from :mod:`investing.webpage._page` so the renderer
 class can focus on per-section HTML and the OG-specific Pillow
@@ -343,6 +345,35 @@ def _benchmark_label(
     return display_names.get(ticker) or benchmark.get("name") or ticker or "Benchmark"
 
 
+def _hero_caption(
+    cagr_delta: float | None, bench_label: str | None
+) -> tuple[str, str, str]:
+    """Return the three caption pieces (``prefix``, ``emph``, ``tail``)
+    rendered under the hero number.
+
+    Split out of :func:`_render_unsafe` so the directional copy is
+    unit-testable without rasterising a PNG and OCR'ing it back. The
+    contract:
+
+    * with a benchmark and a non-negative delta -> "Outperformance of
+      {bench} on CAGR" (the canonical share-preview claim);
+    * with a benchmark and a negative delta -> "Underperformance of
+      {bench} on CAGR" (mirrors the symmetric "outperformance (or
+      underperformance)" framing the in-page returns-compare block
+      uses, so the OG card never claims a lead the page itself
+      doesn't show);
+    * without a benchmark -> "Annualized return (CAGR)" so the hero
+      reads as a standalone metric rather than a comparison.
+
+    ``bench_label`` falls back to "S&P 500" when present-but-empty so
+    the caption never collapses to "Outperformance of  on CAGR".
+    """
+    if cagr_delta is None:
+        return ("Annualized return (", "CAGR", ")")
+    word = "Outperformance" if cagr_delta >= 0 else "Underperformance"
+    return (f"{word} of ", bench_label or "S&P 500", " on CAGR")
+
+
 OUTPUT_FILENAME = "og-image.png"
 _HASH_SIDECAR_FILENAME = OUTPUT_FILENAME + ".sha256"
 # Historical module-level path constant kept as an alias for any
@@ -564,19 +595,19 @@ def _render_unsafe(
     # the rest of the layout.
     draw.rectangle((pad_l, 168, pad_l + 96, 176), fill=ACCENT)
 
-    # Hero: outperformance vs the benchmark on CAGR.
+    # Hero: out/underperformance vs the benchmark on CAGR. The
+    # leading caption word flips with the sign of ``cagr_delta``
+    # (see :func:`_hero_caption`) so the share preview tells the
+    # truth even when JG trails the benchmark -- the prior static
+    # "Outperformance of ..." copy contradicted the red hero
+    # number on underperforming windows.
     if cagr_delta is not None:
         hero_text = f"{_fmt_pct(cagr_delta, signed=True)} pp"
         hero_color = POS if cagr_delta >= 0 else NEG
-        label = "Outperformance of "
-        label_emph = bench_label or "S&P 500"
-        label_tail = " on CAGR"
     else:
         hero_text = f"{_fmt_pct(cagr, signed=True)}%"
         hero_color = POS if cagr >= 0 else NEG
-        label = "Annualized return ("
-        label_emph = "CAGR"
-        label_tail = ")"
+    label, label_emph, label_tail = _hero_caption(cagr_delta, bench_label)
 
     draw.text((pad_l, 210), hero_text, font=f_hero, fill=hero_color)
 
