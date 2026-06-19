@@ -6,6 +6,10 @@ revises historical rows. Spreadsheet / portfolio ledger data must
 never be written here — only vendor market feeds keyed by ticker or
 currency symbol.
 
+Set ``INVESTING_MARKET_DATA_PERSIST=0`` to merge live yfinance with
+on-disk archives without writing updates (production deploy default).
+The monthly CI cron persists and commits snapshot refreshes.
+
 Merge policy (split-aware):
 
 * **Splits** — union by date; live wins on same-date factor conflicts;
@@ -45,6 +49,7 @@ SCHEMA_VERSION = 1
 
 _MARKET_DATA_DIR_ENV = "INVESTING_MARKET_DATA_DIR"
 _DISABLE_ENV = "INVESTING_MARKET_DATA_DISABLE"
+_PERSIST_ENV = "INVESTING_MARKET_DATA_PERSIST"
 
 # Curated ``get_info`` keys the pipeline consumes. Storing the full
 # upstream blob would bloat diffs and pull in irrelevant fields.
@@ -85,6 +90,11 @@ FORBIDDEN_SNAPSHOT_KEYS: frozenset[str] = frozenset(
 )
 
 _FLOAT_TOLERANCE = 1e-9
+
+
+def _persist_enabled() -> bool:
+    """Return False when ``INVESTING_MARKET_DATA_PERSIST=0`` (read/merge only)."""
+    return os.environ.get(_PERSIST_ENV, "1") != "0"
 
 
 def _repo_market_data_dir() -> Path:
@@ -394,8 +404,11 @@ class MarketDataStore:
     def __init__(
         self,
         root: Path | None = None,
+        *,
+        persist: bool | None = None,
     ) -> None:
         self._root = root if root is not None else market_data_root()
+        self._persist = _persist_enabled() if persist is None else persist
         self._manifest_path = self._root / "manifest.json" if self._root is not None else None
         # ``get_holdings`` constructs ``Holding`` instances in a thread
         # pool; each miss persists a ticker snapshot and read-modify-
@@ -416,6 +429,11 @@ class MarketDataStore:
     @property
     def root(self) -> Path | None:
         return self._root
+
+    @property
+    def persist(self) -> bool:
+        """True when merged snapshots are written back to disk."""
+        return self._persist
 
     def _ticker_path(self, ticker: str) -> Path:
         assert self._root is not None
@@ -456,7 +474,7 @@ class MarketDataStore:
         splits: list[dict[str, Any]],
         dividends: list[dict[str, Any]],
     ) -> None:
-        if self._root is None:
+        if self._root is None or not self._persist:
             return
         payload = _serialize_ticker_snapshot(info=info, splits=splits, dividends=dividends)
         _atomic_write_json(self._ticker_path(ticker), payload)
@@ -554,7 +572,7 @@ class MarketDataStore:
             archived_splits=archived_splits,
             merged_splits=merged_splits,
         )
-        if self._root is not None:
+        if self._root is not None and self._persist:
             payload = _serialize_history(merged_rows, splits=merged_splits)
             _atomic_write_json(self._history_path(ticker), payload)
             self._touch_manifest("history", ticker, _content_hash(payload))
@@ -605,7 +623,7 @@ class MarketDataStore:
         dates: np.ndarray,
         rates: np.ndarray,
     ) -> None:
-        if self._root is None:
+        if self._root is None or not self._persist:
             return
         try:
             path = self._fx_path(currency)
@@ -652,7 +670,7 @@ class MarketDataStore:
         )
         out_dates = np.array([_iso_date(r["date"]) for r in merged], dtype="datetime64[D]")
         out_rates = np.array([r["rate"] for r in merged], dtype=float)
-        if self._root is not None and out_dates.size > 0:
+        if self._root is not None and out_dates.size > 0 and self._persist:
             self.save_fx_history(currency, out_dates, out_rates)
         return out_dates, out_rates
 
@@ -665,8 +683,8 @@ class MarketDataStore:
         return sorted(p.stem for p in tickers_dir.glob("*.json"))
 
     def refresh_ticker(self, ticker: str) -> None:
-        """Fetch, merge, and persist one ticker (no-op when disabled)."""
-        if self._root is None:
+        """Fetch, merge, and persist one ticker (no-op when disabled or read-only)."""
+        if self._root is None or not self._persist:
             return
         self.resolve_ticker(ticker)
 

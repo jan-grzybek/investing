@@ -25,6 +25,12 @@ on:
     # over the weekend (e.g. refreshing the date header and any
     # time-sensitive copy) without burning CI minutes.
     - cron: "0 12 * * 6,0"
+    # Once monthly on the 1st at 12:00 UTC: refresh committed
+    # ``market_data/`` snapshots and push any diffs. Routine deploy
+    # runs merge live yfinance with the archive in memory only
+    # (``INVESTING_MARKET_DATA_PERSIST=0``); this cron is the sole
+    # writer that lands backup updates on ``main``.
+    - cron: "0 12 1 * *"
   # Run after a push to ``main`` lands, but only once the ``Tests``
   # workflow (``test.yml``) has finished successfully. Using
   # ``workflow_run`` instead of a plain ``push`` trigger means we
@@ -152,6 +158,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_API_URL: ${{ github.api_url }}
+          # Routine deploys read committed snapshots and merge live
+          # yfinance in memory; only the monthly cron (``0 12 1 * *``)
+          # persists refreshed archives back to ``market_data/``.
+          INVESTING_MARKET_DATA_PERSIST: ${{ github.event_name == 'schedule' && github.event.schedule == '0 12 1 * *' && '1' || '0' }}
         # ``python -m investing`` resolves to ``investing/__main__.py``
         # which invokes the leak-safe wrapper (``_run_main_safely``).
         # That wrapper silences both ``sys.stderr`` and the underlying
@@ -208,6 +218,10 @@ jobs:
           git push
 
       - name: Commit market-data snapshot updates
+        # Monthly backup only — see the ``0 12 1 * *`` schedule comment
+        # at the top of this file and ``INVESTING_MARKET_DATA_PERSIST``
+        # on the build step above.
+        if: github.event_name == 'schedule' && github.event.schedule == '0 12 1 * *'
         run: |
           if [[ -z "$(git status --porcelain market_data/)" ]]; then
             echo "market_data/ unchanged; nothing to commit."

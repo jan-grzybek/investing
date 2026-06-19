@@ -24,7 +24,7 @@ from .formatting import _fmt_pct, _format_duration
 from .fx import ExchangeRate, FxRate
 from .log import logger
 from .maintenance_notifier import NotifierOutcome, notify_github
-from .market_data_store import MarketDataStore
+from .market_data_store import MarketDataStore, market_data_root
 from .performance import (
     BENCHMARKS,
     apply_rollup,
@@ -428,7 +428,7 @@ def build_page(
         notifier=notifier_outcome,
         appended_stubs=appended_stubs,
     )
-    if _store.enabled:
+    if _store.enabled and _store.persist:
         portfolio = set(_collect_market_data_tickers(transactions, fixed_income))
         for archived in _store.list_archived_tickers():
             if archived not in portfolio:
@@ -443,7 +443,11 @@ def snapshot_market_data(
     """Refresh committed yfinance snapshots for the portfolio ticker universe."""
     _configure_logging()
     _pull = pull if pull is not None else _pull_data
-    _store = store if store is not None else _default_market_data_store()
+    if store is not None:
+        _store = store
+    else:
+        root = market_data_root()
+        _store = MarketDataStore(root, persist=True) if root is not None else MarketDataStore(None)
     if not _store.enabled:
         logger.info("market-data snapshots disabled (INVESTING_MARKET_DATA_DISABLE=1)")
         return

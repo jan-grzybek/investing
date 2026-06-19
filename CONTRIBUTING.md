@@ -30,7 +30,7 @@ deploy workflow runs the same command. New code should
 | `investing/maintenance_notifier.py` | Optional GitHub-Issues sync that opens an issue per maintenance hint (deduped against open AND closed issues so a closed-without-fix hint stays quiet). |
 | `investing/pchip.py` | NumPy-only PCHIP interpolator (replaces SciPy). |
 | `investing/market_data.py` | yfinance fetch helpers + retry wrapper. |
-| `investing/market_data_store.py` | On-disk yfinance snapshots; refreshed write-through during deploy builds and committed to `market_data/`. |
+| `investing/market_data_store.py` | On-disk yfinance snapshots; merged read-through during deploy builds, persisted and committed monthly. |
 | `investing/safehtml.py` | `SafeHtml` / `escape` / `render_template` HTML safety wrapper. |
 | `investing/assets.py` | Loads `assets/page.css` + `assets/*.js` at import time. |
 | `investing/webpage/` | Package: `_page.py` (`Webpage` class), `head.py` (head + CSP), `sitemap.py` (sitemap + robots.txt), `anchors.py` (in-page anchor slugs). |

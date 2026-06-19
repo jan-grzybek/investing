@@ -287,6 +287,33 @@ class TestMarketDataStore:
         for symbol in tickers:
             assert (tmp_path / "tickers" / f"{symbol}.json").is_file()
 
+    def test_resolve_ticker_read_only_skips_disk_write(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("INVESTING_MARKET_DATA_DISABLE", raising=False)
+        monkeypatch.setenv("INVESTING_MARKET_DATA_DIR", str(tmp_path))
+        monkeypatch.setenv("INVESTING_MARKET_DATA_PERSIST", "0")
+
+        store = MarketDataStore(tmp_path, persist=False)
+        mock = MagicMock()
+        mock.get_info.return_value = {
+            "currency": "USD",
+            "exchange": "NMS",
+            "symbol": "TST",
+            "longName": "Test",
+            "regularMarketPrice": 10.0,
+        }
+        mock.splits = {}
+        mock.get_dividends.return_value = {}
+
+        monkeypatch.setattr(
+            "investing.market_data_store.yf.Ticker",
+            lambda _symbol: mock,
+        )
+
+        info, _, _ = store.resolve_ticker("TST")
+        assert info["regularMarketPrice"] == pytest.approx(10.0)
+        assert not (tmp_path / "tickers" / "TST.json").exists()
+        assert not store.persist
+
 
 class TestSplitInventoryChanged:
     def test_detects_new_split(self):

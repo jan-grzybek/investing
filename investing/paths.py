@@ -134,7 +134,8 @@ _SECTOR_OVERRIDES_PATH = os.path.join(_REPO_DIR, "sector_overrides.toml")
 
 # Committed yfinance snapshot tree (splits / dividends / FX / history).
 # Override with ``INVESTING_MARKET_DATA_DIR``; disable persistence with
-# ``INVESTING_MARKET_DATA_DISABLE=1``.
+# ``INVESTING_MARKET_DATA_DISABLE=1``; skip disk writes with
+# ``INVESTING_MARKET_DATA_PERSIST=0`` (read/merge only).
 _MARKET_DATA_DIR = os.path.join(_REPO_DIR, "market_data")
 
 
