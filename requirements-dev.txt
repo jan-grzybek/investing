@@ -16,7 +16,7 @@ cairocffi==1.7.1
     # via cairosvg
 cairosvg==2.9.0
     # via jg-investing (pyproject.toml)
-certifi==2026.5.20
+certifi==2026.6.17
     # via
     #   curl-cffi
     #   requests
@@ -45,11 +45,11 @@ defusedxml==0.7.1
     # via cairosvg
 distlib==0.4.3
     # via virtualenv
-filelock==3.29.3
+filelock==3.29.4
     # via
     #   python-discovery
     #   virtualenv
-google-auth==2.53.0
+google-auth==2.55.0
     # via
     #   google-auth-oauthlib
     #   gspread
@@ -95,7 +95,7 @@ pandas==3.0.3
     # via yfinance
 pathspec==1.1.1
     # via mypy
-peewee==4.0.7
+peewee==4.1.0
     # via yfinance
 pillow==12.2.0
     # via
@@ -130,7 +130,7 @@ pyproject-hooks==1.2.0
     # via
     #   build
     #   pip-tools
-pytest==9.0.3
+pytest==9.1.0
     # via
     #   jg-investing (pyproject.toml)
     #   pytest-cov
@@ -157,7 +157,7 @@ rich==15.0.0
     # via curl-cffi
 rjsmin==1.2.5
     # via jg-investing (pyproject.toml)
-ruff==0.15.17
+ruff==0.15.18
     # via jg-investing (pyproject.toml)
 six==1.17.0
     # via
@@ -181,7 +181,7 @@ urllib3==2.7.0
     # via
     #   requests
     #   types-requests
-virtualenv==21.4.3
+virtualenv==21.5.1
     # via pre-commit
 webencodings==0.5.1
     # via
