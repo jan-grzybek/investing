@@ -1,0 +1,234 @@
+{
+  "dividends": [
+    {
+      "date": "2004-06-14",
+      "dividend": 0.082804
+    },
+    {
+      "date": "2005-06-13",
+      "dividend": 0.308168
+    },
+    {
+      "date": "2006-06-20",
+      "dividend": 0.376119
+    },
+    {
+      "date": "2007-06-08",
+      "dividend": 0.444776
+    },
+    {
+      "date": "2008-07-16",
+      "dividend": 0.495522
+    },
+    {
+      "date": "2009-07-15",
+      "dividend": 0.453
+    },
+    {
+      "date": "2010-07-06",
+      "dividend": 0.469
+    },
+    {
+      "date": "2011-06-29",
+      "dividend": 0.519
+    },
+    {
+      "date": "2012-07-05",
+      "dividend": 0.502
+    },
+    {
+      "date": "2013-07-03",
+      "dividend": 0.502
+    },
+    {
+      "date": "2014-07-14",
+      "dividend": 0.502
+    },
+    {
+      "date": "2015-06-29",
+      "dividend": 0.728
+    },
+    {
+      "date": "2016-06-27",
+      "dividend": 0.929
+    },
+    {
+      "date": "2017-06-26",
+      "dividend": 1.159
+    },
+    {
+      "date": "2018-06-25",
+      "dividend": 1.345
+    },
+    {
+      "date": "2019-06-24",
+      "dividend": 1.276
+    },
+    {
+      "date": "2019-09-19",
+      "dividend": 0.322
+    },
+    {
+      "date": "2019-12-19",
+      "dividend": 0.41
+    },
+    {
+      "date": "2020-03-19",
+      "dividend": 0.417
+    },
+    {
+      "date": "2020-06-18",
+      "dividend": 0.42
+    },
+    {
+      "date": "2020-09-17",
+      "dividend": 0.427
+    },
+    {
+      "date": "2020-12-17",
+      "dividend": 0.442
+    },
+    {
+      "date": "2021-03-17",
+      "dividend": 0.448
+    },
+    {
+      "date": "2021-06-17",
+      "dividend": 0.451
+    },
+    {
+      "date": "2021-09-16",
+      "dividend": 0.497
+    },
+    {
+      "date": "2021-12-16",
+      "dividend": 0.496
+    },
+    {
+      "date": "2022-03-16",
+      "dividend": 0.49
+    },
+    {
+      "date": "2022-06-16",
+      "dividend": 0.467
+    },
+    {
+      "date": "2022-09-15",
+      "dividend": 0.448
+    },
+    {
+      "date": "2022-12-15",
+      "dividend": 0.451
+    },
+    {
+      "date": "2023-03-16",
+      "dividend": 0.449
+    },
+    {
+      "date": "2023-06-15",
+      "dividend": 0.448
+    },
+    {
+      "date": "2023-09-14",
+      "dividend": 0.471
+    },
+    {
+      "date": "2023-12-14",
+      "dividend": 0.479
+    },
+    {
+      "date": "2024-03-18",
+      "dividend": 0.554
+    },
+    {
+      "date": "2024-06-13",
+      "dividend": 0.544
+    },
+    {
+      "date": "2024-09-12",
+      "dividend": 0.626
+    },
+    {
+      "date": "2024-12-12",
+      "dividend": 0.616
+    },
+    {
+      "date": "2025-03-18",
+      "dividend": 0.684
+    },
+    {
+      "date": "2025-06-12",
+      "dividend": 0.78
+    },
+    {
+      "date": "2025-09-16",
+      "dividend": 0.822
+    },
+    {
+      "date": "2025-12-11",
+      "dividend": 0.835
+    },
+    {
+      "date": "2026-03-17",
+      "dividend": 0.956
+    },
+    {
+      "date": "2026-06-11",
+      "dividend": 0.955
+    }
+  ],
+  "info": {
+    "currency": "USD",
+    "exchange": "NYQ",
+    "irWebsite": "http://www.tsmc.com/english/investorRelations/index.htm",
+    "longName": "Taiwan Semiconductor Manufacturing Company Limited",
+    "regularMarketPrice": 462.12,
+    "sector": "Technology",
+    "shortName": "Taiwan Semiconductor Manufactur",
+    "symbol": "TSM",
+    "website": "https://www.tsmc.com"
+  },
+  "schema_version": 1,
+  "splits": [
+    {
+      "date": "1998-08-26",
+      "split": 1.45
+    },
+    {
+      "date": "1999-08-16",
+      "split": 1.23
+    },
+    {
+      "date": "2000-05-15",
+      "split": 1.28
+    },
+    {
+      "date": "2001-06-26",
+      "split": 1.4
+    },
+    {
+      "date": "2002-06-19",
+      "split": 1.1
+    },
+    {
+      "date": "2003-07-07",
+      "split": 1.08
+    },
+    {
+      "date": "2004-06-14",
+      "split": 1.14
+    },
+    {
+      "date": "2005-06-13",
+      "split": 1.05
+    },
+    {
+      "date": "2006-06-20",
+      "split": 1.03
+    },
+    {
+      "date": "2009-07-15",
+      "split": 1.005
+    }
+  ]
+}

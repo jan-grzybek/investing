@@ -1,0 +1,21 @@
+{
+  "dividends": [],
+  "info": {
+    "currency": "USD",
+    "exchange": "NYQ",
+    "irWebsite": "http://phx.corporate-ir.net/phoenix.zhtml?c=125417&p=irol-irhome",
+    "longName": "CarMax, Inc.",
+    "regularMarketPrice": 53.66,
+    "sector": "Consumer Cyclical",
+    "shortName": "CarMax Inc",
+    "symbol": "KMX",
+    "website": "https://www.carmax.com"
+  },
+  "schema_version": 1,
+  "splits": [
+    {
+      "date": "2007-03-27",
+      "split": 2.0
+    }
+  ]
+}

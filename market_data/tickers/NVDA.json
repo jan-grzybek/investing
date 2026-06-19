@@ -1,0 +1,262 @@
+{
+  "dividends": [
+    {
+      "date": "2012-11-20",
+      "dividend": 0.001875
+    },
+    {
+      "date": "2013-02-26",
+      "dividend": 0.001875
+    },
+    {
+      "date": "2013-05-21",
+      "dividend": 0.001875
+    },
+    {
+      "date": "2013-08-20",
+      "dividend": 0.001875
+    },
+    {
+      "date": "2013-11-19",
+      "dividend": 0.002125
+    },
+    {
+      "date": "2014-02-25",
+      "dividend": 0.002125
+    },
+    {
+      "date": "2014-05-20",
+      "dividend": 0.002125
+    },
+    {
+      "date": "2014-08-19",
+      "dividend": 0.002125
+    },
+    {
+      "date": "2014-11-19",
+      "dividend": 0.002125
+    },
+    {
+      "date": "2015-02-24",
+      "dividend": 0.002125
+    },
+    {
+      "date": "2015-05-19",
+      "dividend": 0.00245
+    },
+    {
+      "date": "2015-08-18",
+      "dividend": 0.00245
+    },
+    {
+      "date": "2015-11-18",
+      "dividend": 0.002875
+    },
+    {
+      "date": "2016-02-29",
+      "dividend": 0.002875
+    },
+    {
+      "date": "2016-05-24",
+      "dividend": 0.002875
+    },
+    {
+      "date": "2016-08-23",
+      "dividend": 0.002875
+    },
+    {
+      "date": "2016-11-23",
+      "dividend": 0.0035
+    },
+    {
+      "date": "2017-02-22",
+      "dividend": 0.0035
+    },
+    {
+      "date": "2017-05-19",
+      "dividend": 0.0035
+    },
+    {
+      "date": "2017-08-22",
+      "dividend": 0.0035
+    },
+    {
+      "date": "2017-11-22",
+      "dividend": 0.00375
+    },
+    {
+      "date": "2018-02-22",
+      "dividend": 0.00375
+    },
+    {
+      "date": "2018-05-23",
+      "dividend": 0.00375
+    },
+    {
+      "date": "2018-08-29",
+      "dividend": 0.00375
+    },
+    {
+      "date": "2018-11-29",
+      "dividend": 0.004
+    },
+    {
+      "date": "2019-02-28",
+      "dividend": 0.004
+    },
+    {
+      "date": "2019-05-30",
+      "dividend": 0.004
+    },
+    {
+      "date": "2019-08-28",
+      "dividend": 0.004
+    },
+    {
+      "date": "2019-11-27",
+      "dividend": 0.004
+    },
+    {
+      "date": "2020-02-27",
+      "dividend": 0.004
+    },
+    {
+      "date": "2020-06-04",
+      "dividend": 0.004
+    },
+    {
+      "date": "2020-09-01",
+      "dividend": 0.004
+    },
+    {
+      "date": "2020-12-03",
+      "dividend": 0.004
+    },
+    {
+      "date": "2021-03-09",
+      "dividend": 0.004
+    },
+    {
+      "date": "2021-06-09",
+      "dividend": 0.004
+    },
+    {
+      "date": "2021-08-31",
+      "dividend": 0.004
+    },
+    {
+      "date": "2021-12-01",
+      "dividend": 0.004
+    },
+    {
+      "date": "2022-03-02",
+      "dividend": 0.004
+    },
+    {
+      "date": "2022-06-08",
+      "dividend": 0.004
+    },
+    {
+      "date": "2022-09-07",
+      "dividend": 0.004
+    },
+    {
+      "date": "2022-11-30",
+      "dividend": 0.004
+    },
+    {
+      "date": "2023-03-07",
+      "dividend": 0.004
+    },
+    {
+      "date": "2023-06-07",
+      "dividend": 0.004
+    },
+    {
+      "date": "2023-09-06",
+      "dividend": 0.004
+    },
+    {
+      "date": "2023-12-05",
+      "dividend": 0.004
+    },
+    {
+      "date": "2024-03-05",
+      "dividend": 0.004
+    },
+    {
+      "date": "2024-06-11",
+      "dividend": 0.01
+    },
+    {
+      "date": "2024-09-12",
+      "dividend": 0.01
+    },
+    {
+      "date": "2024-12-05",
+      "dividend": 0.01
+    },
+    {
+      "date": "2025-03-12",
+      "dividend": 0.01
+    },
+    {
+      "date": "2025-06-11",
+      "dividend": 0.01
+    },
+    {
+      "date": "2025-09-11",
+      "dividend": 0.01
+    },
+    {
+      "date": "2025-12-04",
+      "dividend": 0.01
+    },
+    {
+      "date": "2026-03-11",
+      "dividend": 0.01
+    },
+    {
+      "date": "2026-06-04",
+      "dividend": 0.25
+    }
+  ],
+  "info": {
+    "currency": "USD",
+    "exchange": "NMS",
+    "irWebsite": "http://phx.corporate-ir.net/phoenix.zhtml?c=116466&p=irol-IRHome",
+    "longName": "NVIDIA Corporation",
+    "regularMarketPrice": 210.69,
+    "sector": "Technology",
+    "shortName": "NVIDIA Corporation",
+    "symbol": "NVDA",
+    "website": "https://www.nvidia.com"
+  },
+  "schema_version": 1,
+  "splits": [
+    {
+      "date": "2000-06-27",
+      "split": 2.0
+    },
+    {
+      "date": "2001-09-12",
+      "split": 2.0
+    },
+    {
+      "date": "2006-04-07",
+      "split": 2.0
+    },
+    {
+      "date": "2007-09-11",
+      "split": 1.5
+    },
+    {
+      "date": "2021-07-20",
+      "split": 4.0
+    },
+    {
+      "date": "2024-06-10",
+      "split": 10.0
+    }
+  ]
+}

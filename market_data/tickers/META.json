@@ -1,0 +1,56 @@
+{
+  "dividends": [
+    {
+      "date": "2024-02-21",
+      "dividend": 0.5
+    },
+    {
+      "date": "2024-06-14",
+      "dividend": 0.5
+    },
+    {
+      "date": "2024-09-16",
+      "dividend": 0.5
+    },
+    {
+      "date": "2024-12-16",
+      "dividend": 0.5
+    },
+    {
+      "date": "2025-03-14",
+      "dividend": 0.525
+    },
+    {
+      "date": "2025-06-16",
+      "dividend": 0.525
+    },
+    {
+      "date": "2025-09-22",
+      "dividend": 0.525
+    },
+    {
+      "date": "2025-12-15",
+      "dividend": 0.525
+    },
+    {
+      "date": "2026-03-16",
+      "dividend": 0.525
+    },
+    {
+      "date": "2026-06-15",
+      "dividend": 0.525
+    }
+  ],
+  "info": {
+    "currency": "USD",
+    "exchange": "NMS",
+    "longName": "Meta Platforms, Inc.",
+    "regularMarketPrice": 577.22,
+    "sector": "Communication Services",
+    "shortName": "Meta Platforms, Inc.",
+    "symbol": "META",
+    "website": "https://www.meta.com"
+  },
+  "schema_version": 1,
+  "splits": []
+}

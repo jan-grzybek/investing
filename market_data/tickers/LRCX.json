@@ -1,0 +1,226 @@
+{
+  "dividends": [
+    {
+      "date": "2014-06-09",
+      "dividend": 0.018
+    },
+    {
+      "date": "2014-09-08",
+      "dividend": 0.018
+    },
+    {
+      "date": "2014-12-08",
+      "dividend": 0.018
+    },
+    {
+      "date": "2015-03-09",
+      "dividend": 0.018
+    },
+    {
+      "date": "2015-06-08",
+      "dividend": 0.03
+    },
+    {
+      "date": "2015-09-04",
+      "dividend": 0.03
+    },
+    {
+      "date": "2015-12-07",
+      "dividend": 0.03
+    },
+    {
+      "date": "2016-03-07",
+      "dividend": 0.03
+    },
+    {
+      "date": "2016-06-06",
+      "dividend": 0.03
+    },
+    {
+      "date": "2016-09-12",
+      "dividend": 0.03
+    },
+    {
+      "date": "2016-12-12",
+      "dividend": 0.045
+    },
+    {
+      "date": "2017-03-06",
+      "dividend": 0.045
+    },
+    {
+      "date": "2017-06-05",
+      "dividend": 0.045
+    },
+    {
+      "date": "2017-09-12",
+      "dividend": 0.045
+    },
+    {
+      "date": "2017-12-05",
+      "dividend": 0.05
+    },
+    {
+      "date": "2018-03-06",
+      "dividend": 0.05
+    },
+    {
+      "date": "2018-06-05",
+      "dividend": 0.11
+    },
+    {
+      "date": "2018-09-11",
+      "dividend": 0.11
+    },
+    {
+      "date": "2018-12-04",
+      "dividend": 0.11
+    },
+    {
+      "date": "2019-03-19",
+      "dividend": 0.11
+    },
+    {
+      "date": "2019-06-11",
+      "dividend": 0.11
+    },
+    {
+      "date": "2019-09-30",
+      "dividend": 0.115
+    },
+    {
+      "date": "2019-12-10",
+      "dividend": 0.115
+    },
+    {
+      "date": "2020-03-24",
+      "dividend": 0.115
+    },
+    {
+      "date": "2020-06-16",
+      "dividend": 0.115
+    },
+    {
+      "date": "2020-09-29",
+      "dividend": 0.13
+    },
+    {
+      "date": "2020-12-08",
+      "dividend": 0.13
+    },
+    {
+      "date": "2021-03-16",
+      "dividend": 0.13
+    },
+    {
+      "date": "2021-06-15",
+      "dividend": 0.13
+    },
+    {
+      "date": "2021-09-27",
+      "dividend": 0.15
+    },
+    {
+      "date": "2021-12-14",
+      "dividend": 0.15
+    },
+    {
+      "date": "2022-03-15",
+      "dividend": 0.15
+    },
+    {
+      "date": "2022-06-14",
+      "dividend": 0.15
+    },
+    {
+      "date": "2022-09-13",
+      "dividend": 0.1725
+    },
+    {
+      "date": "2022-12-13",
+      "dividend": 0.1725
+    },
+    {
+      "date": "2023-03-14",
+      "dividend": 0.1725
+    },
+    {
+      "date": "2023-06-13",
+      "dividend": 0.1725
+    },
+    {
+      "date": "2023-09-12",
+      "dividend": 0.2
+    },
+    {
+      "date": "2023-12-12",
+      "dividend": 0.2
+    },
+    {
+      "date": "2024-03-12",
+      "dividend": 0.2
+    },
+    {
+      "date": "2024-06-18",
+      "dividend": 0.2
+    },
+    {
+      "date": "2024-09-17",
+      "dividend": 0.23
+    },
+    {
+      "date": "2024-12-11",
+      "dividend": 0.23
+    },
+    {
+      "date": "2025-03-05",
+      "dividend": 0.23
+    },
+    {
+      "date": "2025-06-18",
+      "dividend": 0.23
+    },
+    {
+      "date": "2025-09-24",
+      "dividend": 0.26
+    },
+    {
+      "date": "2025-12-03",
+      "dividend": 0.26
+    },
+    {
+      "date": "2026-03-04",
+      "dividend": 0.26
+    },
+    {
+      "date": "2026-06-17",
+      "dividend": 0.26
+    }
+  ],
+  "info": {
+    "currency": "USD",
+    "exchange": "NMS",
+    "irWebsite": "http://investor.lamrc.com/",
+    "longName": "Lam Research Corporation",
+    "regularMarketPrice": 389.04,
+    "sector": "Technology",
+    "shortName": "Lam Research Corporation",
+    "symbol": "LRCX",
+    "website": "https://www.lamresearch.com"
+  },
+  "schema_version": 1,
+  "splits": [
+    {
+      "date": "1993-09-16",
+      "split": 1.5
+    },
+    {
+      "date": "2000-03-17",
+      "split": 3.0
+    },
+    {
+      "date": "2024-10-03",
+      "split": 10.0
+    }
+  ]
+}

@@ -1,6 +1,72 @@
 {
   "fx": {},
-  "history": {},
+  "history": {
+    "VUAA.L": {
+      "content_hash": "f81afedf10fb0ed3aab2e49b815b5415b325116164642830d0be83b516cffc02",
+      "updated_at": "2026-06-19"
+    }
+  },
   "schema_version": 1,
-  "tickers": {}
+  "tickers": {
+    "AIRJ": {
+      "content_hash": "c3c3105be7b1529a46e800b505d1243b673bdeb113ec20f1f94775e6a1e2b69b",
+      "updated_at": "2026-06-19"
+    },
+    "AMAT": {
+      "content_hash": "45456c7c3e7d8239bf9157ae8bd591934dc25f6d77fac2161201f9c3cbe9e161",
+      "updated_at": "2026-06-19"
+    },
+    "BABA": {
+      "content_hash": "2a7aecda3e6a7a6947f02707ef2259e4253c4551555cf41a9d358134613874e4",
+      "updated_at": "2026-06-19"
+    },
+    "BIDU": {
+      "content_hash": "0ceda75fe293bd0d072c3d1a4a44aa8cb4049b3ffabd801d691cbd107b6c5943",
+      "updated_at": "2026-06-19"
+    },
+    "FISV": {
+      "content_hash": "a788bf9a9679e043027f1c1db1ee2d00c4cceebf9f51874d1a441cc0b59e99d4",
+      "updated_at": "2026-06-19"
+    },
+    "GOOGL": {
+      "content_hash": "df24c781413314c1bb21f6ddb69953d4a6958e37f1ea295f445620de5864538e",
+      "updated_at": "2026-06-19"
+    },
+    "IT": {
+      "content_hash": "029574eea23851a1335833567ccd6e68f99b6b389d58517ba06b12d0435d98ea",
+      "updated_at": "2026-06-19"
+    },
+    "KMX": {
+      "content_hash": "4ae9bc98a6e56e31f20ff965414719e5b843371346e2c39adec3d202647021a8",
+      "updated_at": "2026-06-19"
+    },
+    "LRCX": {
+      "content_hash": "1d5d9188cb5ca08ee874853c322509c07c1ce6d966d1b0874c47e5fb44d31fe9",
+      "updated_at": "2026-06-19"
+    },
+    "META": {
+      "content_hash": "642f92435d032867e63a8a903243e24a10dab24d0350e44ed2d7fa5cd8972f7f",
+      "updated_at": "2026-06-19"
+    },
+    "NVDA": {
+      "content_hash": "0fcd6422677f6c38701c0351de7a9b46e20ef59e1c1ff7e7d2a9572f20fcc56f",
+      "updated_at": "2026-06-19"
+    },
+    "QCOM": {
+      "content_hash": "e82977f9d57bdc8e7d31a6c82ab17144ac69b51befe4eccece5cca9260243dc1",
+      "updated_at": "2026-06-19"
+    },
+    "SSU.DU": {
+      "content_hash": "50def7e17039f201b7b1df18845cdfc834d63322552a4ce999b3a75e52c40dc4",
+      "updated_at": "2026-06-19"
+    },
+    "TSM": {
+      "content_hash": "0c4a9426923a92f0854a556570b2d44199e2086fa0793575cd5feb90ec055d97",
+      "updated_at": "2026-06-19"
+    },
+    "VUAA.L": {
+      "content_hash": "88fb49f8b440a07730d0db8a14752454cd3c594ac4efc5580e5665d23f4a2980",
+      "updated_at": "2026-06-19"
+    }
+  }
 }

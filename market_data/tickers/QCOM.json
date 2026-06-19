@@ -1,0 +1,414 @@
+{
+  "dividends": [
+    {
+      "date": "1998-09-24",
+      "dividend": 0.070313
+    },
+    {
+      "date": "2003-03-12",
+      "dividend": 0.025
+    },
+    {
+      "date": "2003-05-28",
+      "dividend": 0.025
+    },
+    {
+      "date": "2003-08-27",
+      "dividend": 0.035
+    },
+    {
+      "date": "2003-11-25",
+      "dividend": 0.035
+    },
+    {
+      "date": "2004-02-25",
+      "dividend": 0.035
+    },
+    {
+      "date": "2004-05-26",
+      "dividend": 0.05
+    },
+    {
+      "date": "2004-08-25",
+      "dividend": 0.07
+    },
+    {
+      "date": "2004-12-06",
+      "dividend": 0.07
+    },
+    {
+      "date": "2005-02-23",
+      "dividend": 0.07
+    },
+    {
+      "date": "2005-05-25",
+      "dividend": 0.09
+    },
+    {
+      "date": "2005-08-24",
+      "dividend": 0.09
+    },
+    {
+      "date": "2005-12-05",
+      "dividend": 0.09
+    },
+    {
+      "date": "2006-02-22",
+      "dividend": 0.09
+    },
+    {
+      "date": "2006-05-24",
+      "dividend": 0.12
+    },
+    {
+      "date": "2006-08-23",
+      "dividend": 0.12
+    },
+    {
+      "date": "2006-12-05",
+      "dividend": 0.12
+    },
+    {
+      "date": "2007-02-28",
+      "dividend": 0.12
+    },
+    {
+      "date": "2007-05-30",
+      "dividend": 0.14
+    },
+    {
+      "date": "2007-08-29",
+      "dividend": 0.14
+    },
+    {
+      "date": "2007-12-05",
+      "dividend": 0.14
+    },
+    {
+      "date": "2008-02-27",
+      "dividend": 0.14
+    },
+    {
+      "date": "2008-05-28",
+      "dividend": 0.16
+    },
+    {
+      "date": "2008-08-27",
+      "dividend": 0.16
+    },
+    {
+      "date": "2008-12-09",
+      "dividend": 0.16
+    },
+    {
+      "date": "2009-02-25",
+      "dividend": 0.16
+    },
+    {
+      "date": "2009-05-27",
+      "dividend": 0.17
+    },
+    {
+      "date": "2009-08-26",
+      "dividend": 0.17
+    },
+    {
+      "date": "2009-11-23",
+      "dividend": 0.17
+    },
+    {
+      "date": "2010-02-24",
+      "dividend": 0.17
+    },
+    {
+      "date": "2010-05-26",
+      "dividend": 0.19
+    },
+    {
+      "date": "2010-08-25",
+      "dividend": 0.19
+    },
+    {
+      "date": "2010-11-22",
+      "dividend": 0.19
+    },
+    {
+      "date": "2011-02-23",
+      "dividend": 0.19
+    },
+    {
+      "date": "2011-05-25",
+      "dividend": 0.215
+    },
+    {
+      "date": "2011-08-24",
+      "dividend": 0.215
+    },
+    {
+      "date": "2011-11-21",
+      "dividend": 0.215
+    },
+    {
+      "date": "2012-02-29",
+      "dividend": 0.215
+    },
+    {
+      "date": "2012-05-30",
+      "dividend": 0.25
+    },
+    {
+      "date": "2012-09-05",
+      "dividend": 0.25
+    },
+    {
+      "date": "2012-12-05",
+      "dividend": 0.25
+    },
+    {
+      "date": "2013-03-06",
+      "dividend": 0.25
+    },
+    {
+      "date": "2013-06-03",
+      "dividend": 0.35
+    },
+    {
+      "date": "2013-08-30",
+      "dividend": 0.35
+    },
+    {
+      "date": "2013-11-27",
+      "dividend": 0.35
+    },
+    {
+      "date": "2014-03-03",
+      "dividend": 0.35
+    },
+    {
+      "date": "2014-06-02",
+      "dividend": 0.42
+    },
+    {
+      "date": "2014-08-29",
+      "dividend": 0.42
+    },
+    {
+      "date": "2014-11-26",
+      "dividend": 0.42
+    },
+    {
+      "date": "2015-03-02",
+      "dividend": 0.42
+    },
+    {
+      "date": "2015-06-01",
+      "dividend": 0.48
+    },
+    {
+      "date": "2015-08-31",
+      "dividend": 0.48
+    },
+    {
+      "date": "2015-11-27",
+      "dividend": 0.48
+    },
+    {
+      "date": "2016-02-29",
+      "dividend": 0.48
+    },
+    {
+      "date": "2016-05-27",
+      "dividend": 0.53
+    },
+    {
+      "date": "2016-08-29",
+      "dividend": 0.53
+    },
+    {
+      "date": "2016-11-28",
+      "dividend": 0.53
+    },
+    {
+      "date": "2017-02-27",
+      "dividend": 0.53
+    },
+    {
+      "date": "2017-05-26",
+      "dividend": 0.57
+    },
+    {
+      "date": "2017-08-28",
+      "dividend": 0.57
+    },
+    {
+      "date": "2017-11-28",
+      "dividend": 0.57
+    },
+    {
+      "date": "2018-02-27",
+      "dividend": 0.57
+    },
+    {
+      "date": "2018-05-29",
+      "dividend": 0.62
+    },
+    {
+      "date": "2018-09-04",
+      "dividend": 0.62
+    },
+    {
+      "date": "2018-12-06",
+      "dividend": 0.62
+    },
+    {
+      "date": "2019-03-06",
+      "dividend": 0.62
+    },
+    {
+      "date": "2019-06-05",
+      "dividend": 0.62
+    },
+    {
+      "date": "2019-09-11",
+      "dividend": 0.62
+    },
+    {
+      "date": "2019-12-04",
+      "dividend": 0.62
+    },
+    {
+      "date": "2020-03-04",
+      "dividend": 0.62
+    },
+    {
+      "date": "2020-06-03",
+      "dividend": 0.65
+    },
+    {
+      "date": "2020-09-02",
+      "dividend": 0.65
+    },
+    {
+      "date": "2020-12-02",
+      "dividend": 0.65
+    },
+    {
+      "date": "2021-03-03",
+      "dividend": 0.65
+    },
+    {
+      "date": "2021-06-02",
+      "dividend": 0.68
+    },
+    {
+      "date": "2021-09-01",
+      "dividend": 0.68
+    },
+    {
+      "date": "2021-12-01",
+      "dividend": 0.68
+    },
+    {
+      "date": "2022-03-02",
+      "dividend": 0.68
+    },
+    {
+      "date": "2022-06-01",
+      "dividend": 0.75
+    },
+    {
+      "date": "2022-08-31",
+      "dividend": 0.75
+    },
+    {
+      "date": "2022-11-30",
+      "dividend": 0.75
+    },
+    {
+      "date": "2023-03-01",
+      "dividend": 0.75
+    },
+    {
+      "date": "2023-05-31",
+      "dividend": 0.8
+    },
+    {
+      "date": "2023-08-30",
+      "dividend": 0.8
+    },
+    {
+      "date": "2023-11-29",
+      "dividend": 0.8
+    },
+    {
+      "date": "2024-02-28",
+      "dividend": 0.8
+    },
+    {
+      "date": "2024-05-30",
+      "dividend": 0.85
+    },
+    {
+      "date": "2024-09-05",
+      "dividend": 0.85
+    },
+    {
+      "date": "2024-12-05",
+      "dividend": 0.85
+    },
+    {
+      "date": "2025-03-06",
+      "dividend": 0.85
+    },
+    {
+      "date": "2025-06-05",
+      "dividend": 0.89
+    },
+    {
+      "date": "2025-09-04",
+      "dividend": 0.89
+    },
+    {
+      "date": "2025-12-04",
+      "dividend": 0.89
+    },
+    {
+      "date": "2026-03-05",
+      "dividend": 0.89
+    },
+    {
+      "date": "2026-06-04",
+      "dividend": 0.92
+    }
+  ],
+  "info": {
+    "currency": "USD",
+    "exchange": "NMS",
+    "irWebsite": "http://www.qualcomm.com/connect/investor-relations",
+    "longName": "QUALCOMM Incorporated",
+    "regularMarketPrice": 226.11,
+    "sector": "Technology",
+    "shortName": "QUALCOMM Incorporated",
+    "symbol": "QCOM",
+    "website": "https://www.qualcomm.com"
+  },
+  "schema_version": 1,
+  "splits": [
+    {
+      "date": "1994-02-24",
+      "split": 2.0
+    },
+    {
+      "date": "1999-05-11",
+      "split": 2.0
+    },
+    {
+      "date": "1999-12-31",
+      "split": 4.0
+    },
+    {
+      "date": "2004-08-16",
+      "split": 2.0
+    }
+  ]
+}

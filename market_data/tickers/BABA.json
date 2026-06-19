@@ -1,0 +1,32 @@
+{
+  "dividends": [
+    {
+      "date": "2023-12-20",
+      "dividend": 1.0
+    },
+    {
+      "date": "2024-06-13",
+      "dividend": 1.66
+    },
+    {
+      "date": "2025-06-12",
+      "dividend": 2.0
+    },
+    {
+      "date": "2026-06-11",
+      "dividend": 1.05
+    }
+  ],
+  "info": {
+    "currency": "USD",
+    "exchange": "NYQ",
+    "longName": "Alibaba Group Holding Limited",
+    "regularMarketPrice": 107.1,
+    "sector": "Consumer Cyclical",
+    "shortName": "Alibaba Group Holding Limited",
+    "symbol": "BABA",
+    "website": "https://www.alibabagroup.com"
+  },
+  "schema_version": 1,
+  "splits": []
+}
