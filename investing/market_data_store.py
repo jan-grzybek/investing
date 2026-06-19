@@ -27,6 +27,7 @@ import hashlib
 import json
 import math
 import os
+import threading
 from collections.abc import Callable, Iterable
 from datetime import datetime
 from pathlib import Path
@@ -374,6 +375,13 @@ class MarketDataStore:
         self._root = root if root is not None else market_data_root()
         self._offline = _offline_enabled() if offline is None else offline
         self._manifest_path = self._root / "manifest.json" if self._root is not None else None
+        # ``get_holdings`` constructs ``Holding`` instances in a thread
+        # pool; each miss persists a ticker snapshot and read-modify-
+        # writes ``manifest.json``. Without a lock, concurrent writers
+        # share one ``manifest.json.tmp`` and ``os.replace`` raises
+        # ``FileNotFoundError`` when the first writer moves the temp
+        # file before the second replaces it.
+        self._manifest_lock = threading.Lock()
 
     @classmethod
     def from_env(cls) -> MarketDataStore:
@@ -430,23 +438,24 @@ class MarketDataStore:
             return
         payload = _serialize_ticker_snapshot(info=info, splits=splits, dividends=dividends)
         _atomic_write_json(self._ticker_path(ticker), payload)
-        self._touch_manifest_ticker(ticker, _content_hash(payload))
+        self._touch_manifest("tickers", ticker, _content_hash(payload))
 
-    def _touch_manifest_ticker(self, ticker: str, digest: str) -> None:
+    def _touch_manifest(self, section: str, key: str, digest: str) -> None:
         if self._manifest_path is None:
             return
-        manifest = self._load_json(self._manifest_path) or {
-            "schema_version": SCHEMA_VERSION,
-            "tickers": {},
-            "history": {},
-            "fx": {},
-        }
-        manifest.setdefault("tickers", {})[ticker] = {
-            "content_hash": digest,
-            "updated_at": _iso_date(datetime.today()),
-        }
-        manifest["schema_version"] = SCHEMA_VERSION
-        _atomic_write_json(self._manifest_path, manifest)
+        with self._manifest_lock:
+            manifest = self._load_json(self._manifest_path) or {
+                "schema_version": SCHEMA_VERSION,
+                "tickers": {},
+                "history": {},
+                "fx": {},
+            }
+            manifest.setdefault(section, {})[key] = {
+                "content_hash": digest,
+                "updated_at": _iso_date(datetime.today()),
+            }
+            manifest["schema_version"] = SCHEMA_VERSION
+            _atomic_write_json(self._manifest_path, manifest)
 
     def _fetch_live_ticker(self, ticker: str) -> tuple[dict, list, list]:
         yf_ticker = yf.Ticker(ticker)
@@ -552,20 +561,7 @@ class MarketDataStore:
         if self._root is not None:
             payload = _serialize_history(merged_rows, splits=merged_splits)
             _atomic_write_json(self._history_path(ticker), payload)
-            manifest_path = self._manifest_path
-            assert manifest_path is not None
-            manifest = self._load_json(manifest_path) or {
-                "schema_version": SCHEMA_VERSION,
-                "tickers": {},
-                "history": {},
-                "fx": {},
-            }
-            manifest.setdefault("history", {})[ticker] = {
-                "content_hash": _content_hash(payload),
-                "updated_at": _iso_date(datetime.today()),
-            }
-            manifest["schema_version"] = SCHEMA_VERSION
-            _atomic_write_json(manifest_path, manifest)
+            self._touch_manifest("history", ticker, _content_hash(payload))
 
         return self._rows_to_history_frame(merged_rows, start)
 

@@ -6,7 +6,7 @@ from datetime import datetime
 from unittest.mock import MagicMock
 
 from investing.webpage import Webpage
-from tests._webpage_support import _benchmark, _holding, _total_return, stub_logo_lookup
+from tests._webpage_support import _holding, stub_logo_lookup
 
 
 class TestTicker:

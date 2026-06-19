@@ -3,17 +3,12 @@
 from __future__ import annotations
 
 import math
-import re
 from datetime import datetime
-from unittest.mock import MagicMock
 
-from investing.paths import LOGOS_ADDRESS
 from investing.webpage import Webpage
 from tests._webpage_support import (
-    _benchmark,
     _holding,
     _total_return,
-    _trade_event,
     stub_logo_lookup,
 )
 

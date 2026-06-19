@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from unittest.mock import MagicMock
 
@@ -249,6 +250,40 @@ class TestMarketDataStore:
         assert out_dates.size == 3
         assert out_rates[0] == pytest.approx(1.1)
         assert out_rates[-1] == pytest.approx(1.3)
+
+    def test_concurrent_ticker_persist_updates_manifest(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("INVESTING_MARKET_DATA_DISABLE", raising=False)
+        monkeypatch.setenv("INVESTING_MARKET_DATA_DIR", str(tmp_path))
+        monkeypatch.delenv("INVESTING_OFFLINE", raising=False)
+
+        store = MarketDataStore(tmp_path)
+        tickers = ["AAA", "BBB", "CCC", "DDD", "EEE", "FFF"]
+
+        def _mock_ticker(symbol: str) -> MagicMock:
+            mock = MagicMock()
+            mock.get_info.return_value = {
+                "currency": "USD",
+                "exchange": "NMS",
+                "symbol": symbol,
+                "longName": symbol,
+                "regularMarketPrice": 1.0,
+            }
+            mock.splits = {}
+            mock.get_dividends.return_value = {}
+            return mock
+
+        monkeypatch.setattr(
+            "investing.market_data_store.yf.Ticker",
+            _mock_ticker,
+        )
+
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            list(pool.map(store.resolve_ticker, tickers))
+
+        manifest = json.loads((tmp_path / "manifest.json").read_text(encoding="utf-8"))
+        assert set(manifest["tickers"]) == set(tickers)
+        for symbol in tickers:
+            assert (tmp_path / "tickers" / f"{symbol}.json").is_file()
 
 
 class TestSplitInventoryChanged:
