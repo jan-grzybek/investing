@@ -27,6 +27,7 @@ __all__ = [
     "SITE_DISPLAY",
     "SITE_URL",
     "SOCIAL_IMAGE",
+    "_MARKET_DATA_DIR",
     "_REPO_LOGOS_DIR",
     "_REPO_LOGOS_SOURCE_DIR",
     "_SECTOR_OVERRIDES_PATH",
@@ -130,6 +131,11 @@ _REPO_LOGOS_DIR = os.path.join(_REPO_LOGOS_SOURCE_DIR, "tight")
 # other repo-relative constants and a fork that wants to repoint the
 # data only has to edit one module.
 _SECTOR_OVERRIDES_PATH = os.path.join(_REPO_DIR, "sector_overrides.toml")
+
+# Committed yfinance snapshot tree (splits / dividends / FX / history).
+# Override with ``INVESTING_MARKET_DATA_DIR``; disable persistence with
+# ``INVESTING_MARKET_DATA_DISABLE=1``.
+_MARKET_DATA_DIR = os.path.join(_REPO_DIR, "market_data")
 
 
 # Source-of-truth directory for the inline CSS / JS payloads embedded in

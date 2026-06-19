@@ -371,7 +371,7 @@ class TestEqualVisualAreaLogoFactors:
     pure math on per-logo scalars, so they're exercised directly at
     the helper-function level here -- the end-to-end CSS plumbing is
     asserted separately in
-    :class:`tests.test_webpage_sections.TestSectorTreemap` against
+    :class:`tests.test_webpage_treemap.TestEquitySectorTreemap` against
     rendered HTML."""
 
     @staticmethod

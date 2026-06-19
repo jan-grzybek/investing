@@ -180,7 +180,9 @@ class TestNotifierStatusLine:
         # (local ``python -m investing`` run). Both should stay
         # quiet on the public stream.
         _print_summary(
-            _total_return(), _holdings(), [],
+            _total_return(),
+            _holdings(),
+            [],
             notifier=NotifierOutcome(enabled=False),
         )
         out = capsys.readouterr().out
@@ -188,9 +190,12 @@ class TestNotifierStatusLine:
 
     def test_notifier_line_includes_opened_tickers(self, capsys):
         _print_summary(
-            _total_return(), _holdings(), [],
+            _total_return(),
+            _holdings(),
+            [],
             notifier=NotifierOutcome(
-                enabled=True, opened=["NMS:AAA", "NMS:BBB"],
+                enabled=True,
+                opened=["NMS:AAA", "NMS:BBB"],
             ),
         )
         out = capsys.readouterr().out
@@ -204,9 +209,12 @@ class TestNotifierStatusLine:
         # with Issues disabled returns 410 Gone on the POST. The
         # operator's eye needs to land on the ticker list to debug.
         _print_summary(
-            _total_return(), _holdings(), [],
+            _total_return(),
+            _holdings(),
+            [],
             notifier=NotifierOutcome(
-                enabled=True, failed=["NMS:FISV"],
+                enabled=True,
+                failed=["NMS:FISV"],
             ),
         )
         out = capsys.readouterr().out
@@ -228,7 +236,9 @@ class TestAutoPopulateSummaryLine:
 
     def test_line_lists_appended_tickers(self, capsys):
         _print_summary(
-            _total_return(), _holdings(), [],
+            _total_return(),
+            _holdings(),
+            [],
             appended_stubs=["NMS:AAA", "NMS:BBB"],
         )
         out = capsys.readouterr().out

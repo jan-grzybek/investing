@@ -10,7 +10,36 @@ from datetime import datetime
 
 import pytest
 
+from investing.logos import _DEFAULT_LOGO_ASPECT
 from investing.paths import LOGOS_ADDRESS
+
+
+class AspectStubCache:
+    """Test double that satisfies both halves of the logo resolver API.
+
+    Production renders go through :class:`investing.logos.LogoCache`,
+    which exposes ``__call__(ticker) -> str`` for the URL lookup and
+    ``aspect_ratio(ticker) -> float`` for the equal-area sizing math
+    (see :mod:`investing.webpage.sector_treemap`). The default
+    ``stub_logo_lookup`` fixture only patches ``LogoCache.__call__``
+    and lets ``aspect_ratio`` parse whatever local SVG file matches
+    the ticker (defaulting to ``_DEFAULT_LOGO_ASPECT`` when no SVG
+    is on disk). This helper is the explicit-aspect counterpart:
+    it returns the configured aspect for any ticker in ``aspects``
+    and the parser's default for anything else, with the URL lookup
+    mirroring the fixture's deterministic ``ticker.svg`` shape so
+    the renderer can still emit a usable ``src``.
+    """
+
+    def __init__(self, aspects):
+        self._aspects = aspects
+
+    def __call__(self, ticker):
+        encoded = ticker.replace(":", "%3A")
+        return f"{LOGOS_ADDRESS}{encoded}.svg"
+
+    def aspect_ratio(self, ticker):
+        return self._aspects.get(ticker, _DEFAULT_LOGO_ASPECT)
 
 
 def _holding(

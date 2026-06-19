@@ -6,12 +6,21 @@ from __future__ import annotations
 
 import base64
 import hashlib
-from datetime import datetime
+from datetime import date, datetime
+from typing import Protocol
 
 from dateutil.relativedelta import relativedelta
 
 
-def _ts_to_datetime(ts) -> datetime:
+class _DateLike(Protocol):
+    """Structural type for pandas Timestamp / datetime inputs."""
+
+    year: int
+    month: int
+    day: int
+
+
+def _ts_to_datetime(ts: _DateLike | str) -> datetime:
     """Convert a pandas Timestamp (or any ISO-stringifiable date) to a
     naive ``datetime`` at midnight.
 
@@ -35,7 +44,7 @@ def _ts_to_datetime(ts) -> datetime:
 # ---------------------------------------------------------------------------
 
 
-def _fmt_date(dt) -> str:
+def _fmt_date(dt: date | datetime) -> str:
     # ``DD/MM/YYYY`` is the canonical human-readable format across
     # the whole page (holding capsules, trade rows, footer "Updated
     # on" line). The zero-padded day / month gives every date the
@@ -48,7 +57,7 @@ def _fmt_date(dt) -> str:
     return dt.strftime("%d/%m/%Y")
 
 
-def _fmt_date_long(dt) -> str:
+def _fmt_date_long(dt: date | datetime) -> str:
     # Long-form ``Mon D, YYYY`` (e.g. "Mar 7, 2026") used for the
     # one-off "Since ..." caption that sits under the return chart
     # (and its chart-less twin in the returns-compare block). Those
@@ -61,7 +70,7 @@ def _fmt_date_long(dt) -> str:
     return dt.strftime("%b %-d, %Y")
 
 
-def _quarter_of(dt) -> tuple[int, int]:
+def _quarter_of(dt: date | datetime) -> tuple[int, int]:
     """``(year, quarter_index)`` for a date.
 
     Q1 = Jan-Mar, Q2 = Apr-Jun, Q3 = Jul-Sep, Q4 = Oct-Dec, mapped
@@ -72,7 +81,7 @@ def _quarter_of(dt) -> tuple[int, int]:
     return (dt.year, (dt.month - 1) // 3 + 1)
 
 
-def _fmt_quarter_range(start, end) -> str:
+def _fmt_quarter_range(start: date | datetime, end: date | datetime) -> str:
     """Render a burst's date span as a calendar-quarter label.
 
     The trades table commits to publishing trade timing at quarter

@@ -82,7 +82,7 @@ class HoldingPeriod(TypedDict):
 # Alternative-syntax TypedDict because the ``%`` suffix on the
 # percentage keys isn't a valid Python identifier. ``total=False``
 # marks every field as optional so a partial dict (e.g. one freshly
-# returned by ``Holding.summary`` before ``summarize`` enriches it)
+# returned by ``Holding.summary`` before ``apply_rollup`` enriches it)
 # still satisfies the contract.
 HoldingSummary = TypedDict(
     "HoldingSummary",
@@ -201,6 +201,18 @@ BenchmarkSummary = TypedDict(
         "current_value_usd": float,
         "latest_buy": datetime,
         "latest_sell": datetime | None,
+    },
+    total=False,
+)
+
+
+YearlyReturn = TypedDict(
+    "YearlyReturn",
+    {
+        "year": int,
+        "jg%": float,
+        "bench%": float,
+        "is_ytd": bool,
     },
     total=False,
 )

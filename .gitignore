@@ -30,3 +30,5 @@ og-image.png.sha256
 preview/
 # CI smoke-parse output (HTML smoke test in test.yml).
 ci-smoke/
+# Staged GitHub Pages artifact (``scripts/stage_site.py``).
+site/

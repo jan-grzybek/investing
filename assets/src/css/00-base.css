@@ -1,0 +1,419 @@
+:root {
+  /* Unified palette. Every colour the page paints derives from a
+     single design-system deck:
+
+       * Tiger Orange    #FB8500 -> ``--accent`` (the JG signature).
+                                    Chart's JG curve, chapter rule
+                                    under every section title, top
+                                    border of the JG-vs-benchmark
+                                    capsule, skip-link border, focus
+                                    rings, OG-image accent rule.
+       * Amber Flame     #FFB703 -> ``--accent-warm`` (the secondary
+                                    brand). Asset-allocation bars
+                                    and reserved for future active-
+                                    state highlights.
+       * Deep Space Blue #023047 -> the benchmark colour on the
+                                    chart in light mode. Anchors the
+                                    cool-blue family the page text
+                                    pulls from.
+       * Sky Blue Light  #8ECAE6 -> the benchmark colour on the
+                                    chart in dark mode (where the
+                                    deep navy would disappear into
+                                    the page surface).
+       * Blue Green      #219EBC -> the design-system primary.
+                                    Surfaces as the Technology
+                                    treemap tile and as the chart's
+                                    interactive accents.
+
+     Two semantic extensions complete the deck:
+
+       * Sea Green       #2A9D8F -> ``--positive`` (BOUGHT pill +
+                                    every TSR / CAGR readout that
+                                    points up). Same teal family as
+                                    Blue Green so the win-direction
+                                    colour reads as a sibling.
+       * Rose Red        #E63970 -> ``--negative`` (SOLD pill +
+                                    every drawdown readout). The
+                                    design system's ``error`` token.
+
+     The neutral chrome sits on a slate-tinted family: a faint slate
+     page background ``#F8FAFC`` in light mode (cards lift to pure
+     white above it), and a deep navy ``#071923`` in dark mode (cards
+     lift to ``#0B2230``). Body type is a near-charcoal slate
+     ``#0F2430`` in light mode and a sky-tinted near-white
+     ``#EAF7FB`` in dark mode, so the inversion still reads as the
+     same family of cool blues. */
+  --bg: #f8fafc;
+  --fg: #0f2430;
+  --muted: #6b8291;
+  --line: #d9e2ea;
+  --accent: #fb8500;
+  --accent-warm: #ffb703;
+  --accent-bench: #023047;
+  --positive: #2a9d8f;
+  --negative: #e63970;
+  --card-bg: #ffffff;
+  --link: #0077b6;
+  --link-hover: #005f8f;
+  --max-width: 880px;
+  --radius: 12px;
+  /* Sector palette for the equities treemap. Light mode anchors on
+     the brand deck (Blue Green for Technology, Deep-Space-Blue
+     sibling for Financial, Sea Green for Defensive, Carmine Red
+     for Cyclical) and fills the remaining sectors with hues spaced
+     ~30 deg around the colour wheel so adjacent tiles stay
+     distinct without one screaming louder than its neighbours.
+     Three deliberate exclusions:
+
+       * Cyclical lands on the palette's red extension (Carmine
+         Red), not orange, so it never crowds the JG ``--accent``
+         that runs across the page.
+       * Energy and Materials -- the sectors that naturally read
+         warm -- pull to a deep burnt amber and a rust brown
+         respectively, well clear of the JG orange.
+       * Utilities and Other stay achromatic so the eye has neutral
+         resting points among the saturated tiles.
+
+     Dark-mode overrides live in the ``@media (prefers-color-scheme:
+     dark)`` block further down and intentionally tone every hue
+     down (lower saturation, mid lightness) so the same chart reads
+     calm on the deep navy surface -- juicy on white, hushed on
+     dark is the contract. */
+  --treemap-color-tech: #219ebc;
+  --treemap-color-comm: #6d5bd0;
+  --treemap-color-cyclical: #fb8500;
+  --treemap-color-defensive: #2a9d8f;
+  --treemap-color-healthcare: #e63970;
+  --treemap-color-financial: #023047;
+  --treemap-color-industrials: #ffb703;
+  --treemap-color-energy: #d95d00;
+  --treemap-color-utilities: #577590;
+  --treemap-color-materials: #7f5539;
+  --treemap-color-realestate: #c026d3;
+  --treemap-color-other: #94a3b8;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* Dark counterparts of the light palette above. The same warm
+       temperature carries over: ``--bg`` is a deep warm charcoal
+       rather than a cold blue-black, and the card surface stays
+       just lifted enough from the page to read as a layered plane.
+       Every semantic variable (accent / positive / negative /
+       benchmark) keeps its hue from the light side and only the
+       luminance is rotated so contrast lands within WCAG AA against
+       the new surface. */
+    --bg: #071923;
+    --fg: #eaf7fb;
+    --muted: #78909c;
+    --line: #244252;
+    --accent: #f6a04d;
+    --accent-warm: #ffd166;
+    --accent-bench: #8ecae6;
+    --positive: #65c3b7;
+    --negative: #f07fa3;
+    --card-bg: #0b2230;
+    --link: #8ecae6;
+    --link-hover: #b7dff0;
+    /* Treemap palette: dark-mode counterparts of the juicy light-
+       mode hues above. The brief here is the inverse of the light
+       mode's instructions -- on the deep navy surface, full-
+       saturation tiles would punch through the page like neon
+       lights; calm is the operative word. Each entry keeps its
+       sector's hue identity but drops to mid-lightness (~L 60)
+       and moderate saturation (~S 35) so adjacent tiles still
+       read distinct without one screaming louder than another.
+       Cyclical / energy / materials retain their warm-family
+       displacement from the JG dark-mode accent. */
+    --treemap-color-tech: #5ab6cf;
+    --treemap-color-comm: #9b8ae6;
+    --treemap-color-cyclical: #f6a04d;
+    --treemap-color-defensive: #65c3b7;
+    --treemap-color-healthcare: #f07fa3;
+    --treemap-color-financial: #4f7c95;
+    --treemap-color-industrials: #ffd166;
+    --treemap-color-energy: #e88c45;
+    --treemap-color-utilities: #8fa7bc;
+    --treemap-color-materials: #b98b6d;
+    --treemap-color-realestate: #d77be4;
+    --treemap-color-other: #aab4c2;
+  }
+  /* The dashed 0% reference line on the return chart inherits
+     ``var(--muted)`` (see the base rule above). In dark mode
+     that mid-grey wash blends into the deep page background, so
+     swap the stroke to the lighter foreground colour while
+     keeping the base opacity / stroke-width. The dashed pattern
+     stays elegant but the baseline is now clearly traceable
+     across the chart. */
+  .return-chart__ref { stroke: var(--fg); }
+  /* Recolour every wordmark logo for dark surfaces by negating
+     luminance while preserving hue. Many holdings ship dark-on-
+     transparent SVGs (Adobe, S&P Global, Baidu, Meta, Salesforce,
+     Samsung, ...) that brands authored to sit on a light page
+     and that all but disappear against the dark page / card
+     background here. Rather than wrap each logo in a light chip
+     (which paints chrome around every image), we transform the
+     logo's own pixels:
+
+       * ``invert(1)`` negates every RGB channel, so pure black
+         flips to pure white, dark SAP blue flips to a pale
+         peach, dark Meta blue flips to a sand orange, NVIDIA's
+         brand green flips to magenta, etc. Crucially the alpha
+         channel is untouched, so transparent areas of the SVG
+         stay transparent and the page background still shows
+         through around each glyph.
+       * ``hue-rotate(180deg)`` then rotates the hue wheel by a
+         half-turn, which undoes the colour-channel flip
+         introduced by ``invert(1)`` (invert is equivalent to a
+         180deg rotation of hue plus an inversion of luminance,
+         so chaining a second 180deg rotation cancels the hue
+         flip and leaves only the luminance inversion behind).
+         The net effect: dark colours become light versions of
+         the same hue (SAP and Salesforce stay blue, NVIDIA
+         stays green, Adobe stays red, ...), and any near-white
+         pixels become near-black ones -- which we accept because
+         brand-coloured glyphs sit on transparent backgrounds in
+         the SVGs we ship, not on opaque white plates, so this
+         degenerate case doesn't actually arise.
+
+     Identical rule for the standalone holding card logo, the
+     trade card logo, the JG/benchmark compare capsule logo, and
+     the marquee ticker logos because they share the same
+     vanishing-on-dark-surface problem. ``opacity: 1`` overrides
+     the marquee ticker's ``opacity: 0.92`` (set globally to
+     soften the strip against a pure-white card in light mode)
+     so the recoloured glyphs stay fully crisp in dark mode where
+     they're doing all the readability work.
+
+     Two assets are explicitly opted out via attribute-``:not()``
+     because they're not single-hue wordmarks that benefit from
+     a luminance flip:
+
+       * ``LSE:VUAA.L`` (the S&P 500 ETF benchmark) ships as the
+         US flag; inverting it turns the red stripes cyan and
+         the blue canton orange, which reads as "some other
+         country's flag" rather than "USA". The flag's mid-tone
+         palette is already legible on the dark surface.
+       * ``courage.png`` is the per-ticker fallback shown when a
+         holding has no on-file logo; it's a coloured
+         illustration whose meaning would be similarly destroyed
+         by a luminance flip, and it's also already legible.
+
+     The exclusion matches the URL's basename (``$=`` suffix
+     match) rather than the full path so the rule stays robust
+     against ``LOGOS_ADDRESS`` changes, and ``:where()`` keeps
+     the four logo selectors compact while leaving the rule at
+     zero specificity (which matters only if a future override
+     needs to win against it). */
+  :where(
+    .ticker__logo, .holding__logo,
+    .returns-compare__logo
+  ):not([src$="courage.png"], [src$="VUAA.L.svg"]) {
+    filter: invert(1) hue-rotate(180deg);
+    opacity: 1;
+  }
+}
+@media print {
+  body { background: white; color: black; }
+  .holding, .bars, .return-chart, .section { break-inside: avoid; }
+  .ticker { display: none; }
+}
+*, *::before, *::after { box-sizing: border-box; }
+html {
+  color-scheme: light dark;
+  background: var(--bg);
+}
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  margin: 0 auto;
+  max-width: var(--max-width);
+  padding: 32px 24px 48px;
+  -webkit-font-smoothing: antialiased;
+}
+img { max-width: 100%; height: auto; }
+/* ``<main>`` is the single grid container that anchors the
+   cross-section column alignment for the holdings capsules
+   nested inside ``<section id="current">`` and ``<section
+   id="historical">``. Declaring four explicit tracks here
+   (logo / body / stats-label / stats-value) and chaining
+   ``grid-template-columns: subgrid`` down through the holdings
+   sections, their ``.holdings__list`` wrappers, each ``.holding``
+   capsule, and finally the ``.holding__stats`` <dl> means every
+   ``<dt>`` / ``<dd>`` ultimately lives in cols 3-4 of *this*
+   grid. Cols 3-4 are sized via ``max-content``, which considers
+   ALL items placed in those tracks regardless of subgrid
+   nesting depth -- including dt/dd from BOTH the Current and
+   Historical lists -- so the two sections always derive the
+   same Return / IRR (and Weight, where it appears) column
+   widths regardless of which one happens to hold the widest
+   value. This is what fixes the cross-section misalignment
+   that the per-list ``minmax(<floor>, max-content)`` approach
+   couldn't deliver: each ``.holdings__list`` is its own grid
+   container, so it could only ever see its own list's
+   max-content; lifting the grid up to ``<main>`` is what makes
+   cross-list maxes possible.
+
+   Sections that don't contain a ``.holdings__list`` (the
+   performance and trades sections, plus the optional ticker
+   marquee) span ``1 / -1`` via the ``main > *`` rule below and
+   contribute no items to cols 3-4, so their internal layout is
+   unaffected. The 1fr body track absorbs whatever leftover
+   width those sections need.
+
+   The mobile media query at ``@media (max-width: 540px)``
+   reverts ``<main>`` to ``display: block`` (and drops the
+   subgrid chain at every level below it) since the per-capsule
+   reflow on mobile uses its own ``"logo body" / "stats stats"``
+   named-areas grid that is independent of cross-capsule
+   alignment. */
+main {
+  display: grid;
+  grid-template-columns:
+    88px
+    minmax(0, 1fr)
+    minmax(4.5em, max-content)
+    minmax(4.5em, max-content);
+  column-gap: 24px;
+}
+/* Every direct child of ``<main>`` -- the 4 sections plus the
+   optional ticker marquee at the top -- spans the full width by
+   default. The two holdings sections override the inner column
+   layout below by switching to ``grid-template-columns:
+   subgrid`` so their descendants can keep walking down the
+   chain. The other sections just sit in this row and use the
+   1fr + 88px + 2 * stats tracks as a single 832px-wide block,
+   exactly as they did before ``<main>`` became a grid. */
+main > * { grid-column: 1 / -1; }
+/* Smooth-scroll for in-page nav (clicking ``Performance`` /
+   ``Current`` / ``Historical`` in the sticky header). The
+   ``:focus-within`` gate is intentional and not an accident:
+   we used to ship ``html:focus-within { scroll-behavior: smooth }``
+   here to opt into the browser's native smooth scroll for nav
+   clicks. With ``_NAV_SCROLL_SCRIPT`` taking over the scroll
+   animation in JS that rule turned into an active foot-gun:
+   anchor clicks focus the activated ``<a>`` (so ``:focus-within``
+   matches on ``<html>``), the matching CSS rule promotes every
+   subsequent ``window.scrollTo`` call to a *browser-driven* smooth
+   scroll, and that smooth scroll layers on top of our requestAnim
+   ation-Frame easing loop. The visible result is two competing
+   scroll animations per frame -- the user-reported "the scroll
+   accelerates / looks odd" feel, most obvious on short hops from
+   the allocation chart to a holding capsule, where the curves
+   disagree by tens of pixels at every frame. Leaving the JS
+   animation as the sole driver fixes it. */
+@media (prefers-reduced-motion: reduce) {
+  /* Don't animate the ticker for users who request reduced motion;
+     wrap into a static row so all logos remain visible at once.
+     ``_TICKER_MARQUEE_SCRIPT`` short-circuits on the same media
+     query so the inline ``transform`` it would normally write
+     never lands; this rule handles the layout side (collapse the
+     ``width: max-content`` track into a centred wrapping row so
+     the off-screen second copy of logos shares space with the
+     visible first copy rather than parading off the right edge). */
+  .ticker__track {
+    flex-wrap: wrap;
+    width: auto;
+    justify-content: center;
+  }
+}
+/* Skip link: invisible until a keyboard user tabs to it, at which
+   point it pops in above the sticky header so screen-reader and
+   keyboard users can bypass the nav and jump straight to <main>. */
+.skip-link {
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  padding: 8px 14px;
+  background: var(--bg);
+  color: var(--fg);
+  border: 2px solid var(--accent);
+  border-radius: 8px;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 0.9375rem;
+  z-index: 100;
+  transform: translateY(-150%);
+  transition: transform 120ms ease-out;
+}
+.skip-link:focus,
+.skip-link:focus-visible { transform: translateY(0); outline: none; }
+main:focus-visible { outline: none; }
+.site-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px 24px;
+  margin: -32px -24px 32px;
+  padding: 14px 24px;
+  background: color-mix(in srgb, var(--bg) 85%, transparent);
+  backdrop-filter: saturate(180%) blur(14px);
+  -webkit-backdrop-filter: saturate(180%) blur(14px);
+  border-bottom: 1px solid var(--line);
+  /* Force a dedicated GPU compositing layer so the sticky header
+     does not flicker on iOS Safari while the page scrolls. Without
+     this hint Safari briefly drops the header's backdrop-filter
+     on each anchor-driven scroll (visible as a "blink" when
+     tapping the nav links on iPhone). The translateZ(0) +
+     isolation pair stabilises both the stacking context and the
+     paint layer; ``will-change`` keeps the layer warm so the
+     blur isn't rebuilt on every frame. */
+  -webkit-transform: translateZ(0);
+          transform: translateZ(0);
+  isolation: isolate;
+  will-change: backdrop-filter;
+}
+/* When the decorative current-holdings ticker is on the page it
+   sits directly under the sticky nav. The header's bottom margin
+   becomes wasteful empty space in that case -- the nav already
+   carries its own ``border-bottom`` and the ticker has its own
+   internal padding, so a gap on top of all that just pushes the
+   first content section needlessly far down. Collapse the bottom
+   margin to zero so the ticker hugs the nav cleanly. The
+   ``:has()`` selector keeps this conditional: pages without a
+   ticker keep the original 32px gap before their first section.
+   ``:has()`` is supported in all current evergreen browsers
+   (Chrome 105+, Firefox 121+, Safari 15.4+); older engines simply
+   fall back to the original spacing, which is benign. */
+body:has(.ticker) .site-header { margin-bottom: 0; }
+.site-title {
+  font-size: 1.875rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  margin: 0;
+  line-height: 1.15;
+}
+.site-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  font-size: 0.9375rem;
+}
+.site-nav a {
+  color: var(--muted);
+  text-decoration: none;
+  font-weight: 500;
+  padding: 4px 12px;
+  border-radius: 999px;
+  transition: background 150ms ease, color 150ms ease;
+}
+.site-nav a:hover,
+.site-nav a:focus-visible {
+  background: var(--card-bg);
+  color: var(--fg);
+  outline: none;
+}
+/* Slow horizontal "stocks tape" of current-holdings logos. The track
+   contains two copies of the logo set so a JS-driven translate3d
+   loop wraps seamlessly: ``_TICKER_MARQUEE_SCRIPT`` decrements the
+   ``transform`` each frame and wraps the offset by ``halfWidth``
+   (the natural width of one set of logos) whenever it crosses the
+   threshold, which puts the second copy exactly where the first
+   was. The mask gradient fades both ends so logos enter and exit
+   gracefully rather than popping at the edges. */

@@ -5,13 +5,8 @@
 # would obviously fail CI" rather than "runs the whole test suite".
 #
 # Python lint / type-check hooks run as ``language: system`` so they
-# pick up exactly the ``ruff`` / ``mypy`` versions pinned in
-# ``requirements-dev.txt`` (and therefore the same versions CI runs).
-# The earlier pinned-repo variant drifted: pre-commit was on ruff
-# 0.6.9 / mypy 1.11.2 while CI was on ruff 0.15 / mypy 2.1, so a
-# fix that pre-commit accepted could still fail CI (and vice versa).
-# ``pre-commit install`` is now a prerequisite of having the dev
-# requirements installed (``pip install -e '.[dev]'``).
+# pick up the ``ruff`` / ``mypy`` from the active virtualenv (``pip
+# install -e '.[dev]'``), matching what CI installs.
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.6.0

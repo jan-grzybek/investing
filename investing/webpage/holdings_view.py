@@ -65,6 +65,7 @@ def _fmt_holding_pct_html(value: float) -> SafeHtml:
         f'<span class="holding__decimal">.{html.escape(decimal_part)}</span>'
     )
 
+
 # Sort options surfaced above each holdings list. ``key`` is the
 # ``data-holdings-sort-key`` consumed by the holdings-sort
 # script and matched against the ``data-sort-<key>`` attribute
@@ -73,6 +74,12 @@ def _fmt_holding_pct_html(value: float) -> SafeHtml:
 # JS picks the first time the user activates a column ("text"
 # -> ascending, "number" -> descending). The "default" key
 # special-cases the restore-DOM-order button.
+# Default number of holding capsules visible before the "Show all"
+# toggle expands the list. Kept in sync with the CSS
+# ``nth-of-type(n+4)`` cutoff (three visible rows).
+VISIBLE_DEFAULT: int = 3
+
+
 SORT_OPTIONS: tuple[tuple[str, str, str], ...] = (
     ("default", "Default", "default"),
     ("ticker", "Ticker", "text"),
@@ -119,8 +126,7 @@ def build_sort_control(*, scope: str, include_weight: bool) -> str:
             f'<button type="button" class="holdings__sort-btn" '
             f'data-holdings-sort-key="{key}" '
             f'data-holdings-sort-kind="{kind}" '
-            f'aria-pressed="{"true" if is_default else "false"}" '
-            f'aria-sort="none">'
+            f'aria-pressed="{"true" if is_default else "false"}">'
             f"{html.escape(label)}{indicator_html}"
             "</button>"
         )
@@ -156,6 +162,25 @@ def build_sort_control(*, scope: str, include_weight: bool) -> str:
         "</span>"
         f"{''.join(buttons)}"
         "</div>"
+    )
+
+
+def build_toggle(*, scope: str, total: int) -> str:
+    """Render a collapse toggle beneath a holdings list when needed.
+
+    Emitted only when ``total`` exceeds :data:`VISIBLE_DEFAULT` so a
+    single-position list stays free of inert chrome. The button's
+    ``data-holdings-toggle`` value matches the sibling list's
+    ``data-holdings-list`` scope so the inline sort / collapse script
+    can pair each toggle with its list independently.
+    """
+    if total <= VISIBLE_DEFAULT:
+        return ""
+    return (
+        f'<button type="button" class="holdings__toggle" '
+        f'data-holdings-toggle="{html.escape(scope)}" '
+        f'data-total="{total}" aria-expanded="false">'
+        f"Show all {total} holdings</button>"
     )
 
 
@@ -326,7 +351,7 @@ def build_holding_card(
         if weight is None:
             raise InvariantError(
                 f"current holding {holding['ticker']!r} reached the "
-                "renderer with no weight -- summarize() did not run",
+                "renderer with no weight -- apply_rollup() did not run",
             )
         stats.append(("Weight:", f"{_fmt_pct(weight)}%", None))
 

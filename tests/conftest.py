@@ -7,7 +7,7 @@ is needed here.
 
 The package no longer carries a mutable ``exchange_rate`` singleton --
 FX is threaded through the API as an explicit ``fx`` parameter on
-``Holding``/``get_holdings``/``summarize``/``get_benchmarks``. Tests
+``Holding``/``get_holdings``/``compute_rollup``/``get_benchmarks``. Tests
 pass the :func:`stub_exchange_rate` callable directly to whichever
 constructor they're exercising; no module-level patching is needed
 and no autouse cleanup fixture is required to keep tests isolated.
@@ -15,11 +15,26 @@ and no autouse cleanup fixture is required to keep tests isolated.
 
 from __future__ import annotations
 
+import logging
 import os
 from datetime import datetime
 from unittest.mock import MagicMock
 
 import pytest
+
+
+@pytest.fixture
+def at_datetime():
+    """Return a ``now`` callable pinned to *when* for explicit time injection.
+
+    Prefer this over :func:`freeze_today` when the API under test accepts
+    a ``now=`` parameter — no cross-module ``datetime`` monkeypatch needed.
+    """
+
+    def _pin(when: datetime):
+        return lambda: when
+
+    return _pin
 
 
 @pytest.fixture
@@ -29,7 +44,7 @@ def stub_exchange_rate():
     Many tests use USD-denominated tickers; pinning the rate to 1.0
     makes expected values trivial to reason about regardless of
     currency. Pass the returned callable to ``Holding(fx=...)``,
-    ``get_holdings(..., fx=...)``, ``summarize(..., fx=...)``, or
+    ``get_holdings(..., fx=...)``, ``compute_rollup(..., fx=...)``, or
     ``get_benchmarks(..., fx=...)`` -- there is no module-level
     state to patch.
     """
@@ -140,6 +155,33 @@ def chdir_tmp(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     os.makedirs(tmp_path / "assets", exist_ok=True)
     return tmp_path
+
+
+@pytest.fixture(autouse=True)
+def _reset_package_logger():
+    """Keep ``investing.update`` logger state from leaking between tests."""
+    from investing.log import logger
+
+    saved_handlers = list(logger.handlers)
+    saved_propagate = logger.propagate
+    saved_level = logger.level
+    for handler in saved_handlers:
+        logger.removeHandler(handler)
+    logger.propagate = True
+    logger.setLevel(logging.NOTSET)
+    yield
+    for handler in list(logger.handlers):
+        logger.removeHandler(handler)
+    for handler in saved_handlers:
+        logger.addHandler(handler)
+    logger.propagate = saved_propagate
+    logger.setLevel(saved_level)
+
+
+@pytest.fixture(autouse=True)
+def _disable_market_data_persistence(monkeypatch):
+    """Keep the committed ``market_data/`` tree out of the default test path."""
+    monkeypatch.setenv("INVESTING_MARKET_DATA_DISABLE", "1")
 
 
 @pytest.fixture(autouse=True)

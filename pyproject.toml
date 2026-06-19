@@ -15,9 +15,9 @@ license-files = ["LICENSE"]
 # that breaks the integration shape (e.g. yfinance dropping
 # ``Ticker.get_info``) will fail to install rather than fail at runtime
 # in CI. ``pip-compile`` reads the floors below directly from this
-# ``pyproject.toml`` when regenerating the pinned lockfiles
-# (``requirements.txt`` / ``requirements-dev.txt``) -- see the
-# CONTRIBUTING guide for the one-liner.
+# ``pyproject.toml`` when regenerating ``requirements.txt`` -- see
+# CONTRIBUTING.md for the one-liner. Dev deps install from
+# ``[project.optional-dependencies.dev]`` via ``pip install -e '.[dev]'``.
 dependencies = [
   "gspread>=6",
   "yfinance>=0.2.40",
@@ -49,6 +49,10 @@ dev = [
   # ``language: system`` pre-commit hook all see the same stubs.
   "types-python-dateutil",
   "types-requests",
+  # Browser smoke tests (client-side interactions + axe a11y scan).
+  "playwright>=1.49",
+  "pytest-playwright>=0.6",
+  "axe-playwright-python>=0.1",
 ]
 
 [project.urls]
@@ -71,6 +75,9 @@ testpaths = ["tests"]
 # ``tests/conftest.py``.
 pythonpath = ["."]
 addopts = "-ra --strict-markers"
+markers = [
+  "browser: end-to-end tests that require Playwright (Chromium)",
+]
 filterwarnings = [
   "ignore::DeprecationWarning",
   "ignore::PendingDeprecationWarning",
@@ -85,10 +92,10 @@ omit = ["tests/*"]
 show_missing = true
 skip_covered = false
 precision = 1
-# Baseline measured at 89.3% on main; ratchet downward only after a
-# deliberate decision. A drop below this floor fails CI rather than
-# silently eroding the safety net.
-fail_under = 85
+# Baseline measured at ~87.7% after the expanded test suite; ratchet
+# downward only after a deliberate decision. A drop below this floor
+# fails CI rather than silently eroding the safety net.
+fail_under = 87
 
 [tool.ruff]
 line-length = 100
@@ -169,8 +176,5 @@ module = [
   "investing.sheets",
   "investing.webpage._page",
   "investing.webpage.og_image",
-  "investing.formatting",
-  "investing.fx",
-  "investing.pchip",
 ]
 disallow_untyped_defs = false

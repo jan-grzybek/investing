@@ -3,7 +3,7 @@
 TSR (in the comparison capsule) and the chart's right-edge sample.
 
 The other rollup helpers in ``performance.py`` (``get_holdings``,
-``calc_twr``, ``summarize``) are covered by their own dedicated
+``calc_twr``, ``compute_rollup``) are covered by their own dedicated
 modules (``test_holding.py``, ``test_calc_twr.py``, ``test_summarize.py``).
 """
 

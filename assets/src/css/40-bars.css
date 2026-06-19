@@ -1,0 +1,79 @@
+.bars {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0 24px;
+}
+.bars__row {
+  display: grid;
+  grid-template-columns: minmax(0, 14rem) 4rem minmax(0, 1fr);
+  align-items: center;
+  column-gap: 14px;
+}
+/* When a bar row is rendered as ``<a class="bars__row--link">``
+   (the Equities allocation row, every ticker row in the equities
+   chart), it becomes a click target that scrolls down to the
+   matching section / holding capsule. Keep the row visually
+   identical to the non-linked rows -- no underline, inherit
+   colour -- but hint that it's interactive with a pointer cursor
+   and a subtle hover/focus state that lifts the label and bar fill
+   slightly. The grid layout is preserved because ``<a>`` accepts
+   ``display: grid`` the same way ``<div>`` does. */
+.bars__row--link {
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background-color 0.15s ease;
+}
+/* Same touch-device caveat as the marquee links above: ``:hover``
+   latches on touch and would otherwise leave the just-tapped row
+   highlighted after the finger lifted (especially noticeable on
+   the equity allocation chart, where the highlight then bled into
+   the user's view of the next row down). Gating on real pointer
+   devices keeps the affordance for mouse / trackpad readers while
+   touch users only see the highlight while their finger is
+   actually pressing the row. */
+.bars__row--link:focus-visible {
+  background: var(--line);
+  outline: none;
+}
+@media (hover: hover) {
+  .bars__row--link:hover {
+    background: var(--line);
+    outline: none;
+  }
+}
+.bars__label {
+  font-size: 0.9375rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bars__value {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  font-size: 0.9375rem;
+}
+.bars__track {
+  background: var(--line);
+  border-radius: 999px;
+  height: 10px;
+  overflow: hidden;
+}
+.bars__fill { height: 100%; border-radius: inherit; }
+/* Asset-allocation bars carry the brand's secondary amber so the
+   page's two warm-family signature colours (Tiger Orange + Amber
+   Flame) both have a prominent home: the chart line above is
+   ``--accent`` for the JG signature, and these bars are
+   ``--accent-warm`` for the allocation breakdown. */
+.bars--allocation .bars__fill { background: var(--accent-warm); }
+/* Sector treemap: equity-only, two-level squarified layout. Tiles
+   are absolutely-positioned ``<a>`` elements inside a fixed-
+   aspect-ratio canvas; the Python side emits per-tile ``left``/
+   ``top``/``width``/``height`` percentages plus a ``background``
+   keyed off the per-sector CSS variables declared in ``:root``.
+   Keeping the layout numbers as percentages lets the chart
+   reflow smoothly into any container width without recomputing
+   coordinates client-side. */

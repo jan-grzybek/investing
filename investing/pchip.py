@@ -78,7 +78,11 @@ def _edge_derivative(h0: float, h1: float, d0: float, d1: float) -> float:
 class Pchip:
     """Drop-in numpy-only replacement for ``scipy.interpolate.PchipInterpolator``."""
 
-    def __init__(self, x, y):
+    def __init__(
+        self,
+        x: np.ndarray | list[float],
+        y: np.ndarray | list[float],
+    ) -> None:
         self._x = np.asarray(x, dtype=float)
         self._y = np.asarray(y, dtype=float)
         if self._x.ndim != 1 or self._y.ndim != 1:
@@ -92,7 +96,7 @@ class Pchip:
         self._d = _pchip_derivatives(self._x, self._y)
         self._h = np.diff(self._x)
 
-    def __call__(self, query):
+    def __call__(self, query: np.ndarray | float) -> np.ndarray | float:
         """Evaluate the interpolant at ``query`` (scalar or array)."""
         q = np.asarray(query, dtype=float)
         flat = q.ravel()

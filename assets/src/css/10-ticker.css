@@ -1,0 +1,233 @@
+.ticker {
+  margin: 0 -24px 24px;
+  overflow: hidden;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+  background: var(--card-bg);
+  -webkit-mask-image: linear-gradient(to right,
+    transparent 0%, #000 6%, #000 94%, transparent 100%);
+          mask-image: linear-gradient(to right,
+    transparent 0%, #000 6%, #000 94%, transparent 100%);
+}
+/* Track positioning is driven entirely by JS (see
+   ``_TICKER_MARQUEE_SCRIPT``): each ``requestAnimationFrame`` tick
+   subtracts ``pxPerMs * dt`` from a JS-held offset variable and
+   writes it back via ``element.style.transform = translate3d(..px,
+   0, 0)``. The reason the animation lives in JS rather than as a
+   CSS ``@keyframes`` declaration is that the CSS form had three
+   distinct failure modes that all surface as the user-reported
+   "the bar sometimes blinks / shifts / resets position":
+
+     1. **Tab-visibility resume.** CSS animations are wall-clock
+        timed. Some browsers (notably Chromium) pause the
+        animation while the tab is hidden but keep the wall clock
+        running; on resume they jump the transform to "where the
+        animation would be now" rather than continuing from where
+        it paused. JS pauses the rAF loop on ``visibilitychange``
+        and resumes from the same offset variable, so the jump
+        is impossible.
+     2. **Compositor layer demotion.** A CSS ``transform``
+        animation runs on the GPU compositor, but the layer can
+        be evicted under memory pressure, by neighbouring layer
+        repaints (e.g. the sticky header's ``backdrop-filter``
+        rebuild on iOS Safari while the URL bar collapses), or
+        when ``animation-play-state`` flips on hover. The rebuild
+        snaps the interpolated transform to a fresh raster, which
+        the eye reads as a shift. Driving the transform from the
+        main thread via ``element.style.transform`` writes a
+        single ``translate3d`` value per frame; there is no
+        keyframe interpolation to snap to.
+     3. **Mid-flight duration changes at viewport breakpoints.**
+        The previous CSS had ``animation-duration: 60s / 45s /
+        35s`` per breakpoint; crossing one mid-animation
+        (e.g. iOS Safari URL-bar collapse changing the viewport
+        width past 540px) instantly re-evaluates the keyframe
+        position against the new duration, which jumps the
+        transform. JS computes ``pxPerMs`` from the current
+        viewport and re-reads it on debounced ``resize``, so the
+        offset variable stays continuous across breakpoints.
+
+   ``will-change: transform`` is kept as a hint so the browser
+   keeps the layer warm; ``backface-visibility: hidden`` is the
+   belt-and-braces 3D-context hint for older WebKit. Neither is
+   load-bearing the way they had to be with the CSS animation --
+   the JS writes a fresh ``translate3d`` every frame so the
+   compositor cannot lose the 3D matrix -- but they cost nothing
+   and keep the initial paint on the GPU before the rAF loop is
+   scheduled. */
+.ticker__track {
+  display: flex;
+  align-items: center;
+  gap: 40px;
+  width: max-content;
+  transform: translate3d(0, 0, 0);
+  will-change: transform;
+  backface-visibility: hidden;
+}
+/* Normalize logos to a uniform-area cell so every holding reads
+   at the same visual prominence along the marquee. The portfolio's
+   wordmarks span a wide aspect-ratio range -- from square-ish (SAP,
+   Apple, Meta, ~1:1) to long banners (Salesforce, NVIDIA, S&P
+   Global, ~4:1) -- and earlier strategies each had a failure mode:
+
+     * Pinning both axes to a square (the original 48x48) lets
+       ``object-fit: contain`` work, but it letterboxes wide logos
+       into a tiny strip at the centre of the cell while square
+       logos fill the whole box, so the wide ones look 3-4x
+       smaller in ink even though they occupy the same cell.
+     * Pinning height only (the height-only step we tried after
+       that) gives every logo identical height, but wide logos
+       then claim their full natural width on the marquee track
+       and the strip reads as a parade of giant brand banners
+       sandwiching tiny square ones.
+
+   The fix is a landscape 2:1 cell with ``object-fit: contain``:
+   each ``<img>`` becomes a fixed 56x28 box and the SVG is fitted
+   inside, preserving its aspect ratio. The math behind the 2:1
+   ratio is intentional -- a square logo hits the height cap and
+   renders as 28x28 (ink area 784 px^2), a 4:1 wide logo hits the
+   width cap and renders as 56x14 (ink area also 784 px^2), and
+   2:1 logos (the geometric mean) hit both caps and render at the
+   full 56x28 (ink area 1568 px^2). The result is a symmetric
+   prominence curve around the 2:1 sweet spot rather than a
+   monotonic "wider == bigger" or "wider == smaller" bias, so the
+   strip feels uniform regardless of which logos happen to be in
+   the current portfolio. The 28px height is also a touch smaller
+   than the prior 32px height-only target so the logos sit
+   visibly inside the marquee strip rather than crowding its
+   vertical padding. */
+.ticker__logo {
+  width: 56px;
+  height: 28px;
+  object-fit: contain;
+  flex: 0 0 auto;
+  opacity: 0.92;
+  /* The hover lift (``.ticker__link:hover .ticker__logo { opacity: 1 }``
+     below) toggles the opacity on this element, so the transition
+     has to live here -- not on ``.ticker__link``. The previous
+     placement on the link declared a transition for a property
+     that never changed on it, so the lift snapped instantly. */
+  transition: opacity 0.15s ease;
+}
+/* Wrap each marquee logo in a click target that scrolls down to
+   the matching holding capsule. The track itself is ``display:
+   flex`` so every direct child is a flex item -- pinning the
+   anchor to ``flex: 0 0 auto`` (rather than the img, which now
+   sits one level deeper) keeps each cell at the 56x28 cell size
+   the strip is laid out around. ``line-height: 0`` removes the
+   ~3px baseline space inline elements normally leave under their
+   content, so the anchor's bounding box hugs the logo and the
+   strip's vertical rhythm matches the pre-anchor layout to the
+   pixel. The hover state lifts the logo to full opacity to hint
+   that the cell is interactive. */
+.ticker__link {
+  display: block;
+  flex: 0 0 auto;
+  line-height: 0;
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+/* Hover lift is gated on real pointer devices: on touch, ``:hover``
+   sticks until the user taps somewhere else, which would leave a
+   logo permanently brightened after a tap-through. ``:focus-visible``
+   stays outside the gate so keyboard users still get the lift
+   if they ever programmatically focus a logo (browser default
+   doesn't, but extensions and tests sometimes do). */
+.ticker__link:focus-visible .ticker__logo { opacity: 1; }
+@media (hover: hover) {
+  .ticker__link:hover .ticker__logo { opacity: 1; }
+}
+/* ``scroll-margin-top`` reserves space at the top of the viewport
+   when an anchor (``#trades`` etc.) targets the section so the
+   sticky ``.site-header`` doesn't cover the title. The reserve has
+   to clear the *worst-case* header height: at standard desktop
+   widths the four nav items wrap to a second row under the title
+   (because title 449px + 24px gap + nav 366px exceeds the 832px
+   content area inside an 880px max-width body with 24px padding),
+   which produces a ~102px header. Adding a small visible buffer on
+   top of that lets the title breathe instead of sitting flush
+   against the header edge. */
+.section { margin-top: 36px; scroll-margin-top: 120px; }
+.section:first-of-type { margin-top: 8px; }
+/* The two holdings sections become subgrids that pass ``<main>``'s
+   four-track layout (logo / body / stats label / stats value)
+   through to their inner ``.holdings__list``. Their direct
+   children (h2, h3 subtitles, allocation bars, sector treemap,
+   sort toolbar, holdings list itself) each span ``1 / -1`` so
+   they sit on a single row of the inherited columns and don't
+   contribute items to cols 3-4 -- only the dt/dd inside each
+   ``.holding__stats`` does, which is what we want. The mobile
+   media query reverts these to ``display: block``. */
+.section--current,
+.section--historical {
+  display: grid;
+  grid-template-columns: subgrid;
+}
+.section--current > *,
+.section--historical > * { grid-column: 1 / -1; }
+.section__title {
+  font-size: 1.375rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin: 0 0 14px;
+  padding-bottom: 8px;
+  /* The chapter rule under every section title is the page's
+     strongest unifying signature: it's the same brand orange that
+     marks the JG line on the all-time return chart, underlines
+     ``Jan Grzybek`` in the OG social card, and tints the focus
+     rings throughout the page. Reading down the page the orange
+     rules read as ``these are the JG chapters``, the same way a
+     fund letter uses a coloured rule under each section header to
+     telegraph identity. The earlier ``currentColor`` rule produced
+     a heavy ~2px ink-coloured underline beneath every title that
+     read as a generic divider and added no brand identity. */
+  border-bottom: 2px solid var(--accent);
+}
+.section__subtitle {
+  /* Subsection ownership is communicated by typography alone --
+     a clear step down in font size from the parent
+     ``.section__title`` (1rem vs 1.375rem), paired with the
+     tight first-subsection ``margin-top`` rule below, says
+     ``nested inside the chapter'' without any decoration that
+     would compete visually with the orange chapter rule under
+     h2. Earlier iterations tried a full-width gray underline
+     (read as a parallel divider) and a 3px brand-orange
+     left-rule (a second loud orange mark on the page that
+     visually doubled up against the h2 chapter rule). Stripping
+     the decoration entirely lets the type hierarchy carry the
+     weight on its own, and the muted body-text colour
+     differentiates the heading from regular section copy
+     without painting another accent line on the page. */
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: -0.005em;
+  color: var(--muted);
+  margin: 32px 0 12px;
+  /* Mirrors ``.section``'s reserve so an anchor jump to
+     ``#equities`` (clicked from the allocation chart) lands the
+     subtitle below the sticky header rather than under it. */
+  scroll-margin-top: 120px;
+}
+/* The first subsection title inside a holdings section sits tight
+   under the parent ``.section__title`` so the two read as nested.
+   The default 32px top margin would otherwise compound with the
+   h2's own ``margin-bottom`` + ``padding-bottom`` and stretch the
+   gap below the orange chapter rule into a ~50px stripe that made
+   the first subsection feel like a sibling section. */
+.section--current > .section__title + .section__subtitle,
+.section--historical > .section__title + .section__subtitle {
+  margin-top: 10px;
+}
+/* The asset-allocation bars sit between the first and second
+   subsections inside ``.section--current``. Their own 24px bottom
+   margin would compound with the next subtitle's 32px top margin
+   and push the gap above "Equities" to ~56px -- noticeably wider
+   than the holdings-list-to-"Fixed Income" gap below, which is
+   driven by the h3 ``margin-top`` alone. Stripping the bottom
+   margin in this context lets a single rule (the h3 top margin)
+   govern the subsection rhythm so both transitions land on the
+   same vertical beat. */
+.section--current > .bars {
+  margin-bottom: 0;
+}

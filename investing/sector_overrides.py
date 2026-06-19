@@ -235,8 +235,7 @@ def _load_overrides(path: str | None = None) -> dict[str, str]:
             data = tomllib.load(f)
     except (OSError, tomllib.TOMLDecodeError) as exc:
         logger.warning(
-            "failed to read sector overrides at %s (%s); falling back to "
-            "empty override set",
+            "failed to read sector overrides at %s (%s); falling back to empty override set",
             effective_path,
             type(exc).__name__,
         )
@@ -248,8 +247,7 @@ def _load_overrides(path: str | None = None) -> dict[str, str]:
     if not isinstance(raw, dict):
         if raw is not None:
             logger.warning(
-                "sector overrides file %s has a non-table ``[sectors]`` "
-                "entry; ignoring overrides",
+                "sector overrides file %s has a non-table ``[sectors]`` entry; ignoring overrides",
                 effective_path,
             )
         if path is None:
@@ -403,8 +401,7 @@ def append_missing_sector_stubs(
             existing = f.read()
     except OSError as exc:
         logger.warning(
-            "sector overrides auto-populate: failed to read %s (%s); "
-            "skipping stub append",
+            "sector overrides auto-populate: failed to read %s (%s); skipping stub append",
             effective_path,
             type(exc).__name__,
         )
@@ -454,8 +451,8 @@ def _format_sector_stub(ticker: str) -> str:
     """
     return (
         f"# Auto-detected: missing sector for {ticker!r}. Uncomment the\n"
-        f"# next line and replace \"\" with one of the canonical sectors\n"
-        f"# documented at the top of this file (e.g. \"Technology\").\n"
+        f'# next line and replace "" with one of the canonical sectors\n'
+        f'# documented at the top of this file (e.g. "Technology").\n'
         f'# "{ticker}" = ""'
     )
 
@@ -486,7 +483,7 @@ def _is_ticker_already_in_file(ticker: str, contents: str) -> bool:
     so the pattern matches the literal quoted form.
     """
     pattern = re.compile(
-        rf'^\s*#*\s*{re.escape(f"\"{ticker}\"")}\s*=',
+        rf"^\s*#*\s*{re.escape(f'"{ticker}"')}\s*=",
         re.MULTILINE,
     )
     return pattern.search(contents) is not None

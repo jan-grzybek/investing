@@ -115,9 +115,7 @@ def build_row(event: TradeEvent) -> str:
     # are growth (green), CLOSE / DECREASE are reduction
     # (red), matching the buy-vs-sell axis of the adjacent
     # Action badge without needing a second glance.
-    value_modifier = (
-        "value--positive" if category in ("OPEN", "INCREASE") else "value--negative"
-    )
+    value_modifier = "value--positive" if category in ("OPEN", "INCREASE") else "value--negative"
     if category in ("INCREASE", "DECREASE"):
         detail_modifier = "pct"
         detail_class = f"trades__detail trades__detail--pct {value_modifier}"

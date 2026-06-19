@@ -1,0 +1,437 @@
+.holding {
+  display: grid;
+  /* Inherit the logo / body / stats-label / stats-value tracks
+     defined on the parent ``.holdings__list`` (declared below the
+     ``.holding__stats`` rule -- see the comment there for the
+     cross-capsule alignment rationale). ``grid-column: 1 / -1``
+     spans the capsule across all four outer tracks; the explicit
+     placements on ``.holding__logo`` / ``.holding__body`` /
+     ``.holding__stats`` slot each child into its column.
+     ``column-gap`` inherits 24px from the parent (matching the
+     pre-subgrid value) so the visual spacing between logo / body
+     / stats columns stays unchanged; the ``row-gap`` here is a
+     no-op on the desktop single-row capsule but mirrors the
+     historical ``gap: 14px 24px`` so the mobile media query
+     below has a consistent shorthand to override. */
+  grid-template-columns: subgrid;
+  grid-column: 1 / -1;
+  align-items: center;
+  row-gap: 14px;
+  padding: 16px 20px;
+  /* Margin-top still drives the inter-capsule spacing on desktop:
+     grid items don't margin-collapse, so each capsule contributes
+     its own 12px to the row-track size and the visible gap
+     between consecutive capsules stays at 12px. Keeping the
+     margin (rather than switching to ``row-gap`` on the parent)
+     also preserves the 12px breathing room above the very first
+     capsule, where the sort toolbar sits immediately above. */
+  margin-top: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card-bg);
+  /* Anchor-jump reserve so a click on a marquee logo or an
+     equities-bar row scrolls the targeted capsule below the
+     sticky header rather than tucking it under. Matches the
+     ``.section`` reserve so the per-card landing feels
+     consistent with the section-level nav. */
+  scroll-margin-top: 120px;
+}
+/* Either the bare ``<img class="holding__logo">`` or the
+   ``<a class="holding__logo-link">`` wrapper (when the holding
+   has a website URL wired in) ends up as the capsule's first
+   grid child. Pin both to column 1 of the subgrid explicitly so
+   a future re-ordering of the markup doesn't shift the layout,
+   and so the body and stats placements below don't have to rely
+   on auto-flow visiting children in DOM order. */
+.holding > .holding__logo,
+.holding > .holding__logo-link { grid-column: 1; }
+.holding__logo {
+  width: 100%;
+  max-width: 88px;
+  max-height: 64px;
+  object-fit: contain;
+  justify-self: center;
+}
+/* The capsule's logo is wrapped in an ``<a class="holding__logo-link">``
+   that points at the issuer's own website (or its IR site /
+   a Google-search-on-name fallback when yfinance has no website
+   on file). The wrapper is the actual grid item now, so it
+   inherits the cell sizing the bare ``<img>`` used to carry --
+   the inner ``<img>`` stays at ``width: 100%`` so it fills the
+   wrapper without stretching past it. ``display: flex`` centers
+   the image vertically inside the cell on desktop (where the
+   landscape 88x64 box is taller than most wordmarks render).
+   Keep the link visually identical to the legacy bare-image
+   layout (no underline, no hand cursor on the image itself --
+   the pointer cursor is the affordance) and only light up on
+   hover/focus so a sighted reader can tell the logo is now
+   actionable. The same touch-device gate ``.ticker__link`` and
+   ``.bars__row--link`` use is replicated here so a tap on a phone
+   doesn't latch a hover state after the finger lifts. */
+.holding__logo-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  max-width: 88px;
+  max-height: 64px;
+  justify-self: center;
+  border-radius: 6px;
+  text-decoration: none;
+  cursor: pointer;
+  transition: opacity 0.15s ease, outline-color 0.15s ease;
+}
+.holding__logo-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
+@media (hover: hover) {
+  .holding__logo-link:hover {
+    opacity: 0.78;
+  }
+}
+.holding__body { grid-column: 2; min-width: 0; }
+.holding__title {
+  font-size: 1.0625rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.holding__periods {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  /* Three columns -- start date, separator, end date -- sized to
+     ``max-content``. Each card's grid widths are derived from the
+     widest start and end actually present in that card's
+     period(s), which makes a single open period (the common case
+     for a current holding) collapse to a tight phrase
+     "Aug 14, 2023 - Present" where the dash sits between two
+     content-tight columns. Combined with ``text-align: end`` on
+     real end dates and ``text-align: start`` on the "Present"
+     placeholder (rules below), the layout achieves a single
+     unified rule:
+       - first date always at the left of column 1;
+       - separator at a fixed x-offset within the card (col 1
+         right edge + 0.5ch column-gap, identical for every period
+         row in a multi-period stack);
+       - second date at the right of column 3 when it's a real
+         date, OR at the left of column 3 (locally symmetric with
+         the start date around the dash) when it's "Present".
+     Multi-period stacks within one card still align dashes
+     vertically because all rows share the same grid columns; the
+     ``min-content`` middle track keeps the dash at a fixed offset
+     even if other end dates in the same card are wider than
+     "Present". The ``max-content`` choice over a fixed em width
+     gives up cross-card dash alignment in exchange for getting
+     "Present" symmetric to the start date for free in the typical
+     single-period current holding -- the alternative was a
+     per-row CSS variable that estimated start-date pixel width
+     server-side, which would have been brittle across font /
+     platform variations. */
+  display: grid;
+  grid-template-columns: max-content min-content max-content;
+  justify-content: start;
+  column-gap: 0.5ch;
+  row-gap: 2px;
+  color: var(--muted);
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+/* ``display: contents`` lets each <li>'s three children (start
+   <time>, dash <span>, end <time>/<span>) participate directly in
+   the parent grid while the <li> itself stays in the DOM tree --
+   so assistive tech still announces it as a list item, but it
+   contributes nothing to layout. Modern browsers (Chromium,
+   Firefox, Safari) preserve list semantics across this property. */
+.holding__periods li { display: contents; }
+/* Right-align the end-date <time>/<span> within its column 3 cell
+   so the row's right edge lines up with the widest end date in
+   this card. The start-date <time> in column 1 keeps the default
+   ``text-align: start`` so it hugs the left edge of its cell.
+   With ``max-content`` columns above, this produces:
+     - closed periods: spread layout, "<start>  -  <end>" where
+       both halves touch their column's outer edge (the dash sits
+       at a card-fixed offset between them);
+     - open periods (end is "Present"): see the ``span:last-child``
+       override below -- "Present" gets ``text-align: start`` so
+       its left edge tucks against the dash, mirroring the start
+       date which is at the left edge of column 1.
+   <time>/<span> is blockified into a grid item so it stretches to
+   fill its column; ``text-align: end`` then aligns the visible
+   text to the cell's right edge. */
+.holding__periods li > :last-child { text-align: end; }
+/* Special-case the "Present" placeholder so it ends up locally
+   symmetric to the start date around the dash. The placeholder
+   renders as a plain <span> (real end dates use <time>), and
+   here we left-align it so it sits at the left edge of column 3
+   right next to the dash. In the typical single-period current
+   holding the column-3 width collapses to "Present"'s own
+   ~3.5em (because there's no longer end date in the same card
+   to widen the column), so the row reads as a tight phrase
+   "<start> - Present" with the dash flanked by only the 0.5ch
+   column-gap on each side -- perfectly symmetric. In multi-row
+   cards that mix open and closed periods the column-3 width is
+   driven by the widest closed end date instead, but the
+   left-aligned "Present" still tucks against the dash, leaving
+   the (invisible) trailing whitespace inside the cell rather
+   than a visible chasm before the placeholder. The selector
+   ``span:last-child`` matches the placeholder unambiguously:
+   real end dates use <time>, and the dash <span> is the middle
+   child, not the last. */
+.holding__periods li > span:last-child { text-align: start; }
+.holding__note {
+  margin: 10px 0 0;
+  font-size: 0.875rem;
+  line-height: 1.45;
+  color: var(--muted);
+  max-width: 60ch;
+}
+.holding__stats {
+  /* Span columns 3-4 of the capsule's subgrid (= columns 3-4 of
+     ``.holdings__list`` -- the stats label and value tracks).
+     ``display: grid; grid-template-columns: subgrid`` makes the
+     dt/dd pairs participate in those parent columns directly so
+     the widest "Weight:" label and the widest "217.4%" value pin
+     both column widths once for the entire holdings list -- every
+     capsule's Return / IRR / Weight rows then line up vertically
+     down the right side of the section instead of each row's
+     offset being driven by its own value width.
+     ``column-gap`` ultimately resolves to the 24px declared on
+     ``.holdings__list`` (per the CSS Grid Level 2 rule that a
+     subgrid's effective gutter is the max of the parent's and
+     its own at each shared gridline). The pre-subgrid layout
+     used a 14px label-to-value gap; the slightly wider 24px gap
+     is the trade-off for cross-capsule column alignment. */
+  grid-column: 3 / -1;
+  display: grid;
+  grid-template-columns: subgrid;
+  row-gap: 3px;
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.9375rem;
+}
+/* Each stat pair is wrapped in ``<div class="holding__stat">`` so the
+   mobile media query can spread TSR/CAGR/Weight as flex items across
+   the full row. On desktop ``display: contents`` makes the wrapper
+   transparent so dt/dd participate directly in the parent's 2-column
+   grid, preserving the original right-column layout exactly. */
+.holding__stat { display: contents; }
+.holding__stats dt { color: var(--muted); margin: 0; font-weight: 400; }
+.holding__stats dd { margin: 0; text-align: right; font-weight: 600; }
+.value--positive { color: var(--positive); }
+.value--negative { color: var(--negative); }
+/* Per-section "Sort by" toolbar that sits between the section
+   subtitle / chart strip and the stack of holding capsules.
+   Button group reads as a horizontal row on desktop and wraps
+   onto multiple rows on mobile so all five (current) / four
+   (historical) options stay touch-reachable on a narrow viewport
+   without forcing horizontal scrolling. The buttons share a
+   visual language with the trades column-header sort controls
+   below: muted label, focus ring keyed off ``--accent``, and a
+   small triangular indicator that appears when a column is
+   active. The "Default" button is the only one without an
+   indicator since it represents the unsorted upstream order
+   (most recent buy first for current, most recent sell first
+   for historical) rather than a directional re-ordering. */
+.holdings__sort {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 14px;
+  padding: 0;
+  font-size: 0.875rem;
+  color: var(--muted);
+}
+.holdings__sort-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  font-weight: 600;
+  margin-right: 4px;
+}
+.holdings__sort-btn {
+  appearance: none;
+  background: var(--card-bg);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  color: var(--muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1.4;
+  transition: color 120ms ease, border-color 120ms ease,
+              background 120ms ease;
+}
+.holdings__sort-btn:hover {
+  color: var(--fg);
+  border-color: color-mix(in srgb, var(--fg) 30%, var(--line));
+}
+.holdings__sort-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.holdings__sort-btn[aria-pressed="true"] {
+  color: var(--fg);
+  border-color: var(--fg);
+  background: color-mix(in srgb, var(--fg) 6%, var(--card-bg));
+  font-weight: 600;
+}
+.holdings__sort-indicator {
+  display: inline-block;
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid color-mix(in srgb, var(--muted) 50%, transparent);
+  transition: transform 120ms ease, border-top-color 120ms ease;
+}
+.holdings__sort-btn[data-sort-dir="asc"] .holdings__sort-indicator {
+  transform: rotate(180deg);
+  border-top-color: var(--fg);
+}
+.holdings__sort-btn[data-sort-dir="desc"] .holdings__sort-indicator {
+  border-top-color: var(--fg);
+}
+/* When a holdings list carries more positions than the default
+   visible window the rows past that cutoff are hidden until the
+   user opts in via the ``.holdings__toggle`` button below the
+   list. CSS does the actual hiding with a single ``:nth-of-type``
+   rule against the current DOM order; that means after a sort the
+   same N top rows always stay visible -- "the first N capsules in
+   whatever order they're in right now", which is the only sensible
+   reading once the user has re-ordered the list.
+
+   ``[data-expanded="true"]`` on the ``.holdings__list`` overrides
+   the hide rule when the user opts in. The toggle button is omitted
+   entirely when the list is short enough that no overflow exists. */
+.holdings__list:not([data-expanded="true"]) .holding:nth-of-type(n+4) {
+  display: none;
+}
+.holdings__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+  padding: 6px 14px;
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  color: var(--muted);
+  background: var(--card-bg);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.holdings__toggle:hover {
+  background: color-mix(in srgb, var(--card-bg) 70%, var(--bg) 30%);
+  border-color: color-mix(in srgb, var(--line) 50%, var(--fg) 50%);
+}
+.holdings__toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.holdings__toggle::after {
+  content: "";
+  display: inline-block;
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid var(--muted);
+  transition: transform 150ms ease;
+}
+.holdings__toggle[aria-expanded="true"]::after {
+  transform: rotate(180deg);
+}
+/* The list wrapper is the third link in the subgrid chain anchored
+   on ``<main>`` (see the ``main { display: grid; ... }`` rule
+   near the top of the file for the full architecture comment).
+   ``grid-template-columns: subgrid`` here passes the four outer
+   tracks down so each ``.holding`` capsule can in turn ``subgrid``
+   into them and place its dt/dd into cols 3-4 of ``<main>``'s
+   grid -- the level at which ``max-content`` sees the union of
+   dt/dd items across BOTH the Current and Historical lists, so
+   the two sections always pick the same column widths.
+
+   The wrapper still exists as its own DOM node (rather than
+   being absorbed via ``display: contents``) because the holdings
+   sort script keys off it: each ``data-holdings-list="<scope>"``
+   wrapper is the parent ``parentNode.removeChild`` / ``appendChild``
+   target for re-ordering its capsules without touching the
+   surrounding allocation bars / treemap / sort toolbar.
+
+   Capsules continue to space themselves vertically via the
+   ``.holding`` ``margin-top: 12px`` rule (grid items don't
+   margin-collapse and the auto-row sizing absorbs each capsule's
+   margin into its row track). The ``column-gap: 24px`` declared
+   on ``<main>`` propagates down through every subgrid in the
+   chain unchanged so the visual spacing between logo / body /
+   label / value columns stays the same as the pre-cross-section
+   layout. The mobile media query below reverts this rule to
+   ``display: block`` (alongside ``main`` and the holdings
+   sections) since the per-capsule reflow into ``"logo body" /
+   "stats stats"`` named areas is independent of cross-capsule
+   alignment. */
+.holdings__list {
+  display: grid;
+  grid-template-columns: subgrid;
+}
+/* Intro paragraph under a section title (e.g. the methodology note
+   beneath the "Trades" section heading). Sits on its own row,
+   slightly muted, so
+   the reader can skip it once they've internalised the rule. */
+.section__intro {
+  margin: -4px 0 16px;
+  color: var(--muted);
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  max-width: 64ch;
+}
+/* The trades-section intro carries a denser two-sentence
+   methodology note that runs ~150 chars long; the default 64ch
+   cap wraps it into four narrow lines on desktop even though the
+   sortable table below it spans the full content width and would
+   happily host a wider paragraph. Releasing the cap here lets the
+   intro flow alongside the table's natural width so the lead-in
+   reads as ``column header for the table that follows'' rather
+   than a narrow column floating in the same row as 800px of
+   table real estate. The shorter ``.section--return`` intro
+   keeps the 64ch cap because it sits above a comparison capsule
+   layout, not a wide table, and benefits from the tighter
+   line-length. */
+.section--trades .section__intro {
+  max-width: none;
+}
+/* Burst-aggregated trades, rendered as a dense sortable table.
+
+   Six columns -- ticker / company / action / details / date / price
+   -- give the reader a fund-letter-style activity log they can
+   re-order on the ticker, company, action, details, or date column
+   by clicking a header. The earlier per-trade capsule layout was
+   nice to scan one row at a time but burned a lot of vertical
+   space for what amounts to one line of data per event; folding
+   the same fields into a real ``<table>`` lets the page show every
+   trade ever made without scrolling forever, and the column form
+   gives the eye a stable left-edge alignment to read down.
+
+   Action is a binary BUY-vs-SELL pill (green "Bought" / red "Sold")
+   with a ``min-width`` so the two labels render in pills of the
+   exact same width and the column edges stay flush regardless of
+   row. The finer-grained "Details" column carries the lifecycle
+   nuance the four-category model used to encode in the badge text:
+   "Initial stake" / "+30%" / "-25%" / "Disposal", so a reader can
+   tell at a glance not just direction but whether this was an
+   entry, a top-up, a trim, or an exit. */

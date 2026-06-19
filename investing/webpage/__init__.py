@@ -2,7 +2,7 @@
 
 The renderer used to be a single ~2000-line ``investing/webpage.py``
 module. Splitting it into a package lets the self-contained helpers
-(``head`` / ``og_image`` / ``sitemap`` / ``anchors`` / ``footer``)
+(``head`` / ``og_image`` / ``sitemap`` / ``anchors``)
 live in their own files so each one can be edited and reviewed
 without scrolling past the rest of the renderer. The main ``Webpage``
 class and its per-section renderers stay together in

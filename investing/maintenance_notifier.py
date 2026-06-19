@@ -232,10 +232,7 @@ def _issue_exists(
     off on the repository entirely).
     """
     encoded_labels = urllib.parse.quote(",".join(labels), safe=",:-")
-    url = (
-        f"{api_root}/issues?state=all&per_page=100"
-        f"&labels={encoded_labels}"
-    )
+    url = f"{api_root}/issues?state=all&per_page=100&labels={encoded_labels}"
     try:
         response = session.get(url, timeout=_REQUEST_TIMEOUT_S)
     except requests.RequestException as exc:
@@ -271,9 +268,7 @@ def _issue_exists(
     # comparison is the right primitive here; no canonicalisation
     # needed.
     return (
-        _LOOKUP_FOUND
-        if any(item.get("title") == title for item in payload)
-        else _LOOKUP_NOT_FOUND
+        _LOOKUP_FOUND if any(item.get("title") == title for item in payload) else _LOOKUP_NOT_FOUND
     )
 
 
@@ -332,7 +327,7 @@ def _missing_sector_body(ticker: str) -> str:
     """
     sector_list = "\n".join(f"- `{s}`" for s in sorted(KNOWN_SECTORS))
     return (
-        f"yfinance returned a blank `info[\"sector\"]` for `{ticker}` "
+        f'yfinance returned a blank `info["sector"]` for `{ticker}` '
         "on the most recent production build, and no override is "
         "present in `sector_overrides.toml`. The equities treemap "
         "groups this ticker under the neutral `Other` tile until an "
@@ -465,7 +460,10 @@ def notify_github(hints: MaintenanceHints) -> NotifierOutcome:
         # invalid-override category that's "ticker=value" so the
         # value-changed dedupe key shows up in the summary too.
         outcome = _issue_exists(
-            session, api_root, labels=labels, title=lookup_title,
+            session,
+            api_root,
+            labels=labels,
+            title=lookup_title,
         )
         if outcome == _LOOKUP_FAILED:
             failed.append(ticker_label)
@@ -474,7 +472,11 @@ def notify_github(hints: MaintenanceHints) -> NotifierOutcome:
             already_tracked.append(ticker_label)
             return
         if _create_issue(
-            session, api_root, title=title, body=body, labels=labels,
+            session,
+            api_root,
+            title=title,
+            body=body,
+            labels=labels,
         ):
             opened.append(ticker_label)
         else:

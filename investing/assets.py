@@ -22,6 +22,7 @@ __all__ = [
     "_RETURN_CHART_SCRIPT",
     "_TICKER_MARQUEE_SCRIPT",
     "_TRADES_SORT_SCRIPT",
+    "_YEARLY_RETURNS_SCRIPT",
 ]
 
 # ---------------------------------------------------------------------------
@@ -230,6 +231,11 @@ _RETURN_CHART_SCRIPT = _read_asset("return_chart.js")
 _TRADES_SORT_SCRIPT = _read_asset("trades_sort.js")
 
 
+# Collapse / expand for the calendar-year returns table when the
+# history spans more than the default visible window.
+_YEARLY_RETURNS_SCRIPT = _read_asset("yearly_returns.js")
+
+
 # Click-to-sort behaviour for the "Current holdings" / "Historical
 # holdings" lists.
 #
@@ -261,6 +267,14 @@ _TRADES_SORT_SCRIPT = _read_asset("trades_sort.js")
 #     ``data-sort-weight`` (the last one is current-only;
 #     historical rows omit it and the historical toolbar omits
 #     the corresponding "Weight" button).
+#   * ``<button class="holdings__toggle" data-holdings-toggle="<scope>">``
+#     sits below a list when it carries more than one position.
+#     The button's scope matches the list's ``data-holdings-list``
+#     value so each sub-section (current equities, current fixed
+#     income, historical equities, historical fixed income) can
+#     collapse / expand independently. CSS hides overflow capsules
+#     via ``:nth-of-type(n+4)`` until the user sets
+#     ``data-expanded="true"`` on the list.
 #
 # The "Default" button is special-cased: it never carries a
 # direction, and pressing it restores the upstream DOM order
@@ -270,12 +284,10 @@ _TRADES_SORT_SCRIPT = _read_asset("trades_sort.js")
 # into a per-list array so re-pressing "Default" after any
 # number of sorts always lands on the same starting state.
 #
-# ``aria-pressed`` on the active button + ``aria-sort`` on the
-# matching directional button is what assistive tech announces
-# (the indicator triangles below the labels are aria-hidden
-# decoration). Only one button per toolbar is ever
-# ``aria-pressed="true"`` at a time so a screen reader hears one
-# canonical "current sort" per section.
+# ``aria-pressed`` on the active button drives the screen-reader
+# announcement; ``data-sort-dir`` on the active directional button
+# drives the visible sort-indicator triangle (CSS) without placing
+# ``aria-sort`` on ``<button>`` elements, which axe flags as invalid.
 #
 # Kept as a tight ES5-flavoured IIFE so the inline payload stays
 # small and gets a single stable SHA-256 hash (pinned in CSP).

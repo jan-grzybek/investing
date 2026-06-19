@@ -10,7 +10,7 @@ from datetime import datetime
 
 import pytest
 
-from investing.holdings import DAYS_YEAR, WITHHOLDING_TAX_RATE, Holding
+from investing.holdings import DAYS_YEAR, WITHHOLDING_TAX_RATE, Holding, _xirr
 from investing.trades import Trade
 
 
@@ -187,11 +187,31 @@ class TestSell:
         assert holding._positions[-1]["quantity"] == 0
         assert holding._periods[-1]["end"] == datetime(2024, 6, 1)
 
-    def test_rebuy_after_full_sell_starts_new_period(self, install_ticker, stub_exchange_rate):
+    def test_rebuy_within_trade_window_reopens_the_period(
+        self,
+        install_ticker,
+        stub_exchange_rate,
+    ):
+        install_ticker(_make_ticker(price=100.0))
+        holding = Holding("TST", fx=stub_exchange_rate)
+        holding.buy(Trade(datetime(2024, 1, 1), "TST", 10, 50.0, "BUY"))
+        holding.sell(Trade(datetime(2024, 6, 19), "TST", 10, 60.0, "SELL"))
+        holding.buy(Trade(datetime(2024, 9, 2), "TST", 7, 55.0, "BUY"))
+
+        assert holding._periods == [
+            {"start": datetime(2024, 1, 1), "end": None},
+        ]
+
+    def test_rebuy_after_trade_window_starts_new_period(
+        self,
+        install_ticker,
+        stub_exchange_rate,
+    ):
         install_ticker(_make_ticker(price=100.0))
         holding = Holding("TST", fx=stub_exchange_rate)
         holding.buy(Trade(datetime(2024, 1, 1), "TST", 10, 50.0, "BUY"))
         holding.sell(Trade(datetime(2024, 6, 1), "TST", 10, 60.0, "SELL"))
+        # 92 days later -- outside the 90-day rolling quarter.
         holding.buy(Trade(datetime(2024, 9, 1), "TST", 7, 55.0, "BUY"))
 
         assert len(holding._periods) == 2
@@ -203,6 +223,49 @@ class TestSell:
             "start": datetime(2024, 9, 1),
             "end": None,
         }
+
+
+class TestPeriodMergeDisplayOnly:
+    """Quick divest/rebuy round-trips merge ``_periods`` for the webpage.
+
+    The contract under test: capsule date spans may read as uninterrupted
+    ownership, but MoIC / XIRR still reflect every real trade on its
+    actual date (including the gap while flat).
+    """
+
+    def test_rebuy_within_window_merges_periods_but_not_returns(
+        self,
+        install_ticker,
+        stub_exchange_rate,
+        freeze_today,
+    ):
+        freeze_today(datetime(2025, 1, 1))
+        install_ticker(_make_ticker(price=100.0))
+        holding = Holding("TST", fx=stub_exchange_rate)
+        holding.buy(Trade(datetime(2024, 1, 1), "TST", 10, 50.0, "BUY"))
+        holding.sell(Trade(datetime(2024, 6, 19), "TST", 10, 60.0, "SELL"))
+        holding.buy(Trade(datetime(2024, 9, 2), "TST", 7, 55.0, "BUY"))
+
+        summary = holding.summary()
+
+        assert summary["periods"] == [
+            {"start": datetime(2024, 1, 1), "end": None},
+        ]
+        # MoIC uses every inflow/outflow regardless of the merged span.
+        gross_invested = 10 * 50.0 + 7 * 55.0
+        gross_returned = 10 * 60.0 + 7 * 100.0
+        expected_tsr = (gross_returned / gross_invested - 1.0) * 100.0
+        assert summary["tsr%"] == pytest.approx(expected_tsr)
+        # XIRR still brackets the actual dated cashflows (incl. the
+        # Jun-19 outflow and Sep-2 inflow), not a synthetic hold-through.
+        expected_cashflows = [
+            (datetime(2024, 1, 1), -10 * 50.0),
+            (datetime(2024, 6, 19), +10 * 60.0),
+            (datetime(2024, 9, 2), -7 * 55.0),
+            (datetime(2025, 1, 1), +7 * 100.0),
+        ]
+        expected_cagr = _xirr(expected_cashflows) * 100.0
+        assert summary["cagr%"] == pytest.approx(expected_cagr)
 
 
 class TestSummaryDividends:
@@ -322,7 +385,7 @@ class TestSummary:
         assert summary["ticker"] == "NMS:TST"
         assert summary["name"] == "Test Co."
         assert summary["is_current"] is True
-        assert summary["current_weight%"] is None  # filled in by summarize()
+        assert summary["current_weight%"] is None  # filled in by apply_rollup()
         assert summary["current_value_usd"] == pytest.approx(10 * 200.0)
         assert summary["latest_buy"] == datetime(2024, 1, 1)
         assert summary["latest_sell"] is None
@@ -555,9 +618,7 @@ class TestAssetClass:
         summary = holding.summary()
         assert summary["asset_class"] == "fixed_income"
 
-    def test_unknown_asset_class_raises(
-        self, install_ticker, stub_exchange_rate
-    ):
+    def test_unknown_asset_class_raises(self, install_ticker, stub_exchange_rate):
         # Guards against typos / future expansions slipping through
         # silently. The renderer only knows the two canonical values
         # so a misspelling here would land the holding in the equity

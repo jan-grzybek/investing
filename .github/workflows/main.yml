@@ -207,10 +207,27 @@ jobs:
           git commit -m "chore(sectors): auto-populate missing sector stubs [skip ci]"
           git push
 
+      - name: Commit market-data snapshot updates
+        run: |
+          if [[ -z "$(git status --porcelain market_data/)" ]]; then
+            echo "market_data/ unchanged; nothing to commit."
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add market_data/
+          git commit -m "chore(market-data): refresh yfinance snapshots [skip ci]"
+          git push
+
+      - name: Stage public site artifact
+        # Upload only the rendered page and its static dependencies —
+        # not the Python source tree, tests, or committed snapshots.
+        run: python scripts/stage_site.py --out site
+
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v5
         with:
-          path: .
+          path: site
 
   Deploy:
     needs: Update

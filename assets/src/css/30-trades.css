@@ -1,0 +1,313 @@
+.trades__wrap {
+  /* Wrap is a named **inline-size** container query container so the
+     ``@container trades (max-width: ...)`` rules further down can
+     hide the Company and Action columns based on the wrap's actual
+     rendered width, not the viewport. Container queries are the
+     primary responsive mechanism for this table: they fire
+     synchronously with layout as the wrap shrinks (no JS debounce
+     between the user's resize and the column drop), and they fire
+     at two well-separated thresholds (~600px for Company, ~430px
+     for Action) so the two columns visibly drop one at a time
+     rather than vanishing together at a single JS "tick" after the
+     user stops resizing.
+     
+     ``overflow-x: auto`` survives only as a defensive belt for the
+     handful of viewports narrower than the 4-column minimum
+     (~320px) and for the (vanishingly rare) browsers without
+     container-query support, where it gracefully degrades to a
+     horizontal scrollbar instead of clipping the table. */
+  container-type: inline-size;
+  container-name: trades;
+  overflow-x: auto;
+  margin-top: 10px;
+}
+.trades {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card-bg);
+  overflow: hidden;
+  font-size: 0.9375rem;
+}
+.trades thead th {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--card-bg) 60%, var(--bg) 40%);
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.trades__col--price { text-align: right; }
+/* Sort buttons: visually identical to the surrounding header text
+   so the table reads as a tight grid -- the interactive affordance
+   is communicated by the indicator triangle plus the focus ring,
+   not by chrome that would clutter the row. The inactive triangle
+   sits on every sortable column so the reader can see up-front
+   which columns can be re-ordered; the active column upgrades to
+   a solid arrow via the ``aria-sort`` selectors below. */
+.trades__sort {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.trades__sort:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.trades__sort-indicator {
+  display: inline-block;
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid color-mix(in srgb, var(--muted) 50%, transparent);
+  transition: transform 120ms ease, border-top-color 120ms ease;
+}
+.trades th[aria-sort="ascending"] .trades__sort-indicator {
+  transform: rotate(180deg);
+  border-top-color: var(--fg);
+}
+.trades th[aria-sort="descending"] .trades__sort-indicator {
+  border-top-color: var(--fg);
+}
+.trades th[aria-sort="ascending"],
+.trades th[aria-sort="descending"] {
+  color: var(--fg);
+}
+.trades tbody td {
+  padding: 8px 12px;
+  border-top: 1px solid var(--line);
+  vertical-align: middle;
+}
+/* Subtle zebra-stripe via ``:nth-child`` lets the eye track rows
+   horizontally across the page. The colour is a slight tint of
+   ``--card-bg`` rather than a hard contrast so the table still
+   reads as a single surface and the row striping doesn't fight
+   the badge colours. */
+.trades tbody tr:nth-child(even) td {
+  background: color-mix(in srgb, var(--card-bg) 60%, var(--bg) 40%);
+}
+.trades__cell--ticker {
+  font-weight: 600;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.trades__cell--name {
+  color: var(--fg);
+  /* Long names (e.g. "UnitedHealth Group Inc.") are allowed to wrap
+     so the column doesn't blow out the table on narrow tablets.
+     ``overflow-wrap: anywhere`` keeps the cell from forcing a
+     horizontal scrollbar on edge-case names with no natural break
+     points. */
+  overflow-wrap: anywhere;
+}
+.trades__cell--action { white-space: nowrap; }
+.trades__cell--detail {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.trades__cell--date {
+  color: var(--muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.trades__cell--price {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+/* Progressive column hiding, container-query driven. The wrap above
+   is a named ``trades`` inline-size container; these two rules drop
+   the Company and Action columns based on the wrap's actual width,
+   one at a time, as the page narrows.
+   
+   The thresholds are derived empirically from the natural minimum
+   widths of each column set with the current renderer's content
+   (quarter-formatted dates, 7em BUY / SELL pill, ``Initial stake`` /
+   ``Disposal`` lifecycle labels, three-decimal prices in ISO
+   currency codes), with a small buffer so the column drops just
+   before the layout would otherwise be forced to overflow:
+   
+     * **600px**: at this container width the 6-column layout's
+       intrinsic minimum (~591px for the synthetic preview, similar
+       for production) starts to exceed the wrap, so the Company
+       column drops out. The ticker uniquely identifies the security
+       on its own, so the row stays readable.
+     * **430px**: the 5-column layout's intrinsic minimum is ~422px
+       (locked by the action pill's ``7em`` fixed width plus the
+       no-wrap minimums of ticker, details, date and price). Below
+       this the Action pill drops too. Its BUY / SELL direction is
+       still redundantly encoded by the adjacent Details column --
+       ``Initiated`` / ``Divested`` for boundary rows, and ``+`` /
+       ``-`` signs plus green / red colouring on the percentage rows
+       -- so a reader can recover buy-vs-sell at a glance without it.
+   
+   The 170px gap between the two thresholds is wide enough that a
+   continuous resize through the boundary makes Company visibly drop
+   first, then much later Action -- never both at the same instant.
+   And because container queries are CSS-native rather than JS, every
+   resize frame gets the correct visibility state, with no debounce
+   between when the user crosses a threshold and when the column
+   actually disappears.
+*/
+@container trades (max-width: 600px) {
+  .trades__col--name,
+  .trades__cell--name { display: none; }
+}
+@container trades (max-width: 430px) {
+  .trades__col--action,
+  .trades__cell--action { display: none; }
+}
+/* Solid-pill BUY / SELL badge. Uppercase + letter-spacing give it
+   the "label" affordance a typographic reader expects from a
+   category tag and distinguishes it cleanly from the prose around
+   it. ``width`` (not ``min-width``) pins both pills to the same
+   fixed box so "BOUGHT" and "SOLD" render at byte-for-byte
+   identical widths -- ``min-width`` alone would have let the
+   longer label grow past the shorter one and the column would
+   read as two slightly different chips. ``7em`` is wide enough
+   that the longer "BOUGHT" label sits comfortably away from the
+   pill's rounded ends with visible breathing room on either side,
+   rather than touching the edges. The pill content is centered
+   inside the fixed box with ``text-align: center``; horizontal
+   padding is zeroed because the fixed width already reserves
+   the breathing room. ``color: #fff`` (with the pure-black
+   override in dark mode) is set independently of ``--bg`` so
+   contrast against the saturated fills stays high regardless of
+   the page's ambient surface luminance. */
+.trade__badge {
+  display: inline-block;
+  width: 7em;
+  padding: 3px 0;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #ffffff;
+  text-align: center;
+  /* The badge fills sit on coloured chips and overlap any
+     ``background`` ancestor; box-shadow: none keeps the pill flush. */
+  box-shadow: none;
+}
+/* The four semantic categories collapse onto a single buy-vs-sell
+   axis: green marks any move INTO a position, red marks any move
+   OUT. Direction lands at a glance from the colour; the magnitude
+   (and the lifecycle distinction between "open" and "top-up", or
+   between "trim" and "exit") lives in the adjacent "Details"
+   column instead of being squeezed onto the badge. */
+.trade__badge--buy  { background: var(--positive); }
+.trade__badge--sell { background: var(--negative); }
+/* Dark mode lifts ``--positive`` / ``--negative`` to mid-tone greens
+   and reds so the same variables stay legible as TSR/CAGR text on
+   the deep slate background. White pill text on those lifted fills
+   drops below 2:1 contrast, so we flip the pill text to the page
+   background (deep slate) in dark mode -- inverted chip styling, the
+   standard pattern for high-contrast labels that sit on lighter
+   ``500``-shade fills. The light-mode pills keep the original white
+   text on the deeper ``700``-shade backgrounds where contrast is
+   already comfortable. */
+@media (prefers-color-scheme: dark) {
+  .trade__badge { color: var(--bg); }
+}
+/* "Details" column. Every row -- ``--label`` (Initiated /
+   Divested) and ``--pct`` (+30% / -25%) alike -- picks up the
+   page's standard green / red value colours via the
+   ``.value--positive`` / ``.value--negative`` modifier the row
+   already carries: OPEN / INCREASE read as growth (green),
+   CLOSE / DECREASE as reduction (red). Those colour classes are
+   defined further up and shared with the holding capsules' TSR
+   / CAGR readouts so the whole page speaks one colour-coding
+   language. ``--pct`` rows additionally get a heavier weight so
+   the signed percentage stands out as a numeric readout. */
+.trades__detail--pct {
+  font-weight: 600;
+}
+/* Plain-hyphen separator between the two ends of a multi-day
+   burst's date range. Wrapping the glyph in a ``<span>`` rather
+   than emitting a bare ``-`` between the two ``<time>`` elements
+   keeps the markup parallel to how the equity capsules above
+   render closed periods, and gives us a hook if we ever want
+   to switch the separator out later. */
+.trades__date-sep { color: var(--muted); }
+/* Collapse / expand mechanic for long trade logs.
+
+   Once the executed-trades history is long enough to dominate the
+   page (the renderer's threshold is 10 rows), the rows past that
+   cutoff are hidden until the user opts in via the
+   ``.trades__toggle`` button below the table. CSS does the
+   actual hiding with a single ``:nth-of-type`` rule against the
+   current DOM order; that means after a sort the same N most
+   recent (or alphabetically-first, etc.) rows always stay
+   visible -- the cutoff applies to "the top N rows in whatever
+   order they're in right now", which is the only sensible
+   reading once the user has re-ordered the table.
+
+   ``[data-expanded="true"]`` on the ``<table>`` overrides the
+   hide rule when the user opts in. ``[hidden]`` on the toggle
+   keeps the chrome out of the DOM when the table is short
+   enough that no overflow exists (no JS coordination needed --
+   the server simply omits the button entirely in that case). */
+.trades:not([data-expanded="true"]) tbody tr.trades__row:nth-of-type(n+11) {
+  display: none;
+}
+.trades__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 0 0;
+  padding: 8px 14px;
+  background: var(--card-bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.trades__toggle:hover {
+  background: color-mix(in srgb, var(--card-bg) 70%, var(--bg) 30%);
+  border-color: color-mix(in srgb, var(--line) 50%, var(--fg) 50%);
+}
+.trades__toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+/* Small chevron glyph that flips when the table opens so the
+   button visually signals which way the next click will move
+   the section. ``::after`` keeps the indicator decorative
+   (``aria-expanded`` on the button is what assistive tech
+   actually announces). */
+.trades__toggle::after {
+  content: "";
+  display: inline-block;
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid var(--muted);
+  transition: transform 150ms ease;
+}
+.trades__toggle[aria-expanded="true"]::after {
+  transform: rotate(180deg);
+}

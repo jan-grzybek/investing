@@ -37,6 +37,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from investing.paths import COURAGE_LOGO, LOGOS_ADDRESS  # noqa: E402
+from investing.performance import calc_yearly_returns  # noqa: E402
 from investing.webpage import Webpage  # noqa: E402
 
 # Local mirror of what GitHub Pages serves under ``LOGOS_ADDRESS``.
@@ -234,48 +235,93 @@ def _build_dataset() -> dict:
     # META, UNH) keep their own plausible "owned since" dates.
     current = [
         _holding(
-            "NMS:NVDA", "NVIDIA Corporation", 217.4, 64.2, 21.4,
-            datetime(2024, 8, 14), website="https://www.nvidia.com",
+            "NMS:NVDA",
+            "NVIDIA Corporation",
+            217.4,
+            64.2,
+            21.4,
+            datetime(2024, 8, 14),
+            website="https://www.nvidia.com",
             sector="Technology",
         ),
         _holding(
-            "NMS:GOOGL", "Alphabet Inc.", 41.2, 18.6, 13.7,
-            datetime(2025, 9, 1), website="https://www.abc.xyz",
+            "NMS:GOOGL",
+            "Alphabet Inc.",
+            41.2,
+            18.6,
+            13.7,
+            datetime(2025, 9, 1),
+            website="https://www.abc.xyz",
             sector="Communication Services",
         ),
         _holding(
-            "NMS:META", "Meta Platforms, Inc.", 156.8, 47.2, 11.5,
-            datetime(2023, 1, 12), website="https://investor.atmeta.com",
+            "NMS:META",
+            "Meta Platforms, Inc.",
+            156.8,
+            47.2,
+            11.5,
+            datetime(2023, 1, 12),
+            website="https://investor.atmeta.com",
             sector="Communication Services",
         ),
         _holding(
-            "NMS:ADBE", "Adobe Inc.", 28.4, 12.7, 9.1,
-            datetime(2023, 4, 5), website="https://www.adobe.com",
+            "NMS:ADBE",
+            "Adobe Inc.",
+            28.4,
+            12.7,
+            9.1,
+            datetime(2023, 4, 5),
+            website="https://www.adobe.com",
             sector="Technology",
         ),
         _holding(
-            "NMS:AMAT", "Applied Materials, Inc.", 62.3, 22.4, 7.9,
-            datetime(2023, 11, 9), website="https://www.appliedmaterials.com",
+            "NMS:AMAT",
+            "Applied Materials, Inc.",
+            62.3,
+            22.4,
+            7.9,
+            datetime(2023, 11, 9),
+            website="https://www.appliedmaterials.com",
             sector="Technology",
         ),
         _holding(
-            "NMS:LRCX", "Lam Research Corporation", 74.6, 26.8, 6.4,
-            datetime(2025, 5, 15), website="https://www.lamresearch.com",
+            "NMS:LRCX",
+            "Lam Research Corporation",
+            74.6,
+            26.8,
+            6.4,
+            datetime(2025, 5, 15),
+            website="https://www.lamresearch.com",
             sector="Technology",
         ),
         _holding(
-            "NYQ:SPGI", "S&P Global Inc.", 34.1, 14.2, 6.0,
-            datetime(2023, 9, 18), website="https://www.spglobal.com",
+            "NYQ:SPGI",
+            "S&P Global Inc.",
+            34.1,
+            14.2,
+            6.0,
+            datetime(2023, 9, 18),
+            website="https://www.spglobal.com",
             sector="Financial Services",
         ),
         _holding(
-            "NYQ:UNH", "UnitedHealth Group Inc.", -11.8, -5.1, 4.7,
-            datetime(2024, 3, 17), website="https://www.unitedhealthgroup.com",
+            "NYQ:UNH",
+            "UnitedHealth Group Inc.",
+            -11.8,
+            -5.1,
+            4.7,
+            datetime(2024, 3, 17),
+            website="https://www.unitedhealthgroup.com",
             sector="Healthcare",
         ),
         _holding(
-            "NYQ:CRM", "Salesforce, Inc.", 18.7, 9.4, 4.1,
-            datetime(2026, 1, 15), website="https://www.salesforce.com",
+            "NYQ:CRM",
+            "Salesforce, Inc.",
+            18.7,
+            9.4,
+            4.1,
+            datetime(2026, 1, 15),
+            website="https://www.salesforce.com",
             sector="Technology",
         ),
         # SAP is left without an explicit ``website`` to exercise the
@@ -293,15 +339,26 @@ def _build_dataset() -> dict:
     # income so the preview confirms the renderer keeps it equity-only.
     current_fixed_income = [
         _holding(
-            "NMS:TLT", "iShares 20+ Year Treasury Bond ETF", 4.8, 1.6, 6.2,
-            datetime(2024, 2, 1), website="https://www.ishares.com",
-            sector="Government", asset_class="fixed_income",
+            "NMS:TLT",
+            "iShares 20+ Year Treasury Bond ETF",
+            4.8,
+            1.6,
+            6.2,
+            datetime(2024, 2, 1),
+            website="https://www.ishares.com",
+            sector="Government",
+            asset_class="fixed_income",
         ),
         _holding(
-            "NMS:LQD", "iShares iBoxx $ Investment Grade Corporate Bond ETF",
-            7.4, 2.4, 4.5, datetime(2024, 5, 10),
+            "NMS:LQD",
+            "iShares iBoxx $ Investment Grade Corporate Bond ETF",
+            7.4,
+            2.4,
+            4.5,
+            datetime(2024, 5, 10),
             website="https://www.ishares.com",
-            sector="Corporate", asset_class="fixed_income",
+            sector="Corporate",
+            asset_class="fixed_income",
         ),
     ]
     historical = [
@@ -570,7 +627,15 @@ def render(out_dir: Path) -> Path:
     stub_resolver = _StubLogoCache(extension_map, _REPO_LOGOS_DIR)
 
     page = Webpage(logo_cache=stub_resolver)
-    page.add_return(data["total_return"], data["benchmarks"])
+    yearly_returns = calc_yearly_returns(
+        data["total_return"],
+        benchmark_history=(data["benchmarks"][0].get("history") if data["benchmarks"] else None),
+    )
+    page.add_return(
+        data["total_return"],
+        data["benchmarks"],
+        yearly_returns=yearly_returns,
+    )
     page.add_allocations(data["allocation"], data["top_10"])
     for h in data["current"]:
         page.add_holding(h)

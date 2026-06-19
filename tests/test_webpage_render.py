@@ -48,43 +48,13 @@ class TestRenderBars:
         track_idx = out.index("bars__track")
         assert label_idx < value_idx < track_idx
 
-    def test_variant_class_is_applied(self):
-        out = Webpage._render_bars([("X", 1.0)], "equities")
-        assert "bars--equities" in out
-        assert "bars--allocation" not in out
-
     def test_preserves_input_order(self):
-        out = Webpage._render_bars([("Z", 1.0), ("A", 2.0), ("M", 3.0)], "equities")
+        out = Webpage._render_bars(
+            [("Cash & Cash Equivalents", 1.0), ("Equities", 2.0), ("Fixed Income", 3.0)],
+            "allocation",
+        )
         # Labels appear in the input order, not sorted.
-        assert out.index("Z") < out.index("A") < out.index("M")
-
-    def test_scale_to_max_makes_largest_value_fill_the_bar(self):
-        out = Webpage._render_bars(
-            [("AAA", 50.0), ("BBB", 25.0), ("CCC", 10.0)],
-            "equities",
-            scale_to_max=True,
-        )
-        # Largest holding fills its track entirely. Width uses two
-        # decimals for sub-pixel precision since ``value`` is now an
-        # unrounded float upstream.
-        assert "width: 100.00%" in out
-        # 25 / 50 = 50; 10 / 50 = 20.
-        assert "width: 50.00%" in out
-        assert "width: 20.00%" in out
-        # Displayed percentages are still the raw values (not the scaled ones).
-        assert ">50.0%</div>" in out
-        assert ">25.0%</div>" in out
-        assert ">10.0%</div>" in out
-
-    def test_scale_to_max_with_zero_values_does_not_crash(self):
-        # All-zero values fall back to the 100% denominator so the bars
-        # render as empty rather than dividing by zero.
-        out = Webpage._render_bars(
-            [("AAA", 0.0), ("BBB", 0.0)],
-            "equities",
-            scale_to_max=True,
-        )
-        assert "width: 0.00%" in out
+        assert out.index("Cash &amp;") < out.index("Equities") < out.index("Fixed Income")
 
     def test_anchored_rows_render_as_links(self):
         # Rows whose label appears in the ``anchors`` map become
@@ -105,11 +75,10 @@ class TestRenderBars:
 
     def test_unanchored_rows_stay_as_divs(self):
         # No ``anchors`` argument at all -> every row renders as a
-        # plain ``<div class="bars__row">`` (the legacy shape).
+        # plain ``<div class="bars__row">``.
         out = Webpage._render_bars(
-            [("A", 50.0), ("B", 25.0)],
-            "equities",
-            scale_to_max=True,
+            [("Equities", 50.0), ("Cash & Cash Equivalents", 25.0)],
+            "allocation",
         )
         assert "bars__row--link" not in out
         assert "<a " not in out
@@ -120,11 +89,11 @@ class TestRenderBars:
         # silently ignored -- the caller doesn't have to filter down
         # to "real" tickers before passing the map.
         out = Webpage._render_bars(
-            [("A", 50.0)],
-            "equities",
-            anchors={"A": "holding-A", "MISSING": "holding-MISSING"},
+            [("Equities", 50.0)],
+            "allocation",
+            anchors={"Equities": "equities", "MISSING": "holding-MISSING"},
         )
-        assert 'href="#holding-A"' in out
+        assert 'href="#equities"' in out
         assert "MISSING" not in out
 
     def test_anchored_rows_preserve_label_value_track_order(self):
@@ -147,9 +116,9 @@ class TestRenderBars:
         # but cheap-to-guard regression) could break out of the
         # ``href`` and into surrounding markup.
         out = Webpage._render_bars(
-            [("A", 50.0)],
-            "equities",
-            anchors={"A": 'evil"<script>'},
+            [("Equities", 50.0)],
+            "allocation",
+            anchors={"Equities": 'evil"<script>'},
         )
         assert "<script>" not in out
         assert "&lt;script&gt;" in out or "&quot;" in out

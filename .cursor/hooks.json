@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "hooks": {
+    "afterFileEdit": [
+      {
+        "command": ".cursor/hooks/post-edit-verify.sh",
+        "timeout": 600
+      }
+    ],
+    "stop": [
+      {
+        "command": ".cursor/hooks/post-agent-verify.sh",
+        "timeout": 600
+      }
+    ]
+  }
+}

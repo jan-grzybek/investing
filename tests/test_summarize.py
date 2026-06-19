@@ -1,4 +1,4 @@
-"""Tests for ``summarize``: allocation %, top-10 weights, totals."""
+"""Tests for portfolio rollup: allocation %, top-10 weights, totals."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from datetime import datetime
 
 import pytest
 
-from investing.performance import summarize
+from investing.performance import apply_rollup, compute_rollup
 
 
 def _holding(ticker, value, name=None):
@@ -24,12 +24,16 @@ def _holding(ticker, value, name=None):
     }
 
 
+def _rollup(holdings, cash, *, fx):
+    """Compute + apply a portfolio rollup; return total USD value."""
+    result = compute_rollup(holdings, cash, fx=fx)
+    apply_rollup(holdings, result)
+    return result.total_value_usd
+
+
 @pytest.fixture
 def fx_one_to_one():
-    """A stub fx callable that pins every rate to 1.0.
-
-    Returned to the test which passes it as ``summarize(..., fx=fx_one_to_one)``.
-    """
+    """A stub fx callable that pins every rate to 1.0."""
 
     def _rate(currency, date=None):  # noqa: ARG001
         return 1.0
@@ -37,10 +41,10 @@ def fx_one_to_one():
     return _rate
 
 
-class TestSummarize:
+class TestPortfolioRollup:
     def test_empty_portfolio(self, fx_one_to_one):
         holdings = {"current": [], "historical": []}
-        total = summarize(holdings, cash=[], fx=fx_one_to_one)
+        total = _rollup(holdings, cash=[], fx=fx_one_to_one)
 
         assert total == 0.0
         assert holdings["allocation%"] is None
@@ -51,7 +55,7 @@ class TestSummarize:
             "current": [_holding("AAA", 400.0), _holding("BBB", 600.0)],
             "historical": [],
         }
-        total = summarize(holdings, cash=[], fx=fx_one_to_one)
+        total = _rollup(holdings, cash=[], fx=fx_one_to_one)
 
         assert total == pytest.approx(1000.0)
         assert holdings["allocation%"] == {
@@ -64,7 +68,7 @@ class TestSummarize:
 
     def test_cash_only_portfolio(self, fx_one_to_one):
         holdings = {"current": [], "historical": []}
-        total = summarize(
+        total = _rollup(
             holdings,
             cash=[{"currency_code": "USD", "amount": 500.0}],
             fx=fx_one_to_one,
@@ -85,7 +89,7 @@ class TestSummarize:
             return rates[currency]
 
         holdings = {"current": [_holding("AAA", 100.0)], "historical": []}
-        total = summarize(
+        total = _rollup(
             holdings,
             cash=[
                 {"currency_code": "USD", "amount": 50.0},
@@ -95,9 +99,8 @@ class TestSummarize:
         )
 
         assert total == pytest.approx(100 + 50 + 110)
-        # ``summarize`` stores unrounded percentages so downstream
-        # math (the "Other equities" bucket sums these) stays
-        # precise; the expected values match that full precision.
+        # Rollup stores unrounded percentages so downstream math (the
+        # "Other equities" bucket sums these) stays precise.
         # Equity weight = 100 / 260
         assert holdings["allocation%"]["Equities"] == pytest.approx(100 * 100 / 260)
         assert holdings["allocation%"]["Cash & Cash Equivalents"] == pytest.approx(100 * 160 / 260)
@@ -110,7 +113,7 @@ class TestSummarize:
             ],
             "historical": [],
         }
-        summarize(holdings, cash=[], fx=fx_one_to_one)
+        _rollup(holdings, cash=[], fx=fx_one_to_one)
 
         weights = {h["ticker"]: h["current_weight%"] for h in holdings["current"]}
         assert weights == {"AAA": 25.0, "BBB": 75.0}
@@ -120,7 +123,7 @@ class TestSummarize:
             "current": [_holding(f"T{i}", 10.0) for i in range(11)],
             "historical": [],
         }
-        summarize(holdings, cash=[], fx=fx_one_to_one)
+        _rollup(holdings, cash=[], fx=fx_one_to_one)
 
         assert "Other equities" not in holdings["top_10"]
         assert len(holdings["top_10"]) == 11
@@ -130,7 +133,7 @@ class TestSummarize:
             "current": [_holding(f"T{i:02d}", float(100 - i)) for i in range(12)],
             "historical": [],
         }
-        summarize(holdings, cash=[], fx=fx_one_to_one)
+        _rollup(holdings, cash=[], fx=fx_one_to_one)
 
         assert "Other equities" in holdings["top_10"]
         assert len(holdings["top_10"]) == 11  # 10 named + bucket
@@ -146,7 +149,7 @@ class TestSummarize:
             ],
             "historical": [],
         }
-        summarize(holdings, cash=[], fx=fx_one_to_one)
+        _rollup(holdings, cash=[], fx=fx_one_to_one)
 
         keys = list(holdings["top_10"].keys())
         assert keys == ["BIG", "MID", "SMALL"]
@@ -159,7 +162,7 @@ class TestSummarize:
             "current": [_holding("AAA", 100.0)],
             "historical": [historical],
         }
-        total = summarize(holdings, cash=[], fx=fx_one_to_one)
+        total = _rollup(holdings, cash=[], fx=fx_one_to_one)
 
         assert total == pytest.approx(100.0)
         assert holdings["current"][0]["current_weight%"] == pytest.approx(100.0)
@@ -178,7 +181,7 @@ class TestSummarize:
             "historical": [],
             "historical_fixed_income": [],
         }
-        total = summarize(
+        total = _rollup(
             holdings,
             cash=[{"currency_code": "USD", "amount": 200.0}],
             fx=fx_one_to_one,
@@ -196,12 +199,10 @@ class TestSummarize:
         # 20% -- the same denominator on both sides keeps the per-
         # capsule "Weight" stat apples-to-apples across asset classes.
         assert holdings["current"][0]["current_weight%"] == pytest.approx(60.0)
-        assert holdings["current_fixed_income"][0]["current_weight%"] == pytest.approx(
-            20.0
-        )
+        assert holdings["current_fixed_income"][0]["current_weight%"] == pytest.approx(20.0)
         # Top-10 only consumes the equity sleeve: a fixed-income
-        # holding never appears in the bar chart / OG image strip
-        # because the chart is "Top equities by weight".
+        # holding never appears in the OG image strip because the
+        # chart is "Top equities by weight".
         assert "TLT" not in holdings["top_10"]
         assert "AAA" in holdings["top_10"]
 
@@ -218,7 +219,7 @@ class TestSummarize:
             "historical": [],
             "historical_fixed_income": [],
         }
-        total = summarize(
+        total = _rollup(
             holdings,
             cash=[{"currency_code": "USD", "amount": 500.0}],
             fx=fx_one_to_one,

@@ -8,8 +8,9 @@ from __future__ import annotations
 import math
 import os
 from collections.abc import Callable
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 import yfinance as yf
@@ -17,6 +18,9 @@ import yfinance as yf
 from .formatting import _ts_to_datetime
 from .log import logger
 from .market_data import _call_with_retry
+
+if TYPE_CHECKING:
+    from .market_data_store import MarketDataStore
 
 # ---------------------------------------------------------------------------
 # Exchange rates
@@ -88,7 +92,12 @@ def _save_history_to_disk(
 
 
 class ExchangeRate:
-    def __init__(self, *, cache_dir: Path | None = None):
+    def __init__(
+        self,
+        *,
+        cache_dir: Path | None = None,
+        store: MarketDataStore | None = None,
+    ):
         self._rates: dict[str, float] = {}
         # Per-currency historical cache: parallel numpy arrays of
         # ``datetime64[D]`` keys and ``float64`` USD rates, sorted
@@ -106,6 +115,7 @@ class ExchangeRate:
         # can still re-create an ``ExchangeRate`` and pick up the
         # new value.
         self._cache_dir: Path | None = cache_dir if cache_dir is not None else _fx_cache_dir()
+        self._store = store
         # Track per-currency "we already warned about this" state so
         # that an empty FX history surfaces exactly once in the logs
         # rather than re-emitting on every dated lookup. The warning
@@ -113,7 +123,7 @@ class ExchangeRate:
         # only path where the empty fallback distorts the result.
         self._empty_history_warned: set[str] = set()
 
-    def _current(self, currency):
+    def _current(self, currency: str) -> float:
         if currency == "USD":
             return 1.0
         if currency in self._rates:
@@ -127,21 +137,27 @@ class ExchangeRate:
         self._rates[currency] = rate
         return rate
 
-    def _historical(self, currency, date):
+    def _historical(self, currency: str, when: datetime | date) -> float:
         if currency == "USD":
             return 1.0
         if currency not in self._history:
-            # Try the disk cache first; on a hit we skip the yfinance
-            # round trip entirely. The cache stores raw arrays so the
-            # in-memory layout downstream is identical regardless of
-            # the source.
-            cached = (
-                _load_history_from_disk(self._cache_dir, currency)
-                if self._cache_dir is not None
-                else None
+            cached = None
+            if self._store is not None and self._store.enabled:
+                cached = self._store.load_fx_history(currency)
+            elif self._cache_dir is not None:
+                cached = _load_history_from_disk(self._cache_dir, currency)
+
+            offline = os.environ.get("INVESTING_OFFLINE") == "1"
+            use_cache_only = offline or (
+                cached is not None and self._store is None and self._cache_dir is not None
             )
-            if cached is not None:
-                self._history[currency] = cached
+
+            if use_cache_only:
+                if cached is None:
+                    date_arr = np.empty(0, dtype="datetime64[D]")
+                    rate_arr = np.empty(0, dtype=float)
+                else:
+                    date_arr, rate_arr = cached
             else:
                 hist = _call_with_retry(
                     lambda: yf.Ticker(f"{currency}USD=X").history(
@@ -151,37 +167,30 @@ class ExchangeRate:
                     ),
                     description="yfinance fx history",
                 )
-                # The production object is a pandas Series; the test
-                # fixtures hand us a plain dict that mirrors ``.items()``
-                # closely enough for the legacy implementation. Walk via
-                # ``.items()`` once to stay compatible with both, then
-                # commit the result to numpy arrays so subsequent lookups
-                # bypass any Python-level iteration.
-                dates: list = []
-                rates: list = []
+                dates: list[date] = []
+                rates: list[float] = []
                 for ts, close in hist["Close"].items():
                     if math.isnan(close):
                         continue
                     dates.append(_ts_to_datetime(ts).date())
                     rates.append(float(close))
-                if dates:
-                    date_arr = np.array(dates, dtype="datetime64[D]")
-                    rate_arr = np.array(rates, dtype=float)
+                if self._store is not None and self._store.enabled:
+                    date_arr, rate_arr = self._store.merge_fx_history(currency, dates, rates)
                 else:
-                    date_arr = np.empty(0, dtype="datetime64[D]")
-                    rate_arr = np.empty(0, dtype=float)
-                self._history[currency] = (date_arr, rate_arr)
-                # Persist on every fresh fetch so the next process
-                # starts warm. Subsequent in-memory hits bypass this
-                # branch entirely, so the write happens at most once
-                # per currency per process.
-                if self._cache_dir is not None and date_arr.size > 0:
-                    _save_history_to_disk(
-                        self._cache_dir,
-                        currency,
-                        date_arr,
-                        rate_arr,
-                    )
+                    if dates:
+                        date_arr = np.array(dates, dtype="datetime64[D]")
+                        rate_arr = np.array(rates, dtype=float)
+                    else:
+                        date_arr = np.empty(0, dtype="datetime64[D]")
+                        rate_arr = np.empty(0, dtype=float)
+                    if self._cache_dir is not None and date_arr.size > 0:
+                        _save_history_to_disk(
+                            self._cache_dir,
+                            currency,
+                            date_arr,
+                            rate_arr,
+                        )
+            self._history[currency] = (date_arr, rate_arr)
         date_arr, rate_arr = self._history[currency]
         if date_arr.size == 0:
             # yfinance occasionally returns an empty Close series for
@@ -203,7 +212,7 @@ class ExchangeRate:
                 )
                 self._empty_history_warned.add(currency)
             return self._current(currency)
-        target_date = date.date() if isinstance(date, datetime) else date
+        target_date = when.date() if isinstance(when, datetime) else when
         target = np.datetime64(target_date, "D")
         idx = int(np.searchsorted(date_arr, target, side="right")) - 1
         if idx < 0:
@@ -213,10 +222,10 @@ class ExchangeRate:
             rate /= 100
         return rate
 
-    def __call__(self, currency, date=None):
-        if date is None:
+    def __call__(self, currency: str, when: datetime | date | None = None) -> float:
+        if when is None:
             return self._current(currency)
-        return self._historical(currency, date)
+        return self._historical(currency, when)
 
 
 # Type alias for "anything callable as ``fx(currency, date=None) -> float``".

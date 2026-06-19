@@ -30,14 +30,10 @@ jobs:
           python-version: '3.13'
           cache: pip
           cache-dependency-path: |
+            pyproject.toml
             requirements.txt
-            requirements-dev.txt
 
       - name: Install pip-audit
-        # ``pip-audit`` is intentionally NOT in the dev lockfile -- it
-        # would inflate every developer's env with a security tool
-        # they only need in CI. The pin here matches the CI surface
-        # we want to lock down.
         run: pip install "pip-audit>=2.7"
 
       - name: Audit production lockfile
@@ -48,11 +44,13 @@ jobs:
         # PyPI Security Advisories pipeline.
         run: pip-audit --strict --requirement requirements.txt --vulnerability-service osv
 
-      - name: Audit dev lockfile
+      - name: Audit dev dependencies
         # Dev deps don't ship with the build artefact, but a
-        # compromised ruff / mypy / pytest could still execute on a
-        # contributor's machine, so we audit the full surface.
-        run: pip-audit --strict --requirement requirements-dev.txt --vulnerability-service osv
+        # compromised ruff / mypy / pytest could still execute in CI,
+        # so audit the full dev install surface.
+        run: |
+          pip install -e '.[dev]'
+          pip-audit --strict --vulnerability-service osv
 
   codeql:
     name: CodeQL (Python static analysis)

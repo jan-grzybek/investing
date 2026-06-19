@@ -17,6 +17,7 @@ from .errors import InvariantError
 from .formatting import _ts_to_datetime
 from .fx import FxRate, _fx_or_default
 from .market_data import _call_with_retry
+from .market_data_store import MarketDataStore
 from .sector_overrides import resolve_sector
 from .trades import _BUY_CATEGORIES, TRADE_WINDOW_DAYS, Trade, _combine_trade_events
 from .types import HoldingPeriod, HoldingSummary, TradeEvent
@@ -69,9 +70,7 @@ def resolve_company_url(info: dict) -> str:
         value = info.get(key)
         if isinstance(value, str) and value.strip():
             return value.strip()
-    descriptor = (
-        info.get("longName") or info.get("shortName") or info.get("symbol") or ""
-    )
+    descriptor = info.get("longName") or info.get("shortName") or info.get("symbol") or ""
     return google_search_url(descriptor)
 
 
@@ -162,11 +161,11 @@ class Holding:
         fx: FxRate | None = None,
         now: NowFn | None = None,
         asset_class: str = "equity",
+        store: MarketDataStore | None = None,
     ):
         if asset_class not in _VALID_ASSET_CLASSES:
             raise InvariantError(
-                f"asset_class {asset_class!r} is not one of "
-                f"{sorted(_VALID_ASSET_CLASSES)}",
+                f"asset_class {asset_class!r} is not one of {sorted(_VALID_ASSET_CLASSES)}",
             )
         # Carried verbatim onto the per-ticker summary so the renderer
         # can bucket the resulting capsule into the right Current /
@@ -178,17 +177,17 @@ class Holding:
         # treasury -- so this attribute is the only piece of state
         # that distinguishes the two paths inside the model.
         self._asset_class = asset_class
-        # ``yf.Ticker(...)`` construction is cheap (no network); the
-        # subsequent ``get_info`` call is what crosses the wire and
-        # earns the retry wrapper. ``_get_splits_dividends`` reaches
-        # for ``self._ticker.splits`` / ``get_dividends`` which are
-        # the other two network round-trips on this critical path.
+        self._store = store
+        self._ticker_symbol = ticker
         self._ticker = yf.Ticker(ticker)
-        self._info = _call_with_retry(
-            self._ticker.get_info,
-            description="yfinance get_info",
-        )
-        self._splits, self._dividends = self._get_splits_dividends()
+        if store is not None and store.enabled:
+            self._info, self._splits, self._dividends = store.resolve_ticker(ticker)
+        else:
+            self._info = _call_with_retry(
+                self._ticker.get_info,
+                description="yfinance get_info",
+            )
+            self._splits, self._dividends = self._get_splits_dividends()
         # FX callable: an ``ExchangeRate`` instance in production
         # (constructed once per ``main`` invocation and shared across
         # every Holding so each currency is fetched at most once), a
@@ -204,6 +203,11 @@ class Holding:
         # cross-module monkeypatch.
         self._now: NowFn = now if now is not None else datetime.today
         self._positions: list[dict] = []
+        # Display-only ownership spans for the holding capsules on the
+        # rendered page (``holdings_view``). ``buy``/``sell`` maintain
+        # this list; :meth:`summary` forwards it verbatim as
+        # ``"periods"``. TSR / XIRR in :meth:`summary` are driven by
+        # the raw trade cashflow timeline and never read ``_periods``.
         self._periods: list[HoldingPeriod] = []
         self._inflows: list[dict] = []
         self._outflows: list[dict] = []
@@ -347,6 +351,24 @@ class Holding:
             return 1.0
         return float(self._split_factors[idx:].prod())
 
+    def _reopens_within_trade_window(
+        self,
+        close_date: datetime,
+        reopen_date: datetime,
+    ) -> bool:
+        """True when a post-divestment rebuy falls inside the rolling quarter.
+
+        Matches the ``TRADE_WINDOW_DAYS`` cadence used to fold trade
+        bursts: a quick round-trip inside that window is reported as
+        uninterrupted ownership rather than two back-to-back periods
+        with a gap between them.
+
+        This predicate gates **display** bookkeeping only (``_periods``).
+        Actual BUY/SELL cashflows and trade events are always recorded
+        on their real dates, so MoIC / XIRR are unaffected.
+        """
+        return (reopen_date - close_date).days <= TRADE_WINDOW_DAYS
+
     def buy(self, trade: Trade) -> None:
         try:
             current_quantity = self._positions[-1]["quantity"]
@@ -365,7 +387,19 @@ class Holding:
         # percentage.
         category = "OPEN" if current_quantity == 0 else "INCREASE"
         if current_quantity == 0:
-            self._periods.append({"start": trade.date, "end": None})
+            # Reopen a recently closed span for the webpage rather than
+            # starting a fresh period. Does not alter ``_trade_events``,
+            # ``_inflows``/``_outflows``, or the cashflow walk in
+            # :meth:`summary` that feeds TSR / XIRR.
+            last_period = self._periods[-1] if self._periods else None
+            if (
+                last_period is not None
+                and last_period["end"] is not None
+                and self._reopens_within_trade_window(last_period["end"], trade.date)
+            ):
+                last_period["end"] = None
+            else:
+                self._periods.append({"start": trade.date, "end": None})
         elif trade.date > self._positions[-1]["date"]:
             current_quantity = self._apply_splits_between(
                 current_quantity, self._positions[-1]["date"], trade.date
@@ -513,6 +547,20 @@ class Holding:
         keyword arguments default to the values the benchmark
         codepath has used historically.
         """
+        if self._store is not None and self._store.enabled:
+            return self._store.resolve_price_history(
+                self._ticker_symbol,
+                str(start),
+                lambda: _call_with_retry(
+                    lambda: self._ticker.history(
+                        start=start,
+                        interval=interval,
+                        auto_adjust=auto_adjust,
+                    ),
+                    description="yfinance ticker history",
+                ),
+                merged_splits=self._splits,
+            )
         return _call_with_retry(
             lambda: self._ticker.history(
                 start=start,
@@ -634,13 +682,12 @@ class Holding:
         gross_returned = 0.0
 
         quantity_current = 0.0
-        period_started: datetime | None = None
-        total_ownership_length = 0
 
+        # TSR / XIRR below walk every raw trade and dividend on its
+        # actual date. ``_periods`` (which may merge quick round-trips
+        # for display) is intentionally not consulted here.
         for date, _, kind, payload in events:
             if kind == "BUY":
-                if quantity_current == 0:
-                    period_started = date
                 quantity_current += payload["qty_current"]
                 cash_usd = payload["trade_value_native"] * self._fx(currency, date)
                 cashflows.append((date, -cash_usd))
@@ -651,12 +698,6 @@ class Holding:
                 cashflows.append((date, +cash_usd))
                 gross_returned += cash_usd
                 if quantity_current <= 1e-9:
-                    if period_started is not None:
-                        total_ownership_length += max(
-                            (date - period_started).days,
-                            1,
-                        )
-                        period_started = None
                     quantity_current = 0.0
             elif kind == "DIV":
                 if quantity_current > 0:
@@ -684,11 +725,6 @@ class Holding:
             )
             cashflows.append((now, +mtm_usd))
             gross_returned += mtm_usd
-            if period_started is not None:
-                total_ownership_length += max(
-                    (now - period_started).days,
-                    1,
-                )
 
         # MoIC - 1, in percent. Reuses the historical ``tsr%`` key
         # so the renderer / sort attrs / OG image / capsule layout

@@ -441,9 +441,7 @@ class TestBatchedPath:
         assert valuations == []
         assert cash == []
 
-    def test_fixed_income_value_range_is_parsed_in_batched_path(
-        self, patch_gspread_batched
-    ):
+    def test_fixed_income_value_range_is_parsed_in_batched_path(self, patch_gspread_batched):
         # The batched response carries the Fixed Income range
         # alongside Equities / Return / Cash; ensure the loader
         # routes it to the dedicated bucket rather than mixing it

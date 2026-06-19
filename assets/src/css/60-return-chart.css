@@ -1,0 +1,328 @@
+.return-chart { margin: 0 0 24px; }
+.return-chart__plot { position: relative; }
+.return-chart svg { width: 100%; height: auto; display: block; }
+/* ``vector-effect: non-scaling-stroke`` on both the reference
+   line and the data curves makes their stroke widths render in
+   screen pixels rather than viewBox units. Without it, the
+   1000x400 viewBox compresses strokes to ~1px wide on phone
+   widths (the SVG uses ``preserveAspectRatio="none"``, so x and
+   y both scale down), leaving the chart looking hair-thin and
+   washed out. With it, the curves stay at a consistent 2.4px
+   thickness from a wide desktop all the way down to a 320px
+   phone, and the baseline at 1.75px keeps a clear hierarchy
+   beneath the data lines. */
+.return-chart__ref { stroke: var(--muted); stroke-width: 1.75; stroke-dasharray: 4 6; opacity: 0.7; vector-effect: non-scaling-stroke; }
+.return-chart__line { fill: none; stroke-width: 2.4; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.return-chart__line--jg { stroke: var(--accent); }
+.return-chart__line--bench { stroke: var(--accent-bench); }
+/* The delta overlay is a full-bleed positioning canvas; the bar and
+   label inside it use CSS variables so their position is decoupled
+   from the overlay's dimensions and stays glued to the chart-end
+   x-coordinate (always 12% from the right) on every viewport. */
+.return-chart__delta {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+/* The bracket is styled like a measurement caliper: a vertical
+   spine running between the two curve endpoints, with short
+   horizontal "jaws" (the ``::before`` / ``::after`` pseudos) at
+   the top and bottom that visibly hook onto each curve's last
+   point. The whole annotation picks up the directional
+   ``--delta-color`` set inline by the renderer -- green when JG
+   outperformed the benchmark, red when it didn't -- so the
+   bracket itself carries the verdict and the reader doesn't
+   have to glance at the label to know which way the wind is
+   blowing. ``var(--muted)`` is the safety fallback if the
+   inline custom property is missing for any reason. */
+.return-chart__delta-bar {
+  position: absolute;
+  left: 88%;
+  top: var(--top);
+  height: var(--height);
+  width: 0;
+  border-left: 1.75px solid var(--delta-color, var(--muted));
+}
+.return-chart__delta-bar::before,
+.return-chart__delta-bar::after {
+  content: "";
+  position: absolute;
+  left: -8px;
+  width: 8px;
+  height: 1.75px;
+  background: var(--delta-color, var(--muted));
+}
+.return-chart__delta-bar::before { top: 0; transform: translateY(-50%); }
+.return-chart__delta-bar::after { bottom: 0; transform: translateY(50%); }
+.return-chart__delta-label {
+  position: absolute;
+  left: 88%;
+  margin-left: 8px;
+  top: calc(var(--top) + var(--height) / 2);
+  transform: translateY(-50%);
+  font-size: 0.875rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.return-chart__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  font-size: 0.875rem;
+  color: var(--muted);
+  margin-top: 8px;
+}
+.return-chart__swatch {
+  display: inline-block;
+  width: 14px;
+  height: 4px;
+  vertical-align: middle;
+  margin-right: 6px;
+  border-radius: 2px;
+}
+.return-chart__caption { color: var(--muted); font-size: 0.875rem; margin-top: 4px; }
+/* Pointer-driven scrubber. The hover overlay paints on top of the
+   SVG curves + delta annotation; ``pointer-events: none`` on every
+   piece inside ``.return-chart__hover`` lets the plot capture
+   pointermove for the entire chart while the guide/markers/tooltip
+   ride along. The plot itself owns ``touch-action: pan-y`` so a
+   finger can still scroll the page vertically through the chart;
+   horizontal swipes are reserved for scrubbing. */
+.return-chart__plot { touch-action: pan-y; }
+.return-chart__hover {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  z-index: 2;
+}
+.return-chart__hover.is-active { opacity: 1; }
+.return-chart__guide {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  border-left: 1px solid var(--muted);
+  pointer-events: none;
+}
+.return-chart__marker {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--bg);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  border: 2px solid currentColor;
+}
+.return-chart__marker--jg { color: var(--accent); }
+.return-chart__marker--bench { color: var(--accent-bench); }
+.return-chart__tooltip {
+  position: absolute;
+  top: 8px;
+  background: var(--card-bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
+  pointer-events: none;
+  white-space: nowrap;
+  color: var(--fg);
+  /* Hidden until the script positions it; ``visibility`` keeps the
+     tooltip out of the paint pipeline while the chart is idle but
+     leaves its dimensions queryable if we ever want to measure them
+     later. The parent ``.is-active`` toggle is what reveals it. */
+}
+.return-chart__hover.is-active .return-chart__tooltip { visibility: visible; }
+.return-chart__hover:not(.is-active) .return-chart__tooltip { visibility: hidden; }
+.return-chart__tooltip-date {
+  color: var(--muted);
+  font-size: 0.75rem;
+  margin-bottom: 4px;
+}
+.return-chart__tooltip-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.return-chart__tooltip-row + .return-chart__tooltip-row { margin-top: 2px; }
+.return-chart__tooltip-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.return-chart__tooltip-swatch--jg { background: var(--accent); }
+.return-chart__tooltip-swatch--bench { background: var(--accent-bench); }
+.return-chart__tooltip-label { color: var(--muted); }
+.return-chart__tooltip-value { font-weight: 600; margin-left: auto; }
+/* Local outperformance row at the bottom of the tooltip mirrors the
+   visual caliper that sits over the curves at the cursor x. Both
+   pick up the same green/red ``--delta-color`` set inline by the
+   script, so the bracket on the chart and the pp value in the
+   tooltip read as one annotation. The thin top border separates
+   the pp delta from the per-series values above so the eye groups
+   the two return rows together and reads the delta as the
+   "difference" line beneath them. */
+.return-chart__tooltip-delta {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--line);
+  text-align: right;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+/* Moving caliper at the cursor x: vertical spine between the JG
+   and benchmark curve values, with short horizontal "jaws" that
+   visibly hook the bracket onto each curve -- the same caliper
+   pattern as the static end-of-period annotation, only with the
+   x-coordinate driven by the cursor via inline ``left``/``top``/
+   ``height`` and the colour via ``--delta-color``. */
+.return-chart__hover-delta-bar {
+  position: absolute;
+  width: 0;
+  border-left: 1.75px solid var(--delta-color, var(--muted));
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+.return-chart__hover-delta-bar::before,
+.return-chart__hover-delta-bar::after {
+  content: "";
+  position: absolute;
+  left: -3px;
+  width: 6px;
+  height: 1.75px;
+  background: var(--delta-color, var(--muted));
+}
+.return-chart__hover-delta-bar::before { top: 0; transform: translateY(-50%); }
+.return-chart__hover-delta-bar::after { bottom: 0; transform: translateY(50%); }
+/* When the scrubber is engaged, dim the static right-edge delta
+   annotation so the reader's eye follows the moving caliper at
+   the cursor x and isn't distracted by two pp labels on screen.
+   Hover sits before the static delta in source order so this
+   adjacent-sibling rule works without ``:has()``. */
+.return-chart__hover.is-active ~ .return-chart__delta { opacity: 0.25; }
+.returns-compare {
+  margin: 0;
+  padding: 18px 20px;
+  border: 1px solid var(--line);
+  /* Brand-orange chapter rule along the top of the capsule. This
+     is the JG-vs-benchmark headline panel, so the orange marks it
+     as JG-owned -- the same identity signal the chart's JG curve
+     and every section title use. The thicker top border + thinner
+     surrounding border (3px vs 1px) lets the orange read as the
+     panel's eyebrow rather than competing with the divider lines
+     between the inner columns. The corner radius is preserved by
+     overriding only the top edge's width and colour. */
+  border-top: 3px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--card-bg);
+}
+.returns-compare__period {
+  margin: 0 0 14px;
+  color: var(--muted);
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+}
+.returns-compare__period-meta { opacity: 0.85; }
+.returns-compare__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  align-items: start;
+  column-gap: 28px;
+  row-gap: 16px;
+}
+/* Each column lays its identity (logo + short/long name) on the left
+   and its metrics (TWR/TSR/CAGR) on the right, vertically centred so
+   the name sits at the same height as the numbers. */
+.returns-compare__col {
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+  align-items: center;
+  column-gap: 18px;
+  min-width: 0;
+}
+.returns-compare__col + .returns-compare__col {
+  /* Centre the vertical divider in the 28px ``column-gap`` so it
+     gets equal breathing room on both sides. With ``padding-left``
+     and ``margin-left`` matching at half-gap (14px each), the box
+     shifts left into the gap by 14px, the border lands smack in
+     the middle, and the inner padding restores the content to its
+     natural track position so column alignment is preserved.
+     Setting them equal to the FULL gap (the previous geometry)
+     pulled the box flush against column 1, leaving the divider
+     touching JG's TWR/CAGR values with all the whitespace falling
+     on the benchmark side -- a visibly lopsided look. */
+  padding-left: 14px;
+  border-left: 1px solid var(--line);
+  margin-left: -14px;
+}
+.returns-compare__name {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 1.0625rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 0;
+  min-width: 0;
+}
+.returns-compare__logo {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+  flex: 0 0 auto;
+}
+.returns-compare__name-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.returns-compare__name-sub {
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--muted);
+  letter-spacing: 0;
+  margin-top: 2px;
+}
+.returns-compare__stats {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  column-gap: 16px;
+  row-gap: 4px;
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  justify-self: end;
+  min-width: 0;
+}
+.returns-compare__stats dt { color: var(--muted); margin: 0; font-weight: 400; font-size: 0.9375rem; }
+.returns-compare__stats dd { margin: 0; text-align: right; font-weight: 700; font-size: 1.0625rem; }
+.returns-compare__delta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 8px;
+  row-gap: 4px;
+  margin: 16px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  font-size: 0.9375rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+/* Each token (prefix / metric / separator) stays on a single line so
+   "+6.7 pp Total Return" never breaks mid-phrase. The flex parent
+   above lets the tokens themselves wrap as whole units. */
+.returns-compare__delta-prefix,
+.returns-compare__delta-metric,
+.returns-compare__delta-sep { white-space: nowrap; }
+.returns-compare__delta strong,
+.returns-compare__delta .value--positive,
+.returns-compare__delta .value--negative { font-weight: 700; }

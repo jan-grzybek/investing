@@ -27,6 +27,8 @@ import io
 import os
 import sys
 
+import pytest
+
 import investing.safe_run as _safe_run
 
 # Distinctive leak canaries we plant inside fake ``main`` bodies so
@@ -148,9 +150,7 @@ class TestCleanRun:
         assert exit_code is None
         assert marker in captured.out
 
-    def test_emit_summary_survives_fd1_redirection_to_devnull(
-        self, monkeypatch, tmp_path
-    ):
+    def test_emit_summary_survives_fd1_redirection_to_devnull(self, monkeypatch, tmp_path):
         """Regression: ``_run_main_safely`` ``dup2``\u2009s ``/dev/null``
         onto fd 1, so anything written through the *original*
         ``sys.stdout`` (whose underlying file points at fd 1) lands
@@ -200,8 +200,7 @@ class TestCleanRun:
 
         contents = log_path.read_text(encoding="utf-8")
         assert marker in contents, (
-            f"emit_summary output never reached the real stdout; "
-            f"file contained {contents!r}"
+            f"emit_summary output never reached the real stdout; file contained {contents!r}"
         )
 
     def test_stdout_is_restored_after_a_clean_run(self, monkeypatch, capfd):
@@ -399,3 +398,28 @@ class TestFailingRun:
 
         assert sentinel in after.err
         assert "POST_FAIL_FD_SENTINEL" in after.err
+
+
+class TestRunSnapshotSafely:
+    def test_successful_snapshot_does_not_leak_to_stderr(self, monkeypatch, capfd):
+        def fake_snapshot():
+            sys.stderr.write(_LIBRARY_NOISE + "\n")
+            sys.stdout.write("market-data snapshot refreshed for 3 tickers\n")
+
+        monkeypatch.setattr(_safe_run, "snapshot_market_data", fake_snapshot)
+        _safe_run._run_snapshot_safely()
+        captured = capfd.readouterr()
+        assert _LIBRARY_NOISE not in captured.err
+        assert "market-data snapshot refreshed" not in captured.out
+
+    def test_snapshot_failure_emits_sanitized_summary(self, monkeypatch, capfd):
+        def fake_snapshot():
+            raise _BoomError(_LEAK_CANARY)
+
+        monkeypatch.setattr(_safe_run, "snapshot_market_data", fake_snapshot)
+        with pytest.raises(SystemExit) as exc_info:
+            _safe_run._run_snapshot_safely()
+        assert exc_info.value.code == 1
+        captured = capfd.readouterr()
+        assert "investing failed: _BoomError" in captured.err
+        assert _LEAK_CANARY not in captured.err

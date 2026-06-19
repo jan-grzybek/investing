@@ -24,7 +24,9 @@ from .formatting import _fmt_pct, _format_duration
 from .fx import ExchangeRate, FxRate
 from .log import logger
 from .maintenance_notifier import NotifierOutcome, notify_github
+from .market_data_store import MarketDataStore
 from .performance import (
+    BENCHMARKS,
     apply_rollup,
     calc_twr,
     compute_rollup,
@@ -126,9 +128,7 @@ def _format_maintenance_hints(hints: MaintenanceHints) -> str:
     if hints.missing_sector:
         parts.append("missing sectors: " + ", ".join(hints.missing_sector))
     if hints.invalid_overrides:
-        invalid = ", ".join(
-            f"{t}={v!r}" for t, v in sorted(hints.invalid_overrides.items())
-        )
+        invalid = ", ".join(f"{t}={v!r}" for t, v in sorted(hints.invalid_overrides.items()))
         parts.append(f"invalid sector overrides: {invalid}")
     if hints.missing_logos:
         parts.append("missing logos: " + ", ".join(hints.missing_logos))
@@ -157,11 +157,7 @@ def _format_notifier_outcome(outcome: NotifierOutcome) -> str:
         return ""
     chunks: list[str] = []
     if outcome.opened:
-        chunks.append(
-            f"{len(outcome.opened)} opened ("
-            + ", ".join(outcome.opened)
-            + ")"
-        )
+        chunks.append(f"{len(outcome.opened)} opened (" + ", ".join(outcome.opened) + ")")
     if outcome.already_tracked:
         chunks.append(f"{len(outcome.already_tracked)} already tracked")
     if outcome.failed:
@@ -169,11 +165,7 @@ def _format_notifier_outcome(outcome: NotifierOutcome) -> str:
         # debugging surface the operator needs to investigate (was
         # it auth? was it Issues being disabled on the repo? is the
         # API down for this one endpoint?).
-        chunks.append(
-            f"{len(outcome.failed)} failed ("
-            + ", ".join(outcome.failed)
-            + ")"
-        )
+        chunks.append(f"{len(outcome.failed)} failed (" + ", ".join(outcome.failed) + ")")
     return " | ".join(chunks)
 
 
@@ -309,6 +301,27 @@ PullFn = Callable[
 SaveFn = Callable[..., None]
 
 
+def _collect_market_data_tickers(
+    transactions: list[EquityTransaction],
+    fixed_income: list[EquityTransaction],
+) -> list[str]:
+    tickers: list[str] = []
+    seen: set[str] = set()
+    for txn in transactions + fixed_income:
+        if txn["ticker"] not in seen:
+            seen.add(txn["ticker"])
+            tickers.append(txn["ticker"])
+    for cfg in BENCHMARKS:
+        if cfg.ticker not in seen:
+            seen.add(cfg.ticker)
+            tickers.append(cfg.ticker)
+    return tickers
+
+
+def _default_market_data_store() -> MarketDataStore:
+    return MarketDataStore.from_env()
+
+
 def build_page(
     *,
     pull: PullFn | None = None,
@@ -316,6 +329,7 @@ def build_page(
     now: NowFn | None = None,
     save: SaveFn | None = None,
     output_dir: Path | None = None,
+    store: MarketDataStore | None = None,
 ) -> None:
     """Run the data pipeline + renderer, with every IO step injectable.
 
@@ -339,10 +353,16 @@ def build_page(
     _pull = pull if pull is not None else _pull_data
     _save: SaveFn = save if save is not None else generate_webpage
     _now: NowFn = now if now is not None else datetime.today
+    _store = store if store is not None else _default_market_data_store()
     # Single shared FX cache for the whole build: every Holding reads
     # currencies through this instance so each USD/EUR/GBp lookup
     # against yfinance happens at most once per process.
-    _fx: FxRate = fx if fx is not None else ExchangeRate()
+    if fx is not None:
+        _fx = fx
+    elif _store.enabled:
+        _fx = ExchangeRate(store=_store)
+    else:
+        _fx = ExchangeRate()
 
     # Maintenance hint registry is process-scoped, so a long-lived
     # caller (e.g. the test suite, or a hypothetical future
@@ -353,17 +373,30 @@ def build_page(
     reset_hints()
 
     transactions, fixed_income, valuations, cash = _pull()
+    _store_arg = _store if _store.enabled else None
     holdings = get_holdings(
         transactions,
         fixed_income=fixed_income,
         fx=_fx,
         now=_now,
+        store=_store_arg,
     )
     rollup = compute_rollup(holdings, cash, fx=_fx)
     apply_rollup(holdings, rollup)
     total_return = calc_twr(valuations, rollup.total_value_usd, now=_now)
-    benchmarks = get_benchmarks(total_return["history"], fx=_fx, now=_now)
-    _save(total_return, benchmarks, holdings, output_dir=output_dir)
+    benchmarks, yearly_returns = get_benchmarks(
+        total_return,
+        fx=_fx,
+        now=_now,
+        store=_store_arg,
+    )
+    _save(
+        total_return,
+        benchmarks,
+        holdings,
+        yearly_returns=yearly_returns,
+        output_dir=output_dir,
+    )
     # Drain the hint registry once and share the snapshot between
     # every downstream consumer: the curated build summary
     # (always-on, public stdout), the auto-populate hook (writes
@@ -395,6 +428,29 @@ def build_page(
         notifier=notifier_outcome,
         appended_stubs=appended_stubs,
     )
+    if _store.enabled:
+        portfolio = set(_collect_market_data_tickers(transactions, fixed_income))
+        for archived in _store.list_archived_tickers():
+            if archived not in portfolio:
+                _store.refresh_ticker(archived)
+
+
+def snapshot_market_data(
+    *,
+    pull: PullFn | None = None,
+    store: MarketDataStore | None = None,
+) -> None:
+    """Refresh committed yfinance snapshots for the portfolio ticker universe."""
+    _configure_logging()
+    _pull = pull if pull is not None else _pull_data
+    _store = store if store is not None else _default_market_data_store()
+    if not _store.enabled:
+        logger.info("market-data snapshots disabled (INVESTING_MARKET_DATA_DISABLE=1)")
+        return
+    transactions, fixed_income, _, _ = _pull()
+    tickers = _collect_market_data_tickers(transactions, fixed_income)
+    _store.refresh_universe(tickers)
+    logger.info("market-data snapshot refreshed for %d tickers", len(tickers))
 
 
 def main() -> None:

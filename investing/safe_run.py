@@ -21,7 +21,7 @@ import traceback
 # the redaction. Importing ``cli`` only in this direction (and not the
 # other way around) keeps the module DAG acyclic.
 from . import cli
-from .cli import main
+from .cli import main, snapshot_market_data
 
 # Re-export ``emit_summary`` so existing ``investing.safe_run.emit_summary``
 # call sites (and the dedicated test in ``tests/test_safe_run.py``)
@@ -254,4 +254,73 @@ def _run_main_safely() -> None:
         # Belt-and-braces cleanup for the setup-failure path (the
         # inner ``except`` blocks already restored on the handled
         # paths, and ``_restore`` is idempotent).
+        _restore()
+
+
+def _run_snapshot_safely() -> None:
+    """Run :func:`snapshot_market_data` with the same log redaction as production."""
+    real_stderr = sys.stderr
+    real_stdout = sys.stdout
+    devnull_py: io.TextIOWrapper | None = None
+    saved_stderr_fd = -1
+    saved_stdout_fd = -1
+    real_stdout_writer: io.TextIOWrapper | None = None
+    redirected = False
+    restored = False
+    captured_stdout = io.StringIO()
+
+    def _restore() -> None:
+        nonlocal restored
+        if restored:
+            return
+        restored = True
+        cli._REAL_STDOUT = None
+        if real_stdout_writer is not None:
+            with contextlib.suppress(OSError, ValueError):
+                real_stdout_writer.flush()
+            with contextlib.suppress(OSError, ValueError):
+                real_stdout_writer.close()
+        sys.stderr = real_stderr
+        sys.stdout = real_stdout
+        if redirected:
+            if saved_stderr_fd != -1:
+                os.dup2(saved_stderr_fd, 2)
+            if saved_stdout_fd != -1:
+                os.dup2(saved_stdout_fd, 1)
+        if saved_stderr_fd != -1:
+            os.close(saved_stderr_fd)
+        if saved_stdout_fd != -1:
+            os.close(saved_stdout_fd)
+        if devnull_py is not None:
+            devnull_py.close()
+
+    try:
+        devnull_py = open(os.devnull, "w")  # noqa: SIM115
+        saved_stderr_fd = os.dup(2)
+        saved_stdout_fd = os.dup(1)
+        real_stdout_writer = io.TextIOWrapper(
+            io.FileIO(saved_stdout_fd, mode="w", closefd=False),
+            encoding="utf-8",
+            write_through=True,
+        )
+        cli._REAL_STDOUT = real_stdout_writer
+        os.dup2(devnull_py.fileno(), 2)
+        os.dup2(devnull_py.fileno(), 1)
+        redirected = True
+        sys.stderr = devnull_py
+        sys.stdout = captured_stdout
+        try:
+            snapshot_market_data()
+        except SystemExit as exc:
+            _restore()
+            code = exc.code if isinstance(exc.code, int) else 1
+            if code != 0:
+                _print_sanitized_failure(exc)
+                sys.exit(1)
+            return
+        except (Exception, KeyboardInterrupt) as exc:
+            _restore()
+            _print_sanitized_failure(exc)
+            sys.exit(1)
+    finally:
         _restore()

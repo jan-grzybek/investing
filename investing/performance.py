@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 
 import numpy as np
 
@@ -16,6 +16,7 @@ from .formatting import _fmt_pct
 from .fx import FxRate, _fx_or_default
 from .holdings import DAYS_YEAR, Holding
 from .log import logger
+from .market_data_store import MarketDataStore
 from .trades import ACTIONS, combine_and_sort
 from .types import (
     BenchmarkSummary,
@@ -26,6 +27,7 @@ from .types import (
     TotalReturn,
     TradeEvent,
     Valuation,
+    YearlyReturn,
 )
 
 # Public surface of this module. ``_BENCHMARK_DISPLAY_NAMES`` is the
@@ -43,10 +45,10 @@ __all__ = [
     "PortfolioRollup",
     "apply_rollup",
     "calc_twr",
+    "calc_yearly_returns",
     "compute_rollup",
     "get_benchmarks",
     "get_holdings",
-    "summarize",
 ]
 
 
@@ -106,6 +108,7 @@ def get_holdings(
     fixed_income: list[EquityTransaction] | None = None,
     fx: FxRate | None = None,
     now: NowFn | None = None,
+    store: MarketDataStore | None = None,
 ) -> HoldingsRollup:
     """Roll up transactions into per-ticker Holding summaries.
 
@@ -173,6 +176,7 @@ def get_holdings(
                         fx=fx,
                         now=now,
                         asset_class=asset_class_by_ticker.get(t, "equity"),
+                        store=store,
                     ),
                 ),
                 unique_tickers,
@@ -305,13 +309,11 @@ def calc_twr(
 class PortfolioRollup:
     """Allocation / top-10 / per-holding weights derived from a holdings dict.
 
-    Replaces the in-place mutation :func:`summarize` used to perform
-    on the holdings dict. The rollup is computed in a pure function
-    (:func:`compute_rollup`) and applied to the carrier dict in an
-    explicit step (:func:`apply_rollup`) so the pipeline orchestrator
-    in :mod:`investing.cli` reads as "compute, then apply" rather
-    than "the function that returns a float also rewrites half its
-    input behind the caller's back".
+    Computed in a pure function (:func:`compute_rollup`) and applied to
+    the carrier dict in an explicit step (:func:`apply_rollup`) so the
+    pipeline orchestrator in :mod:`investing.cli` reads as "compute,
+    then apply" rather than burying side effects inside a helper that
+    also returns a float.
     """
 
     total_value_usd: float
@@ -346,6 +348,7 @@ def compute_rollup(
     total_equity_value_usd = 0.0
     total_fixed_income_value_usd = 0.0
     total_cash_value_usd = 0.0
+
     # Single guard helper that rejects zero/negative USD valuations
     # for any current holding regardless of asset class -- both
     # equities and fixed income sit on the same upstream price feed
@@ -367,9 +370,7 @@ def compute_rollup(
     for currency in cash:
         total_cash_value_usd += currency["amount"] * fx(currency["currency_code"])
 
-    total_value_usd = (
-        total_equity_value_usd + total_fixed_income_value_usd + total_cash_value_usd
-    )
+    total_value_usd = total_equity_value_usd + total_fixed_income_value_usd + total_cash_value_usd
 
     allocation_pct: dict[str, float] | None
     if total_value_usd > 0.0:
@@ -391,12 +392,8 @@ def compute_rollup(
         # been emitted unconditionally so that contract is
         # preserved for them.
         if total_fixed_income_value_usd > 0.0:
-            allocation_pct["Fixed Income"] = (
-                100 * total_fixed_income_value_usd / total_value_usd
-            )
-        allocation_pct["Cash & Cash Equivalents"] = (
-            100 * total_cash_value_usd / total_value_usd
-        )
+            allocation_pct["Fixed Income"] = 100 * total_fixed_income_value_usd / total_value_usd
+        allocation_pct["Cash & Cash Equivalents"] = 100 * total_cash_value_usd / total_value_usd
         logger.info(
             "Equity allocation: %s%%",
             _fmt_pct(allocation_pct["Equities"]),
@@ -500,27 +497,6 @@ def apply_rollup(holdings: HoldingsRollup, rollup: PortfolioRollup) -> None:
         )
 
 
-def summarize(
-    holdings: HoldingsRollup,
-    cash: list[CashBalance],
-    *,
-    fx: FxRate | None = None,
-) -> float:
-    """Legacy facade preserved for tests: compute + apply in one call.
-
-    New code prefers :func:`compute_rollup` (pure) + :func:`apply_rollup`
-    (visibly mutates) so the orchestrator in :mod:`investing.cli`
-    reads as a step-by-step pipeline instead of nesting a side-
-    effecting call inside :func:`calc_twr`. Returns the total
-    portfolio USD value -- the figure :func:`calc_twr` divides today's
-    valuation by to extend the TWR curve past the last spreadsheet
-    row.
-    """
-    rollup = compute_rollup(holdings, cash, fx=fx)
-    apply_rollup(holdings, rollup)
-    return rollup.total_value_usd
-
-
 class Benchmark:
     """A reference index resampled onto the portfolio's TWR timeline.
 
@@ -544,6 +520,7 @@ class Benchmark:
         start_date: datetime,
         fx: FxRate | None = None,
         now: NowFn | None = None,
+        store: MarketDataStore | None = None,
     ):
         self._ticker_symbol = ticker
         self._start_date = start_date
@@ -553,7 +530,7 @@ class Benchmark:
         # for CAGR without reaching into ``_holding`` (which has its
         # own clock plug for the same purpose).
         self._now: NowFn = now if now is not None else datetime.today
-        self._holding = Holding(ticker, fx=self._fx, now=now)
+        self._holding = Holding(ticker, fx=self._fx, now=now, store=store)
         # Single ``auto_adjust=False`` fetch carries the dividend /
         # split adjusted ``Adj Close`` column we use as both the
         # start-day basis (TSR denominator) and the cumulative-return
@@ -760,6 +737,31 @@ class Benchmark:
             "history": self.cumulative_return_series(reference_history),
         }
 
+    def _price_on_or_before(self, day: date, *, pin_live: bool = False) -> float:
+        """Adjusted close (or live price) on the last trading day at / before ``day``.
+
+        When ``pin_live`` is true and ``day`` is at / past the last
+        trading day in the Yahoo response, returns
+        ``regularMarketPrice`` so calendar-year windows ending today
+        agree with the headline TSR / chart endpoint.
+        """
+        target = np.datetime64(day)
+        idx = int(np.searchsorted(self._dates, target, side="right")) - 1
+        idx = int(np.clip(idx, 0, len(self._adj_closes) - 1))
+        if pin_live and target >= self._dates[-1]:
+            return float(self._current_market_price)
+        return float(self._adj_closes[idx])
+
+    def period_return_pct(self, anchor: date, end: date, *, pin_live_end: bool = False) -> float:
+        """Buy-and-hold total return from ``anchor`` through ``end``, in percent."""
+        start_price = self._price_on_or_before(anchor)
+        end_price = self._price_on_or_before(end, pin_live=pin_live_end)
+        if start_price == 0.0:
+            raise InvariantError(
+                "benchmark start price is zero -- cannot compute period return",
+            )
+        return (end_price / start_price - 1.0) * 100.0
+
 
 def _ffill(arr: np.ndarray) -> np.ndarray:
     """Forward-fill NaNs in a 1-D float array, then back-fill any
@@ -792,18 +794,118 @@ def _ffill(arr: np.ndarray) -> np.ndarray:
     return out
 
 
+def _multiplier_on_or_before(
+    history: list[tuple[datetime, float]],
+    day: date,
+) -> float:
+    """Last TWR multiplier in ``history`` with sample date on or before ``day``."""
+    result = 1.0
+    for sample_date, multiplier in history:
+        if sample_date.date() <= day:
+            result = multiplier
+        else:
+            break
+    return result
+
+
+def _period_return_from_multipliers(
+    history: list[tuple[datetime, float]],
+    anchor: date,
+    end: date,
+) -> float:
+    """Sub-period TWR between ``anchor`` and ``end``, expressed in percent."""
+    start_mult = _multiplier_on_or_before(history, anchor)
+    end_mult = _multiplier_on_or_before(history, end)
+    if start_mult == 0.0:
+        return 0.0
+    return (end_mult / start_mult - 1.0) * 100.0
+
+
+def calc_yearly_returns(
+    total_return: TotalReturn,
+    *,
+    benchmark: Benchmark | None = None,
+    benchmark_history: list[tuple[datetime, float]] | None = None,
+    now: NowFn | None = None,
+) -> list[YearlyReturn]:
+    """Calendar-year (and YTD) total returns for JG vs the primary benchmark.
+
+    Each row links the TWR multiplier curve at year boundaries using
+    the last known sample on or before each anchor/end date -- no
+    interpolation between spreadsheet valuations. The benchmark side
+    uses daily ``Adj Close`` (or the resampled ``benchmark_history``
+    fallback used by preview/tests) over the same anchor/end windows.
+
+    Rows are returned newest-first. The current calendar year is
+    flagged ``is_ytd`` and runs through ``now()`` rather than 31 Dec.
+    """
+    _now: NowFn = now if now is not None else datetime.today
+    history = total_return.get("history") or []
+    if not history:
+        return []
+
+    start_date = total_return["start_date"]
+    portfolio_start = start_date.date()
+    today = _now().date()
+    first_year = portfolio_start.year
+    last_year = today.year
+    rows: list[YearlyReturn] = []
+
+    for year in range(last_year, first_year - 1, -1):
+        if year == portfolio_start.year:
+            anchor = portfolio_start
+        else:
+            anchor = date(year - 1, 12, 31)
+
+        period_end = min(date(year, 12, 31), today)
+        is_ytd = year == today.year and period_end < date(year, 12, 31)
+        if anchor > period_end:
+            continue
+
+        jg_pct = _period_return_from_multipliers(history, anchor, period_end)
+        bench_pct: float | None = None
+        if benchmark is not None:
+            bench_pct = benchmark.period_return_pct(
+                anchor,
+                period_end,
+                pin_live_end=period_end == today,
+            )
+        elif benchmark_history:
+            bench_pct = _period_return_from_multipliers(
+                benchmark_history,
+                anchor,
+                period_end,
+            )
+
+        row: YearlyReturn = {
+            "year": year,
+            "jg%": jg_pct,
+            "is_ytd": is_ytd,
+        }
+        if bench_pct is not None:
+            row["bench%"] = bench_pct
+        rows.append(row)
+
+    return rows
+
+
 def get_benchmarks(
-    total_return_history: list[tuple[datetime, float]],
+    total_return: TotalReturn,
     *,
     fx: FxRate | None = None,
     now: NowFn | None = None,
-) -> list[BenchmarkSummary]:
+    store: MarketDataStore | None = None,
+) -> tuple[list[BenchmarkSummary], list[YearlyReturn]]:
     fx = _fx_or_default(fx)
-    start_date = total_return_history[0][0]
+    history = total_return.get("history") or []
+    if not history:
+        return [], []
+    start_date = total_return["start_date"]
     benchmarks: list[BenchmarkSummary] = []
-    for cfg in BENCHMARKS:
-        benchmark = Benchmark(cfg.ticker, start_date, fx=fx, now=now)
-        summary = benchmark.summary(total_return_history)
+    yearly_returns: list[YearlyReturn] = []
+    for index, cfg in enumerate(BENCHMARKS):
+        benchmark = Benchmark(cfg.ticker, start_date, fx=fx, now=now, store=store)
+        summary = benchmark.summary(history)
         benchmarks.append(summary)
         logger.info(
             "%s - %s - TSR: %s%% - CAGR: %s%%",
@@ -812,4 +914,10 @@ def get_benchmarks(
             _fmt_pct(summary["tsr%"]),
             _fmt_pct(summary["cagr%"]),
         )
-    return benchmarks
+        if index == 0:
+            yearly_returns = calc_yearly_returns(
+                total_return,
+                benchmark=benchmark,
+                now=now,
+            )
+    return benchmarks, yearly_returns

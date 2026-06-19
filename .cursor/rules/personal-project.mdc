@@ -1,0 +1,12 @@
+---
+description: Personal project — not for forks or external contributors
+alwaysApply: true
+---
+
+# Personal project
+
+This repo is maintained only by Jan Grzybek for his own portfolio site — not for forks, contributors, or other users.
+
+Do not add contributor onboarding, fork checklists, Makefile conveniences, or README dev guides for hypothetical outsiders. See [AGENTS.md](AGENTS.md).
+
+**Never leak secrets or spreadsheet source data** (`GSHEET_CREDS`, `GSHEET_ID`, share counts, cash balances, trade prices, etc.). Use synthetic preview fixtures only; scan commits for accidental exposure.

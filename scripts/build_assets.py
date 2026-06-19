@@ -20,7 +20,8 @@ manually:
 Layout:
 
     assets/src/js/<name>.js   -- readable JS source
-    assets/src/css/page.css   -- readable CSS source
+    assets/src/css/page.css   -- readable CSS source (split across
+                                ``00-base.css``, ``10-ticker.css``, …)
     assets/<name>.js          -- minified, served by Pages
     assets/page.css           -- minified, served by Pages
 
@@ -42,8 +43,8 @@ try:
 except ImportError as exc:  # pragma: no cover - exercised only on a misconfigured env
     print(
         f"build_assets requires rjsmin: {exc}\n"
-        "Install via ``pip install -r requirements-dev.txt`` or, in "
-        "pre-commit, let the hook environment manage it.",
+        "Install via ``pip install -e '.[dev]'`` or, in pre-commit, "
+        "let the hook environment manage it.",
         file=sys.stderr,
     )
     sys.exit(2)
@@ -53,8 +54,8 @@ try:
 except ImportError as exc:  # pragma: no cover - exercised only on a misconfigured env
     print(
         f"build_assets requires csscompressor: {exc}\n"
-        "Install via ``pip install -r requirements-dev.txt`` or, in "
-        "pre-commit, let the hook environment manage it.",
+        "Install via ``pip install -e '.[dev]'`` or, in pre-commit, "
+        "let the hook environment manage it.",
         file=sys.stderr,
     )
     sys.exit(2)

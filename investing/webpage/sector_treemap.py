@@ -105,7 +105,7 @@ _SECTOR_INSET_PCT = 0.4
 # renders in a ~4.6 : 1 IMG box) so the box adapts to each logo's
 # natural shape rather than letterboxing the median wordmark inside
 # a fixed-aspect rectangle. The CSS base box itself is ~3 : 1
-# (``clamp(60px, 11.5cqi, 96px)`` wide × ``clamp(22px, 3.8cqi, 28px)``
+# (``clamp(60px, 11.5cqi, 96px)`` wide x ``clamp(22px, 3.8cqi, 28px)``
 # tall), so ``R_ref = 3`` keeps the math centred on the base box's
 # intrinsic shape while letting wider logos earn extra horizontal
 # real estate.
@@ -596,9 +596,7 @@ def _layout_rows(rows: Sequence[_Row]) -> list[tuple[_Row, _Tile]]:
     sectors: dict[str, list[_Row]] = {}
     for r in rows:
         sectors.setdefault(r.sector, []).append(r)
-    sector_totals = [
-        (name, sum(x.weight for x in items)) for name, items in sectors.items()
-    ]
+    sector_totals = [(name, sum(x.weight for x in items)) for name, items in sectors.items()]
     sector_totals.sort(key=lambda st: st[1], reverse=True)
     for items in sectors.values():
         items.sort(key=lambda row: row.weight, reverse=True)
@@ -665,8 +663,7 @@ def _merge_small_into_other(rows: Sequence[_Row]) -> list[_Row]:
     for _ in range(len(rows_list) + 1):
         layout = _layout_rows(rows_list)
         too_small_exists = any(
-            tile.w < _TEXT_MIN_TILE_W_PCT or tile.h < _TEXT_MIN_TILE_H_PCT
-            for _row, tile in layout
+            tile.w < _TEXT_MIN_TILE_W_PCT or tile.h < _TEXT_MIN_TILE_H_PCT for _row, tile in layout
         )
         if not too_small_exists:
             return rows_list
@@ -680,9 +677,7 @@ def _merge_small_into_other(rows: Sequence[_Row]) -> list[_Row]:
             return rows_list
         smallest = min(real_rows, key=lambda row: row.weight)
         rows_list = [row for row in rows_list if row is not smallest]
-        existing_other = next(
-            (row for row in rows_list if row.is_aggregated), None
-        )
+        existing_other = next((row for row in rows_list if row.is_aggregated), None)
         if existing_other is None:
             rows_list.append(
                 _Row(
@@ -703,8 +698,7 @@ def _merge_small_into_other(rows: Sequence[_Row]) -> list[_Row]:
                     sector=_OTHER_SECTOR,
                     weight=existing_other.weight + smallest.weight,
                     logo_url="",
-                    folded_tickers=existing_other.folded_tickers
-                    + (smallest.ticker,),
+                    folded_tickers=existing_other.folded_tickers + (smallest.ticker,),
                 )
             )
     return rows_list
@@ -1012,10 +1006,7 @@ def _ticker_tile(*, row: _Row, tile: _Tile) -> str:
         # precision for sub-pixel accuracy on any realistic
         # container size and keeps the rendered HTML diff-stable.
         w_factor, h_factor = _equal_area_factors(row.logo_aspect, row.logo_density)
-        img_style = (
-            f"--logo-w-factor: {w_factor:.3f};"
-            f" --logo-h-factor: {h_factor:.3f};"
-        )
+        img_style = f"--logo-w-factor: {w_factor:.3f}; --logo-h-factor: {h_factor:.3f};"
         img_html = (
             '<img class="treemap__tile-logo" '
             f'src="{html.escape(row.logo_url)}" '

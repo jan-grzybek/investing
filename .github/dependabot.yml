@@ -1,7 +1,7 @@
 version: 2
 updates:
   # Python dependencies tracked via the pip-compile generated
-  # ``requirements.txt`` / ``requirements-dev.txt`` lockfiles. The
+  # ``requirements.txt`` lockfile. The
   # source of truth for direct deps now lives in ``pyproject.toml``
   # (``[project.dependencies]`` + ``[project.optional-dependencies.dev]``)
   # so the lock is a pure transitive snapshot. Dependabot's PRs against

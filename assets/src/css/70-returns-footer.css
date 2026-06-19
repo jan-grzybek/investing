@@ -1,0 +1,173 @@
+.returns-yearly {
+  margin: 16px 0 0;
+  padding: 18px 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card-bg);
+}
+.returns-yearly__heading {
+  margin: 0 0 12px;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.returns-yearly__wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.returns-yearly__table {
+  width: 100%;
+  min-width: 18rem;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+/* Mobile: shrink the year column to its label so metric columns
+   keep room and stay on one line. Desktop: fixed layout with a
+   wider year track so the table reads evenly across columns. */
+.returns-yearly__col-year { width: 1%; }
+@media (min-width: 541px) {
+  .returns-yearly__table { table-layout: fixed; }
+  .returns-yearly__col-year { width: 26%; }
+}
+.returns-yearly__table thead th {
+  padding: 0 12px 10px;
+  text-align: right;
+  color: var(--muted);
+  font-size: 0.875rem;
+  font-weight: 600;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+.returns-yearly__table thead th:first-child {
+  padding-left: 0;
+  text-align: left;
+}
+.returns-yearly__table thead th:not(:first-child) {
+  border-left: 1px solid var(--line);
+}
+.returns-yearly__table tbody th[scope="row"],
+.returns-yearly__table tbody td {
+  padding: 10px 12px;
+  border-top: 1px solid var(--line);
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.returns-yearly__table tbody th[scope="row"] {
+  padding-left: 0;
+  text-align: left;
+  font-weight: 600;
+  color: var(--text);
+  font-size: 0.9375rem;
+}
+.returns-yearly__table tbody td {
+  text-align: right;
+  font-weight: 700;
+  font-size: 0.9375rem;
+  border-left: 1px solid var(--line);
+}
+.returns-yearly__ytd {
+  font-weight: 500;
+  color: var(--muted);
+}
+.returns-yearly__empty {
+  color: var(--muted);
+  font-weight: 400;
+}
+.returns-yearly__table:not([data-expanded="true"])
+  tbody tr.returns-yearly__row:nth-of-type(n+5) {
+  display: none;
+}
+.returns-yearly__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 0 0;
+  padding: 8px 14px;
+  background: var(--card-bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.returns-yearly__toggle:hover {
+  background: color-mix(in srgb, var(--card-bg) 70%, var(--bg) 30%);
+  border-color: color-mix(in srgb, var(--line) 50%, var(--fg) 50%);
+}
+.returns-yearly__toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.returns-yearly__toggle::after {
+  content: "";
+  display: inline-block;
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid var(--muted);
+  transition: transform 150ms ease;
+}
+.returns-yearly__toggle[aria-expanded="true"]::after {
+  transform: rotate(180deg);
+}
+footer {
+  color: var(--muted);
+  font-size: 0.875rem;
+  /* Sits closer to the last capsule above than the original 40+24px
+     buffer: with the top border removed the heavy gap read as dead
+     space rather than a section break. ~36px total matches the
+     section-to-section rhythm so the "Methodology" heading lands at
+     the same vertical cadence as the in-page sections above. */
+  margin-top: 24px;
+  padding: 12px 0 0;
+  line-height: 1.6;
+}
+/* Footer links use the design system's dedicated ``--link`` blue
+   rather than the JG ``--accent`` orange. The Yahoo Finance citation
+   is an external resource, not a JG-brand signal, so it gets the
+   conventional "hyperlink blue" treatment and leaves the orange
+   exclusively for JG identity (section chapter rules, the JG-vs-
+   benchmark capsule top border, the chart's JG curve, focus rings).
+   In dark mode ``--link`` lifts to ``#8ECAE6`` Sky Blue Light so the
+   citation stays readable against the deep navy footer surface. */
+footer a { color: var(--link); }
+footer a:hover,
+footer a:focus-visible {
+  color: var(--link-hover);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 2px;
+}
+/* Section heading inside the footer ("Methodology", "Disclaimer").
+   Level mirrors ``.section__title`` (h2) so the document outline
+   stays linear, but the visual scale is tuned to the smaller
+   footer body type: a touch larger than the surrounding 0.875rem
+   prose, bolder, and lifted to ``var(--fg)`` so it reads as a
+   heading rather than blending into the muted body text. The
+   first heading drops its top margin so it sits flush with the
+   footer's top padding. */
+.footer__title {
+  color: var(--fg);
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 18px 0 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--line);
+}
+.footer__title:first-of-type { margin-top: 0; }
+.footer__notes {
+  margin: 0 0 16px;
+  padding-left: 22px;
+}
+.footer__notes li { margin-bottom: 6px; }
+.footer__notes li:last-child { margin-bottom: 0; }
+.footer__disclaimer,
+.footer__legal { margin: 0 0 12px; }
+.footer__updated {
+  margin: 16px 0 0;
+  font-size: 0.8125rem;
+  opacity: 0.85;
+}

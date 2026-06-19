@@ -88,9 +88,7 @@ class TestEnvGating:
         monkeypatch.setenv("GITHUB_TOKEN", "ghs_xxx")
         monkeypatch.setenv("GITHUB_REPOSITORY", "acme/widgets")
         session = _install_session(monkeypatch)
-        outcome = notifier.notify_github(
-            MaintenanceHints(missing_sector=["NMS:AAA"])
-        )
+        outcome = notifier.notify_github(MaintenanceHints(missing_sector=["NMS:AAA"]))
         assert session.method_calls == []
         assert outcome.enabled is False
         assert outcome.is_empty
@@ -100,9 +98,7 @@ class TestEnvGating:
         monkeypatch.delenv("GITHUB_TOKEN", raising=False)
         monkeypatch.setenv("GITHUB_REPOSITORY", "acme/widgets")
         session = _install_session(monkeypatch)
-        outcome = notifier.notify_github(
-            MaintenanceHints(missing_sector=["NMS:AAA"])
-        )
+        outcome = notifier.notify_github(MaintenanceHints(missing_sector=["NMS:AAA"]))
         assert session.method_calls == []
         assert outcome.enabled is False
 
@@ -111,9 +107,7 @@ class TestEnvGating:
         monkeypatch.setenv("GITHUB_TOKEN", "ghs_xxx")
         monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
         session = _install_session(monkeypatch)
-        outcome = notifier.notify_github(
-            MaintenanceHints(missing_sector=["NMS:AAA"])
-        )
+        outcome = notifier.notify_github(MaintenanceHints(missing_sector=["NMS:AAA"]))
         assert session.method_calls == []
         assert outcome.enabled is False
 
@@ -138,9 +132,7 @@ class TestEnvGating:
 
 class TestApiRoot:
     def test_defaults_to_public_github(self):
-        ctx = notifier._GitHubContext(
-            token="t", repo="acme/widgets", api_url=None
-        )
+        ctx = notifier._GitHubContext(token="t", repo="acme/widgets", api_url=None)
         assert notifier._api_root(ctx) == "https://api.github.com/repos/acme/widgets"
 
     def test_honours_github_api_url(self):
@@ -153,10 +145,7 @@ class TestApiRoot:
             repo="acme/widgets",
             api_url="https://github.example.com/api/v3",
         )
-        assert (
-            notifier._api_root(ctx)
-            == "https://github.example.com/api/v3/repos/acme/widgets"
-        )
+        assert notifier._api_root(ctx) == "https://github.example.com/api/v3/repos/acme/widgets"
 
     def test_strips_trailing_slash(self):
         # Defensive: a stray trailing slash on the env var should
@@ -166,10 +155,7 @@ class TestApiRoot:
             repo="acme/widgets",
             api_url="https://api.github.com/",
         )
-        assert (
-            notifier._api_root(ctx)
-            == "https://api.github.com/repos/acme/widgets"
-        )
+        assert notifier._api_root(ctx) == "https://api.github.com/repos/acme/widgets"
 
 
 # ---------------------------------------------------------------------------
@@ -184,9 +170,7 @@ class TestMissingSectorRouting:
         session.get.return_value = _ok_response([])
         session.post.return_value = _ok_response({"number": 42}, status=201)
 
-        outcome = notifier.notify_github(
-            MaintenanceHints(missing_sector=["NMS:AAA"])
-        )
+        outcome = notifier.notify_github(MaintenanceHints(missing_sector=["NMS:AAA"]))
 
         assert session.post.call_count == 1
         call = session.post.call_args
@@ -216,9 +200,7 @@ class TestMissingSectorRouting:
             [{"number": 7, "state": "open", "title": "Missing sector for NMS:AAA"}]
         )
 
-        outcome = notifier.notify_github(
-            MaintenanceHints(missing_sector=["NMS:AAA"])
-        )
+        outcome = notifier.notify_github(MaintenanceHints(missing_sector=["NMS:AAA"]))
 
         # Lookup happened, but the create call MUST NOT fire.
         assert session.get.call_count == 1
@@ -239,9 +221,7 @@ class TestMissingSectorRouting:
             [{"number": 7, "state": "closed", "title": "Missing sector for NMS:AAA"}]
         )
 
-        outcome = notifier.notify_github(
-            MaintenanceHints(missing_sector=["NMS:AAA"])
-        )
+        outcome = notifier.notify_github(MaintenanceHints(missing_sector=["NMS:AAA"]))
 
         assert session.post.call_count == 0
         # A closed-issue match still counts as ``already_tracked`` --
@@ -259,9 +239,7 @@ class TestMissingSectorRouting:
         session.get.return_value = _ok_response([])
         session.post.return_value = _ok_response({"number": 1}, status=201)
 
-        notifier.notify_github(
-            MaintenanceHints(missing_sector=["NMS:AAA"])
-        )
+        notifier.notify_github(MaintenanceHints(missing_sector=["NMS:AAA"]))
 
         url = session.get.call_args.args[0]
         assert "state=all" in url
@@ -317,9 +295,7 @@ class TestInvalidOverrideRouting:
         session.get.return_value = _ok_response([])
         session.post.return_value = _ok_response({"number": 99}, status=201)
 
-        notifier.notify_github(
-            MaintenanceHints(invalid_overrides={"NMS:AAA": "Tech"})
-        )
+        notifier.notify_github(MaintenanceHints(invalid_overrides={"NMS:AAA": "Tech"}))
 
         body = session.post.call_args.kwargs["json"]
         # Title carries the bad value so the maintainer reads it
@@ -347,9 +323,7 @@ class TestInvalidOverrideRouting:
             ]
         )
 
-        notifier.notify_github(
-            MaintenanceHints(invalid_overrides={"NMS:AAA": "Tech"})
-        )
+        notifier.notify_github(MaintenanceHints(invalid_overrides={"NMS:AAA": "Tech"}))
 
         assert session.post.call_count == 0
 
@@ -371,9 +345,7 @@ class TestInvalidOverrideRouting:
         )
         session.post.return_value = _ok_response({"number": 99}, status=201)
 
-        notifier.notify_github(
-            MaintenanceHints(invalid_overrides={"NMS:AAA": "Tech"})
-        )
+        notifier.notify_github(MaintenanceHints(invalid_overrides={"NMS:AAA": "Tech"}))
 
         assert session.post.call_count == 1
         body = session.post.call_args.kwargs["json"]
@@ -421,9 +393,7 @@ class TestDefensiveLookup:
         session = _install_session(monkeypatch)
         session.get.side_effect = requests.ConnectionError("simulated")
 
-        outcome = notifier.notify_github(
-            MaintenanceHints(missing_sector=["NMS:AAA"])
-        )
+        outcome = notifier.notify_github(MaintenanceHints(missing_sector=["NMS:AAA"]))
 
         assert session.post.call_count == 0
         # Lookup failure surfaces in the ``failed`` counter so the
@@ -440,9 +410,7 @@ class TestDefensiveLookup:
         session = _install_session(monkeypatch)
         session.get.return_value = _ok_response(None, status=503)
 
-        outcome = notifier.notify_github(
-            MaintenanceHints(missing_sector=["NMS:AAA"])
-        )
+        outcome = notifier.notify_github(MaintenanceHints(missing_sector=["NMS:AAA"]))
 
         assert session.post.call_count == 0
         assert outcome.failed == ["NMS:AAA"]
@@ -455,9 +423,7 @@ class TestDefensiveLookup:
         resp.json.side_effect = ValueError("not JSON")
         session.get.return_value = resp
 
-        outcome = notifier.notify_github(
-            MaintenanceHints(missing_sector=["NMS:AAA"])
-        )
+        outcome = notifier.notify_github(MaintenanceHints(missing_sector=["NMS:AAA"]))
 
         assert session.post.call_count == 0
         assert outcome.failed == ["NMS:AAA"]
@@ -473,9 +439,7 @@ class TestDefensiveCreate:
         session.get.return_value = _ok_response([])
         session.post.side_effect = requests.ConnectionError("simulated")
 
-        outcome = notifier.notify_github(
-            MaintenanceHints(missing_sector=["NMS:AAA"])
-        )
+        outcome = notifier.notify_github(MaintenanceHints(missing_sector=["NMS:AAA"]))
         # Failure must not raise AND must surface in the outcome
         # so the operator's build summary flags the problem.
         assert outcome.failed == ["NMS:AAA"]
@@ -491,9 +455,7 @@ class TestDefensiveCreate:
         session.get.return_value = _ok_response([])
         session.post.return_value = _ok_response(None, status=422)
 
-        outcome = notifier.notify_github(
-            MaintenanceHints(missing_sector=["NMS:AAA"])
-        )
+        outcome = notifier.notify_github(MaintenanceHints(missing_sector=["NMS:AAA"]))
         assert outcome.failed == ["NMS:AAA"]
 
     def test_issues_disabled_410_falls_into_failed_bucket(self, monkeypatch):
@@ -506,12 +468,11 @@ class TestDefensiveCreate:
         _enable_notifier(monkeypatch)
         session = _install_session(monkeypatch)
         session.get.return_value = _ok_response(
-            {"message": "Issues are disabled for this repo"}, status=410,
+            {"message": "Issues are disabled for this repo"},
+            status=410,
         )
 
-        outcome = notifier.notify_github(
-            MaintenanceHints(missing_sector=["NMS:AAA"])
-        )
+        outcome = notifier.notify_github(MaintenanceHints(missing_sector=["NMS:AAA"]))
 
         assert outcome.failed == ["NMS:AAA"]
         assert outcome.opened == []
@@ -555,7 +516,9 @@ class TestBuildPageWiring:
     """
 
     def test_notifier_receives_hints_recorded_during_build(
-        self, monkeypatch, tmp_path,
+        self,
+        monkeypatch,
+        tmp_path,
     ):
         # Plant a hint *before* build_page runs and stub every other
         # pipeline step so the test is exclusively about the hint
@@ -581,7 +544,8 @@ class TestBuildPageWiring:
             return ([], [], [], [])
 
         monkeypatch.setattr(
-            cli, "get_holdings",
+            cli,
+            "get_holdings",
             lambda *a, **kw: {"current": [], "historical": []},  # noqa: ARG005
         )
 
@@ -589,17 +553,24 @@ class TestBuildPageWiring:
             total_value_usd = 0.0
 
         monkeypatch.setattr(
-            cli, "compute_rollup", lambda *a, **kw: _StubRollup()  # noqa: ARG005
+            cli,
+            "compute_rollup",
+            lambda *a, **kw: _StubRollup(),  # noqa: ARG005
         )
         monkeypatch.setattr(
-            cli, "apply_rollup", lambda *a, **kw: None  # noqa: ARG005
+            cli,
+            "apply_rollup",
+            lambda *a, **kw: None,  # noqa: ARG005
         )
         monkeypatch.setattr(
-            cli, "calc_twr",
+            cli,
+            "calc_twr",
             lambda *a, **kw: {"history": [], "twr%": 0.0, "cagr%": 0.0},  # noqa: ARG005
         )
         monkeypatch.setattr(
-            cli, "get_benchmarks", lambda *a, **kw: []  # noqa: ARG005
+            cli,
+            "get_benchmarks",
+            lambda *a, **kw: ([], []),  # noqa: ARG005
         )
 
         notified: list = []

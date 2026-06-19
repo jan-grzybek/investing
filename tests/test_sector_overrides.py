@@ -54,9 +54,7 @@ class TestResolveSector:
             tmp_path,
             '[sectors]\n"NMS:AAA" = "Healthcare"\n',
         )
-        result = resolve_sector(
-            "NMS:AAA", "Technology", overrides_path=str(path)
-        )
+        result = resolve_sector("NMS:AAA", "Technology", overrides_path=str(path))
         assert result == "Technology"
 
     def test_override_used_when_yfinance_blank(self, tmp_path):
@@ -118,11 +116,7 @@ class TestLoadOverrides:
     def test_valid_entries_are_returned(self, tmp_path):
         path = _write_overrides(
             tmp_path,
-            (
-                "[sectors]\n"
-                '"NMS:AAA" = "Technology"\n'
-                '"NYQ:BBB" = "Healthcare"\n'
-            ),
+            ('[sectors]\n"NMS:AAA" = "Technology"\n"NYQ:BBB" = "Healthcare"\n'),
         )
         result = _load_overrides(str(path))
         assert result == {
@@ -149,7 +143,7 @@ class TestLoadOverrides:
         # so the renderer never sees a non-sector payload.
         path = _write_overrides(
             tmp_path,
-            "[sectors]\n\"NMS:AAA\" = 42\n",
+            '[sectors]\n"NMS:AAA" = 42\n',
         )
         assert _load_overrides(str(path)) == {}
         hints = consume_hints()
@@ -291,7 +285,8 @@ class TestAppendMissingSectorStubs:
     def test_appends_commented_stub_for_each_ticker(self, tmp_path):
         path = _write_overrides(tmp_path, "[sectors]\n")
         appended = append_missing_sector_stubs(
-            ["NMS:FISV", "NYQ:WIDGET"], path=str(path),
+            ["NMS:FISV", "NYQ:WIDGET"],
+            path=str(path),
         )
         assert appended == ["NMS:FISV", "NYQ:WIDGET"]
         text = path.read_text(encoding="utf-8")
@@ -355,7 +350,8 @@ class TestAppendMissingSectorStubs:
             '[sectors]\n"NMS:AAA" = "Technology"\n',
         )
         appended = append_missing_sector_stubs(
-            ["NMS:AAA", "NMS:BBB"], path=str(path),
+            ["NMS:AAA", "NMS:BBB"],
+            path=str(path),
         )
         assert appended == ["NMS:BBB"]
         text = path.read_text(encoding="utf-8")
@@ -398,7 +394,8 @@ class TestAppendMissingSectorStubs:
             ),
         )
         appended = append_missing_sector_stubs(
-            ["DUS:SSU.DU"], path=str(path),
+            ["DUS:SSU.DU"],
+            path=str(path),
         )
         assert appended == ["DUS:SSU.DU"]
         text = path.read_text(encoding="utf-8")
@@ -420,7 +417,8 @@ class TestAppendMissingSectorStubs:
         # ``"DUS:SSU.DU"`` via the ``.`` wildcard and erroneously
         # skip.
         appended = append_missing_sector_stubs(
-            ["DUS:SSUaDU"], path=str(path),
+            ["DUS:SSUaDU"],
+            path=str(path),
         )
         assert appended == ["DUS:SSUaDU"]
 
@@ -441,7 +439,9 @@ class TestAppendMissingSectorStubs:
         assert path.read_text(encoding="utf-8") == original
 
     def test_uses_default_path_when_argument_omitted(
-        self, tmp_path, monkeypatch,
+        self,
+        tmp_path,
+        monkeypatch,
     ):
         # Production callsites omit ``path``; the function must
         # then fall through to :data:`_SECTOR_OVERRIDES_PATH`. The
@@ -513,9 +513,7 @@ class TestRepoOverridesFile:
         _clear_overrides_cache()
         overrides = _load_overrides()
         for ticker, sector in overrides.items():
-            assert sector in KNOWN_SECTORS, (
-                f"{ticker} overrides to invalid sector {sector!r}"
-            )
+            assert sector in KNOWN_SECTORS, f"{ticker} overrides to invalid sector {sector!r}"
         # No invalid-override hint should have been recorded as a
         # side effect of parsing the production file -- if it had,
         # the same parse loop above would have skipped the bad

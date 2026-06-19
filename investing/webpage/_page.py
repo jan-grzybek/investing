@@ -37,6 +37,7 @@ from ..types import (
     HoldingSummary,
     TotalReturn,
     TradeEvent,
+    YearlyReturn,
 )
 from . import bars as _bars
 from . import holdings_view as _holdings_view
@@ -47,6 +48,11 @@ from . import trades_view as _trades_view
 from .anchors import holding_anchor, strip_exchange
 from .head import SiteMeta, build_analytics_tag, build_head, build_jsonld
 from .sitemap import write_robots_txt, write_sitemap
+
+# Default number of calendar-year rows visible before the "Show all"
+# toggle expands the table. Kept in sync with the CSS
+# ``nth-of-type(n+5)`` cutoff (four visible rows).
+_YEARLY_VISIBLE_DEFAULT = 4
 
 
 def _write_if_changed(path: Path, body: str) -> bool:
@@ -139,10 +145,16 @@ class Webpage:
         self,
         total_return: TotalReturn,
         benchmarks: list[BenchmarkSummary],
+        *,
+        yearly_returns: list[YearlyReturn] | None = None,
     ) -> None:
         self._total_return = total_return
         self._benchmarks = benchmarks
-        self.return_html = self._build_return_section(total_return, benchmarks)
+        self.return_html = self._build_return_section(
+            total_return,
+            benchmarks,
+            yearly_returns=yearly_returns or [],
+        )
 
     def add_holding(self, holding: HoldingSummary) -> None:
         # ``asset_class`` defaults to ``"equity"`` so historical
@@ -182,9 +194,7 @@ class Webpage:
         card = self._build_holding_card(holding)
         if is_fixed_income:
             bucket = (
-                self.current_fixed_income
-                if holding["is_current"]
-                else self.historical_fixed_income
+                self.current_fixed_income if holding["is_current"] else self.historical_fixed_income
             )
         else:
             bucket = self.current if holding["is_current"] else self.historical
@@ -282,9 +292,7 @@ class Webpage:
                     )
                 )
             if self.current:
-                parts.append(
-                    '<h3 id="equities" class="section__subtitle">Equities</h3>'
-                )
+                parts.append('<h3 id="equities" class="section__subtitle">Equities</h3>')
                 # Sector treemap: equities only (cash, fixed-income and
                 # historical positions are filtered out by
                 # ``add_holding`` upstream). The renderer returns an
@@ -301,82 +309,48 @@ class Webpage:
                 # be inert chrome. Same gate applies to every other
                 # asset-class / current-vs-historical bucket below so
                 # the rule reads symmetric across the page.
-                if len(self.current) > 1:
-                    parts.append(
-                        self._build_holdings_sort_control(
-                            scope="current",
-                            include_weight=True,
-                        )
-                    )
-                parts.append(
-                    '<div class="holdings__list" data-holdings-list="current">'
+                self._append_holdings_list(
+                    parts,
+                    scope="current",
+                    cards=self.current,
+                    include_weight=True,
                 )
-                parts.append("\n".join(self.current))
-                parts.append("</div>")
             if self.current_fixed_income:
-                parts.append(
-                    '<h3 id="fixed-income" class="section__subtitle">Fixed Income</h3>'
-                )
+                parts.append('<h3 id="fixed-income" class="section__subtitle">Fixed Income</h3>')
                 # Fixed income mirrors the equities sub-section's
                 # capsule + sort affordances but skips the sector
                 # treemap -- the chart exists to surface the equity
                 # sleeve's GICS-style sector composition, and bond /
                 # treasury tickers don't carry that signal.
-                if len(self.current_fixed_income) > 1:
-                    parts.append(
-                        self._build_holdings_sort_control(
-                            scope="current-fixed-income",
-                            include_weight=True,
-                        )
-                    )
-                parts.append(
-                    '<div class="holdings__list" '
-                    'data-holdings-list="current-fixed-income">'
+                self._append_holdings_list(
+                    parts,
+                    scope="current-fixed-income",
+                    cards=self.current_fixed_income,
+                    include_weight=True,
                 )
-                parts.append("\n".join(self.current_fixed_income))
-                parts.append("</div>")
             parts.append("</section>")
 
         if self.historical or self.historical_fixed_income:
             parts.append('<section id="historical" class="section section--historical">')
             parts.append('<h2 class="section__title">Historical holdings</h2>')
             if self.historical:
-                parts.append(
-                    '<h3 id="historical-equities" class="section__subtitle">'
-                    "Equities"
-                    "</h3>"
+                parts.append('<h3 id="historical-equities" class="section__subtitle">Equities</h3>')
+                self._append_holdings_list(
+                    parts,
+                    scope="historical",
+                    cards=self.historical,
+                    include_weight=False,
                 )
-                if len(self.historical) > 1:
-                    parts.append(
-                        self._build_holdings_sort_control(
-                            scope="historical",
-                            include_weight=False,
-                        )
-                    )
-                parts.append(
-                    '<div class="holdings__list" data-holdings-list="historical">'
-                )
-                parts.append("\n".join(self.historical))
-                parts.append("</div>")
             if self.historical_fixed_income:
                 parts.append(
-                    '<h3 id="historical-fixed-income" class="section__subtitle">'
-                    "Fixed Income"
-                    "</h3>"
+                    '<h3 id="historical-fixed-income" class="section__subtitle">Fixed Income</h3>'
                 )
-                if len(self.historical_fixed_income) > 1:
-                    parts.append(
-                        self._build_holdings_sort_control(
-                            scope="historical-fixed-income",
-                            include_weight=False,
-                        )
-                    )
-                parts.append(
-                    '<div class="holdings__list" '
-                    'data-holdings-list="historical-fixed-income">'
+                self._append_holdings_list(
+                    parts,
+                    scope="historical-fixed-income",
+                    cards=self.historical_fixed_income,
+                    include_weight=False,
                 )
-                parts.append("\n".join(self.historical_fixed_income))
-                parts.append("</div>")
             parts.append("</section>")
 
         if self.trades:
@@ -717,7 +691,13 @@ class Webpage:
 
     # ---- per-section builders ------------------------------------------
 
-    def _build_return_section(self, total_return, benchmarks) -> str:
+    def _build_return_section(
+        self,
+        total_return,
+        benchmarks,
+        *,
+        yearly_returns: list[YearlyReturn] | None = None,
+    ) -> str:
         lines: list[str] = []
         # Short orientation paragraph so a first-time reader knows
         # what the chart + comparison capsules below it represent
@@ -744,6 +724,9 @@ class Webpage:
                 include_period=not chart,
             )
         )
+        yearly_html = self._build_yearly_returns(yearly_returns or [], benchmarks)
+        if yearly_html:
+            lines.append(yearly_html)
         return "\n".join(lines)
 
     def _build_return_intro(self, benchmarks) -> str:
@@ -864,6 +847,90 @@ class Webpage:
             "</section>"
         )
 
+    def _build_yearly_returns(
+        self,
+        yearly_returns: list[YearlyReturn],
+        benchmarks: list[BenchmarkSummary],
+    ) -> str:
+        """Render a newest-first table of calendar-year total returns.
+
+        JG and the primary benchmark share each row in distinct
+        columns; the current calendar year is labelled ``(YTD)``.
+        When no benchmark is configured the table omits the benchmark
+        and delta columns."""
+        if not yearly_returns:
+            return ""
+
+        has_benchmark = bool(benchmarks) and any("bench%" in row for row in yearly_returns)
+        bench_label = html.escape(self._benchmark_label(benchmarks[0])) if has_benchmark else ""
+
+        header_cells = ['<th scope="col">Year</th>', '<th scope="col">JG</th>']
+        if has_benchmark:
+            header_cells.extend(
+                [
+                    f'<th scope="col">{bench_label}</th>',
+                    '<th scope="col">Δ</th>',
+                ],
+            )
+
+        metric_col_count = 3 if has_benchmark else 1
+        colgroup = [
+            '<col class="returns-yearly__col-year">',
+            *(['<col class="returns-yearly__col-metric">'] * metric_col_count),
+        ]
+
+        body_rows: list[str] = []
+        for row in yearly_returns:
+            year = row["year"]
+            if row.get("is_ytd"):
+                year_cell = f'{year} <span class="returns-yearly__ytd">(YTD)</span>'
+            else:
+                year_cell = html.escape(str(year))
+            cells = [
+                f'<th scope="row">{year_cell}</th>',
+                f'<td class="{_value_class(row["jg%"])}">{_fmt_pct(row["jg%"])}%</td>',
+            ]
+            if has_benchmark:
+                bench_pct = row.get("bench%")
+                if bench_pct is None:
+                    cells.append('<td class="returns-yearly__empty">&mdash;</td>')
+                    cells.append('<td class="returns-yearly__empty">&mdash;</td>')
+                else:
+                    delta = row["jg%"] - bench_pct
+                    cells.extend(
+                        [
+                            f'<td class="{_value_class(bench_pct)}">{_fmt_pct(bench_pct)}%</td>',
+                            f'<td class="{_value_class(delta)}">'
+                            f"{_fmt_pct(delta, signed=True)} pp</td>",
+                        ],
+                    )
+            body_rows.append(
+                f'<tr class="returns-yearly__row">{"".join(cells)}</tr>',
+            )
+
+        toggle_html = ""
+        total = len(body_rows)
+        if total > _YEARLY_VISIBLE_DEFAULT:
+            toggle_html = (
+                '<button type="button" class="returns-yearly__toggle" '
+                f'data-total="{total}" aria-expanded="false">'
+                f"Show all {total} years</button>"
+            )
+
+        return (
+            '<section class="returns-yearly">'
+            '<h3 class="returns-yearly__heading">Returns by year</h3>'
+            '<div class="returns-yearly__wrap">'
+            '<table class="returns-yearly__table">'
+            f"<colgroup>{''.join(colgroup)}</colgroup>"
+            f"<thead><tr>{''.join(header_cells)}</tr></thead>"
+            f"<tbody>{''.join(body_rows)}</tbody>"
+            "</table>"
+            "</div>"
+            f"{toggle_html}"
+            "</section>"
+        )
+
     @staticmethod
     def _benchmark_label(benchmark) -> str:
         """Friendly display name for a benchmark, falling back gracefully."""
@@ -945,8 +1012,33 @@ class Webpage:
     # ``Webpage._build_holdings_sort_control`` /
     # ``Webpage._HOLDINGS_SORT_OPTIONS`` call surface.
     _HOLDINGS_SORT_OPTIONS = _holdings_view.SORT_OPTIONS
+    _HOLDINGS_VISIBLE_DEFAULT = _holdings_view.VISIBLE_DEFAULT
     _build_card = staticmethod(_holdings_view.build_card)
     _build_holdings_sort_control = staticmethod(_holdings_view.build_sort_control)
+    _build_holdings_toggle = staticmethod(_holdings_view.build_toggle)
+
+    def _append_holdings_list(
+        self,
+        parts: list[str],
+        *,
+        scope: str,
+        cards: list[str],
+        include_weight: bool,
+    ) -> None:
+        """Append the sort toolbar, list wrapper, and optional collapse toggle."""
+        if len(cards) > 1:
+            parts.append(
+                self._build_holdings_sort_control(
+                    scope=scope,
+                    include_weight=include_weight,
+                )
+            )
+        parts.append(f'<div class="holdings__list" data-holdings-list="{scope}">')
+        parts.append("\n".join(cards))
+        parts.append("</div>")
+        toggle = self._build_holdings_toggle(scope=scope, total=len(cards))
+        if toggle:
+            parts.append(toggle)
 
     def _build_holding_card(self, holding) -> str:
         return _holdings_view.build_holding_card(
@@ -1014,7 +1106,9 @@ def generate_webpage(
     benchmarks: list[BenchmarkSummary],
     holdings: HoldingsRollup,
     *,
+    yearly_returns: list[YearlyReturn] | None = None,
     output_dir: Path | None = None,
+    now: NowFn | None = None,
 ) -> None:
     """Render ``Webpage`` from a pre-computed pipeline output bundle.
 
@@ -1029,8 +1123,12 @@ def generate_webpage(
     ``Webpage.add_holding`` reads the per-summary ``asset_class``
     tag and routes each capsule into the matching sub-section.
     """
-    webpage = Webpage()
-    webpage.add_return(total_return, benchmarks)
+    webpage = Webpage(now=now)
+    webpage.add_return(
+        total_return,
+        benchmarks,
+        yearly_returns=yearly_returns,
+    )
     webpage.add_allocations(holdings.get("allocation%"), holdings.get("top_10"))
     for holding in holdings["current"]:
         webpage.add_holding(holding)

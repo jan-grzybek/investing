@@ -214,8 +214,7 @@ _CASH_SCHEMA = _WorksheetSchema(
 
 
 _SCHEMAS_BY_NAME: dict[str, _WorksheetSchema] = {
-    s.name: s
-    for s in (_EQUITIES_SCHEMA, _FIXED_INCOME_SCHEMA, _RETURN_SCHEMA, _CASH_SCHEMA)
+    s.name: s for s in (_EQUITIES_SCHEMA, _FIXED_INCOME_SCHEMA, _RETURN_SCHEMA, _CASH_SCHEMA)
 }
 
 

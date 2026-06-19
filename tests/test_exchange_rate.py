@@ -158,7 +158,7 @@ class TestHistorical:
         _stub_ticker(monkeypatch, {"EURUSD=X": ticker})
 
         fx = ExchangeRate()
-        with caplog.at_level("WARNING"):
+        with caplog.at_level("WARNING", logger="investing.update"):
             assert fx("EUR", datetime(2024, 5, 1)) == pytest.approx(1.42)
             # Repeat lookups for the same currency must not re-emit the
             # warning -- the operator only needs to learn about the

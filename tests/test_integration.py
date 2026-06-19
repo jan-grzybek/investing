@@ -34,23 +34,8 @@ def _mk_ticker(symbol, *, price, currency="USD"):
 
 
 @pytest.fixture
-def stub_fx():
-    """A stub fx callable that always returns 1.0."""
-
-    def _rate(currency, date=None):  # noqa: ARG001
-        return 1.0
-
-    return _rate
-
-
-@pytest.fixture
 def stub_world(monkeypatch):
-    """Mock Yahoo + requests for full-pipeline tests.
-
-    FX is injected via the ``fx`` parameter on ``get_holdings`` / etc.;
-    use the :func:`stub_fx` fixture alongside this one when the test
-    constructs holdings.
-    """
+    """Mock Yahoo + requests for full-pipeline tests."""
     from investing.logos import LogoCache
 
     tickers = {
@@ -58,9 +43,6 @@ def stub_world(monkeypatch):
         "BBB": _mk_ticker("BBB", price=80.0),
     }
     monkeypatch.setattr(_holdings.yf, "Ticker", lambda s: tickers[s])
-    # Force the logo resolver to skip every probe -- the integration
-    # tests run without network, so all extensions must return 404 and
-    # the resolver should fall through to the bundled placeholder.
     fake_session = MagicMock()
     fake_session.head.return_value = MagicMock(status_code=404)
     monkeypatch.setattr(
@@ -71,10 +53,8 @@ def stub_world(monkeypatch):
 
 
 class TestGetHoldings:
-    def test_splits_open_vs_closed_positions(self, stub_world, stub_fx, freeze_today):
-        freeze_today(datetime(2025, 1, 1))
-        # AAA: bought and still holding -> current.
-        # BBB: fully sold -> historical.
+    def test_splits_open_vs_closed_positions(self, stub_world, stub_exchange_rate, at_datetime):
+        when = datetime(2025, 1, 1)
         transactions = [
             {
                 "date": "01-01-2024",
@@ -98,15 +78,20 @@ class TestGetHoldings:
                 "action": "SELL",
             },
         ]
-        result = get_holdings(transactions, fx=stub_fx)
+        result = get_holdings(
+            transactions,
+            fx=stub_exchange_rate,
+            now=at_datetime(when),
+        )
 
         assert {h["ticker"] for h in result["current"]} == {"NMS:AAA"}
         assert {h["ticker"] for h in result["historical"]} == {"NMS:BBB"}
-        # current_value_usd for AAA = 10 * 150
         assert result["current"][0]["current_value_usd"] == pytest.approx(1500.0)
 
-    def test_current_sorted_by_latest_buy_descending(self, stub_world, stub_fx, freeze_today):
-        freeze_today(datetime(2025, 1, 1))
+    def test_current_sorted_by_latest_buy_descending(
+        self, stub_world, stub_exchange_rate, at_datetime
+    ):
+        when = datetime(2025, 1, 1)
         transactions = [
             {
                 "date": "01-01-2024",
@@ -123,20 +108,17 @@ class TestGetHoldings:
                 "action": "BUY",
             },
         ]
-        result = get_holdings(transactions, fx=stub_fx)
-        # BBB bought later -> appears first.
+        result = get_holdings(
+            transactions,
+            fx=stub_exchange_rate,
+            now=at_datetime(when),
+        )
         assert [h["ticker"] for h in result["current"]] == ["NMS:BBB", "NMS:AAA"]
 
     def test_fixed_income_routed_to_dedicated_buckets(
-        self, stub_world, stub_fx, freeze_today
+        self, stub_world, stub_exchange_rate, at_datetime
     ):
-        # ``get_holdings`` accepts a second list of transactions for
-        # fixed-income tickers; the resulting summaries are tagged
-        # ``asset_class="fixed_income"`` and routed into the
-        # ``current_fixed_income`` / ``historical_fixed_income``
-        # buckets so the renderer can keep them out of the equity
-        # treemap and Top-10 chart.
-        freeze_today(datetime(2025, 1, 1))
+        when = datetime(2025, 1, 1)
         equities = [
             {
                 "date": "01-01-2024",
@@ -155,26 +137,26 @@ class TestGetHoldings:
                 "action": "BUY",
             },
         ]
-        result = get_holdings(equities, fixed_income=fixed_income, fx=stub_fx)
+        result = get_holdings(
+            equities,
+            fixed_income=fixed_income,
+            fx=stub_exchange_rate,
+            now=at_datetime(when),
+        )
 
         assert [h["ticker"] for h in result["current"]] == ["NMS:AAA"]
         assert result["current"][0]["asset_class"] == "equity"
         assert [h["ticker"] for h in result["current_fixed_income"]] == ["NMS:BBB"]
         assert result["current_fixed_income"][0]["asset_class"] == "fixed_income"
-        # Trades feed the unified Trades log: both an equity and an
-        # FI fill should appear (intermixed by date) so the
-        # renderer's table reads as a chronological activity log.
         trade_tickers = {t["ticker"] for t in result["trades"]}
         assert {"NMS:AAA", "NMS:BBB"}.issubset(trade_tickers)
 
 
 class TestGenerateWebpage:
     def test_full_render_writes_index_html(
-        self, stub_world, stub_fx, chdir_tmp, freeze_today, monkeypatch
+        self, stub_world, stub_exchange_rate, chdir_tmp, at_datetime
     ):
-        freeze_today(datetime(2025, 6, 1))
-
-        # Build a full holdings dict by going through the real pipeline.
+        when = datetime(2025, 6, 1)
         transactions = [
             {
                 "date": "01-01-2024",
@@ -184,8 +166,11 @@ class TestGenerateWebpage:
                 "action": "BUY",
             },
         ]
-        holdings = get_holdings(transactions, fx=stub_fx)
-        # Mimic what summarize() does — generate_webpage assumes weights filled.
+        holdings = get_holdings(
+            transactions,
+            fx=stub_exchange_rate,
+            now=at_datetime(when),
+        )
         holdings["current"][0]["current_weight%"] = 100.0
 
         total_return = {
@@ -205,29 +190,19 @@ class TestGenerateWebpage:
             }
         ]
 
-        generate_webpage(total_return, benchmarks, holdings)
+        generate_webpage(total_return, benchmarks, holdings, now=at_datetime(when))
 
         html = (chdir_tmp / "index.html").read_text()
         assert "<title>Jan Grzybek - Investment Portfolio</title>" in html
         assert "NMS:AAA" in html
-        # The benchmark column is now labelled by its friendly display
-        # name (the raw ticker no longer appears in the document body
-        # since all logo lookups fall back to courage.png in this test).
         assert "S&amp;P 500" in html
-        assert "50.0%" in html  # TWR
+        assert "50.0%" in html
         assert "Current holdings" in html
 
     def test_full_render_includes_fixed_income_subsection(
-        self, stub_world, stub_fx, chdir_tmp, freeze_today, monkeypatch
+        self, stub_world, stub_exchange_rate, chdir_tmp, at_datetime
     ):
-        # End-to-end coverage of the fixed-income render path:
-        # ``get_holdings`` produces ``current_fixed_income`` /
-        # ``historical_fixed_income`` buckets which
-        # ``generate_webpage`` must explicitly iterate alongside the
-        # equity buckets, otherwise the rendered page would silently
-        # drop every FI holding (the regression that motivated this
-        # test).
-        freeze_today(datetime(2025, 6, 1))
+        when = datetime(2025, 6, 1)
         equities = [
             {
                 "date": "01-01-2024",
@@ -246,9 +221,12 @@ class TestGenerateWebpage:
                 "action": "BUY",
             },
         ]
-        holdings = get_holdings(equities, fixed_income=fixed_income, fx=stub_fx)
-        # Manually fill the weights ``summarize()`` would have set in
-        # production; we exercise the renderer directly here.
+        holdings = get_holdings(
+            equities,
+            fixed_income=fixed_income,
+            fx=stub_exchange_rate,
+            now=at_datetime(when),
+        )
         holdings["current"][0]["current_weight%"] = 60.0
         holdings["current_fixed_income"][0]["current_weight%"] = 40.0
         holdings["allocation%"] = {
@@ -264,17 +242,11 @@ class TestGenerateWebpage:
             "twr%": 50.0,
             "cagr%": 50.0,
         }
-        generate_webpage(total_return, [], holdings)
+        generate_webpage(total_return, [], holdings, now=at_datetime(when))
 
         html = (chdir_tmp / "index.html").read_text()
-        # Both sub-sections appear with their dedicated anchor IDs.
         assert 'id="equities"' in html
         assert 'id="fixed-income"' in html
-        # Both holdings are rendered as capsules; the FI capsule
-        # carries the ``data-sort-ticker`` attribute the holdings
-        # sort script reads off the ``<article>`` element.
         assert "NMS:AAA" in html
         assert "NMS:BBB" in html
-        # Allocation chart's "Fixed Income" row is wired as a link
-        # to the matching sub-section heading.
         assert 'href="#fixed-income"' in html

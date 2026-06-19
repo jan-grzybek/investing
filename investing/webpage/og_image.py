@@ -345,9 +345,7 @@ def _benchmark_label(
     return display_names.get(ticker) or benchmark.get("name") or ticker or "Benchmark"
 
 
-def _hero_caption(
-    cagr_delta: float | None, bench_label: str | None
-) -> tuple[str, str, str]:
+def _hero_caption(cagr_delta: float | None, bench_label: str | None) -> tuple[str, str, str]:
     """Return the three caption pieces (``prefix``, ``emph``, ``tail``)
     rendered under the hero number.
 
