@@ -21,7 +21,7 @@ cffi==2.0.0
     #   curl-cffi
 charset-normalizer==3.4.7
     # via requests
-cryptography==48.0.1
+cryptography==49.0.0
     # via google-auth
 cssselect2==0.9.0
     # via cairosvg
