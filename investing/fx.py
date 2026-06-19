@@ -147,8 +147,7 @@ class ExchangeRate:
             elif self._cache_dir is not None:
                 cached = _load_history_from_disk(self._cache_dir, currency)
 
-            offline = os.environ.get("INVESTING_OFFLINE") == "1"
-            use_cache_only = offline or (
+            use_cache_only = (
                 cached is not None and self._store is None and self._cache_dir is not None
             )
 

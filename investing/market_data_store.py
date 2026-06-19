@@ -17,8 +17,9 @@ Merge policy (split-aware):
   dates are re-based by dividing out every *new* split factor strictly
   after the row date.
 * **FX daily rates** — union by date; archive wins on conflicts.
-* **``info``** — live wins for tape fields (``regularMarketPrice``,
-  ``sector``); archived values fill gaps when live is blank or offline.
+* **``info``** — slow-changing metadata (``sector``, names, …) is
+  merged with archive filling gaps when live is blank; ``regularMarketPrice``
+  is live-only and is never written to disk.
 """
 
 from __future__ import annotations
@@ -43,7 +44,6 @@ from .market_data import MarketDataError, _call_with_retry
 SCHEMA_VERSION = 1
 
 _MARKET_DATA_DIR_ENV = "INVESTING_MARKET_DATA_DIR"
-_OFFLINE_ENV = "INVESTING_OFFLINE"
 _DISABLE_ENV = "INVESTING_MARKET_DATA_DISABLE"
 
 # Curated ``get_info`` keys the pipeline consumes. Storing the full
@@ -62,12 +62,19 @@ INFO_KEYS: frozenset[str] = frozenset(
     }
 )
 
+# ``info`` fields persisted in committed ticker snapshots. Live tape
+# price is excluded so intraday deploy runs do not churn ``main``.
+PERSISTED_INFO_KEYS: frozenset[str] = frozenset(
+    key for key in INFO_KEYS if key != "regularMarketPrice"
+)
+
 # Keys that must never appear in committed snapshot JSON — they belong
 # to the private spreadsheet ledger, not vendor market data.
 FORBIDDEN_SNAPSHOT_KEYS: frozenset[str] = frozenset(
     {
         "quantity",
         "price",
+        "regularMarketPrice",
         "flow",
         "amount",
         "action",
@@ -78,10 +85,6 @@ FORBIDDEN_SNAPSHOT_KEYS: frozenset[str] = frozenset(
 )
 
 _FLOAT_TOLERANCE = 1e-9
-
-
-def _offline_enabled() -> bool:
-    return os.environ.get(_OFFLINE_ENV) == "1"
 
 
 def _repo_market_data_dir() -> Path:
@@ -224,29 +227,50 @@ def merge_time_series(
     ]
 
 
-def merge_info(archived: dict[str, Any], live: dict[str, Any]) -> dict[str, Any]:
-    """Merge curated ``info`` dicts; live fills when present, archive fills gaps."""
+def _require_live_regular_market_price(
+    info: dict[str, Any],
+    *,
+    ticker: str,
+) -> float:
+    """Return live ``regularMarketPrice`` or raise when the tape is unavailable."""
+    price = info.get("regularMarketPrice")
+    if price is None or (isinstance(price, float) and math.isnan(price)):
+        raise MarketDataError(
+            f"missing live regularMarketPrice for ticker {ticker!r}",
+        )
+    return float(price)
+
+
+def merge_info(
+    archived: dict[str, Any],
+    live: dict[str, Any],
+    *,
+    ticker: str,
+) -> dict[str, Any]:
+    """Merge curated ``info`` dicts; archive fills gaps for persisted metadata only."""
     merged: dict[str, Any] = {}
-    for key in INFO_KEYS:
+    for key in PERSISTED_INFO_KEYS:
         live_val = live.get(key)
         if live_val is not None and not (isinstance(live_val, str) and not live_val.strip()):
             merged[key] = live_val
-    for key in INFO_KEYS:
+    for key in PERSISTED_INFO_KEYS:
         if key not in merged and key in archived:
             merged[key] = archived[key]
-    if "regularMarketPrice" in merged:
-        merged["regularMarketPrice"] = float(merged["regularMarketPrice"])
+    merged["regularMarketPrice"] = _require_live_regular_market_price(live, ticker=ticker)
     return merged
 
 
-def _curate_info(raw: dict[str, Any]) -> dict[str, Any]:
+def _curate_info(raw: dict[str, Any], *, ticker: str) -> dict[str, Any]:
     curated: dict[str, Any] = {}
     for key in INFO_KEYS:
         if key in raw:
             curated[key] = raw[key]
-    if "regularMarketPrice" in curated:
-        curated["regularMarketPrice"] = float(curated["regularMarketPrice"])
+    curated["regularMarketPrice"] = _require_live_regular_market_price(raw, ticker=ticker)
     return curated
+
+
+def _info_for_persistence(info: dict[str, Any]) -> dict[str, Any]:
+    return {key: info[key] for key in PERSISTED_INFO_KEYS if key in info}
 
 
 def _dividends_from_yfinance(raw: Any) -> list[dict[str, Any]]:
@@ -300,7 +324,7 @@ def _serialize_ticker_snapshot(
 ) -> dict[str, Any]:
     return {
         "schema_version": SCHEMA_VERSION,
-        "info": info,
+        "info": _info_for_persistence(info),
         "splits": [{"date": _iso_date(s["date"]), "split": float(s["split"])} for s in splits],
         "dividends": [
             {"date": _iso_date(d["date"]), "dividend": float(d["dividend"])} for d in dividends
@@ -310,6 +334,7 @@ def _serialize_ticker_snapshot(
 
 def _deserialize_ticker_snapshot(raw: dict[str, Any]) -> tuple[dict, list, list]:
     info = dict(raw.get("info") or {})
+    info.pop("regularMarketPrice", None)
     splits = [
         {"date": _parse_iso_date(s["date"]), "split": float(s["split"])}
         for s in raw.get("splits") or []
@@ -369,11 +394,8 @@ class MarketDataStore:
     def __init__(
         self,
         root: Path | None = None,
-        *,
-        offline: bool | None = None,
     ) -> None:
         self._root = root if root is not None else market_data_root()
-        self._offline = _offline_enabled() if offline is None else offline
         self._manifest_path = self._root / "manifest.json" if self._root is not None else None
         # ``get_holdings`` constructs ``Holding`` instances in a thread
         # pool; each miss persists a ticker snapshot and read-modify-
@@ -463,7 +485,8 @@ class MarketDataStore:
             _call_with_retry(
                 yf_ticker.get_info,
                 description="yfinance get_info",
-            )
+            ),
+            ticker=ticker,
         )
         splits = _splits_from_yfinance(
             _call_with_retry(
@@ -483,13 +506,6 @@ class MarketDataStore:
         """Return merged ``(info, splits, dividends)`` for ``ticker``."""
         archived = self._load_ticker_snapshot(ticker)
 
-        if self._offline:
-            if archived is None:
-                raise MarketDataError(
-                    f"offline market-data miss for ticker {ticker!r}",
-                )
-            return archived
-
         if archived is None:
             info, splits, dividends = self._fetch_live_ticker(ticker)
             self._save_ticker_snapshot(
@@ -501,14 +517,7 @@ class MarketDataStore:
             return info, splits, dividends
 
         arch_info, arch_splits, arch_dividends = archived
-        try:
-            live_info, live_splits, live_dividends = self._fetch_live_ticker(ticker)
-        except MarketDataError:
-            logger.warning(
-                "live yfinance fetch failed for %s; serving archived snapshot only",
-                ticker,
-            )
-            return arch_info, arch_splits, arch_dividends
+        live_info, live_splits, live_dividends = self._fetch_live_ticker(ticker)
         merged_splits = merge_splits(arch_splits, live_splits)
         merged_dividends = merge_time_series(
             arch_dividends,
@@ -517,7 +526,7 @@ class MarketDataStore:
             archived_splits=arch_splits,
             merged_splits=merged_splits,
         )
-        merged_info = merge_info(arch_info, live_info)
+        merged_info = merge_info(arch_info, live_info, ticker=ticker)
         self._save_ticker_snapshot(
             ticker,
             info=merged_info,
@@ -535,21 +544,8 @@ class MarketDataStore:
         merged_splits: list[dict[str, Any]],
     ) -> Any:
         """Return a pandas DataFrame merged with any on-disk history."""
-        if self._offline:
-            archived_rows, _ = self._load_history_bundle(ticker)
-            if not archived_rows:
-                raise MarketDataError(
-                    f"offline market-data history miss for ticker {ticker!r}",
-                )
-            return self._rows_to_history_frame(archived_rows, start)
-
         archived_rows, archived_splits = self._load_history_bundle(ticker)
-        try:
-            live_frame = fetch_history()
-        except MarketDataError:
-            if archived_rows:
-                return self._rows_to_history_frame(archived_rows, start)
-            raise
+        live_frame = fetch_history()
         live_rows = _history_rows_from_dataframe(live_frame, value_key="adj_close")
         merged_rows = merge_time_series(
             archived_rows,
@@ -669,8 +665,8 @@ class MarketDataStore:
         return sorted(p.stem for p in tickers_dir.glob("*.json"))
 
     def refresh_ticker(self, ticker: str) -> None:
-        """Fetch, merge, and persist one ticker (no-op when disabled/offline)."""
-        if self._root is None or self._offline:
+        """Fetch, merge, and persist one ticker (no-op when disabled)."""
+        if self._root is None:
             return
         self.resolve_ticker(ticker)
 

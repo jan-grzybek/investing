@@ -122,16 +122,28 @@ class TestMergeInfo:
     def test_live_price_wins(self):
         archived = {"regularMarketPrice": 90.0, "longName": "Old Name"}
         live = {"regularMarketPrice": 100.0, "longName": "New Name"}
-        merged = merge_info(archived, live)
+        merged = merge_info(archived, live, ticker="TST")
         assert merged["regularMarketPrice"] == pytest.approx(100.0)
         assert merged["longName"] == "New Name"
 
     def test_archive_fills_blank_live_sector(self):
         archived = {"sector": "Technology", "regularMarketPrice": 1.0}
         live = {"sector": "", "regularMarketPrice": 2.0}
-        merged = merge_info(archived, live)
+        merged = merge_info(archived, live, ticker="TST")
         assert merged["regularMarketPrice"] == pytest.approx(2.0)
         assert merged["sector"] == "Technology"
+
+    def test_missing_live_price_raises(self):
+        archived = {"regularMarketPrice": 90.0, "longName": "Old Name"}
+        live = {"longName": "New Name"}
+        with pytest.raises(MarketDataError, match="regularMarketPrice"):
+            merge_info(archived, live, ticker="TST")
+
+    def test_archived_price_does_not_fill_missing_live(self):
+        archived = {"regularMarketPrice": 90.0}
+        live: dict[str, float] = {}
+        with pytest.raises(MarketDataError, match="regularMarketPrice"):
+            merge_info(archived, live, ticker="TST")
 
 
 class TestPrivacyGuard:
@@ -141,21 +153,13 @@ class TestPrivacyGuard:
 
     def test_forbidden_keys_frozen(self):
         assert "price" in FORBIDDEN_SNAPSHOT_KEYS
+        assert "regularMarketPrice" in FORBIDDEN_SNAPSHOT_KEYS
 
 
 class TestMarketDataStore:
-    def test_resolve_ticker_offline_requires_archive(self, tmp_path, monkeypatch):
-        monkeypatch.delenv("INVESTING_MARKET_DATA_DISABLE", raising=False)
-        monkeypatch.setenv("INVESTING_MARKET_DATA_DIR", str(tmp_path))
-        monkeypatch.setenv("INVESTING_OFFLINE", "1")
-        store = MarketDataStore(tmp_path, offline=True)
-        with pytest.raises(MarketDataError, match="offline market-data miss"):
-            store.resolve_ticker("MISSING")
-
     def test_resolve_ticker_merges_and_persists(self, tmp_path, monkeypatch):
         monkeypatch.delenv("INVESTING_MARKET_DATA_DISABLE", raising=False)
         monkeypatch.setenv("INVESTING_MARKET_DATA_DIR", str(tmp_path))
-        monkeypatch.delenv("INVESTING_OFFLINE", raising=False)
 
         store = MarketDataStore(tmp_path)
         mock = MagicMock()
@@ -183,6 +187,7 @@ class TestMarketDataStore:
         assert path.is_file()
         payload = json.loads(path.read_text(encoding="utf-8"))
         _validate_snapshot_privacy(payload)
+        assert "regularMarketPrice" not in payload["info"]
 
         mock.get_dividends.return_value = {
             _dt(2021, 6, 1): 0.25,
@@ -194,7 +199,7 @@ class TestMarketDataStore:
         assert by_date[_dt(2021, 6, 1)] == pytest.approx(0.5)
         assert by_date[_dt(2012, 6, 1)] == pytest.approx(0.10)
 
-    def test_live_failure_serves_archive(self, tmp_path, monkeypatch):
+    def test_live_failure_raises(self, tmp_path, monkeypatch):
         monkeypatch.delenv("INVESTING_MARKET_DATA_DISABLE", raising=False)
         monkeypatch.setenv("INVESTING_MARKET_DATA_DIR", str(tmp_path))
         store = MarketDataStore(tmp_path)
@@ -210,7 +215,6 @@ class TestMarketDataStore:
                         "exchange": "NMS",
                         "symbol": "OLD",
                         "longName": "Delisted",
-                        "regularMarketPrice": 1.0,
                     },
                     "splits": [],
                     "dividends": [{"date": "2015-06-01", "dividend": 0.2}],
@@ -233,9 +237,8 @@ class TestMarketDataStore:
             lambda fn, **kwargs: fn(),
         )
 
-        info, _, dividends = store.resolve_ticker("OLD")
-        assert info["longName"] == "Delisted"
-        assert len(dividends) == 1
+        with pytest.raises(MarketDataError, match="get_info failed"):
+            store.resolve_ticker("OLD")
 
     def test_merge_fx_history_preserves_old_dates(self, tmp_path, monkeypatch):
         monkeypatch.delenv("INVESTING_MARKET_DATA_DISABLE", raising=False)
@@ -254,7 +257,6 @@ class TestMarketDataStore:
     def test_concurrent_ticker_persist_updates_manifest(self, tmp_path, monkeypatch):
         monkeypatch.delenv("INVESTING_MARKET_DATA_DISABLE", raising=False)
         monkeypatch.setenv("INVESTING_MARKET_DATA_DIR", str(tmp_path))
-        monkeypatch.delenv("INVESTING_OFFLINE", raising=False)
 
         store = MarketDataStore(tmp_path)
         tickers = ["AAA", "BBB", "CCC", "DDD", "EEE", "FFF"]

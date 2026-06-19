@@ -9,63 +9,63 @@
   "schema_version": 1,
   "tickers": {
     "AIRJ": {
-      "content_hash": "c3c3105be7b1529a46e800b505d1243b673bdeb113ec20f1f94775e6a1e2b69b",
+      "content_hash": "2d524f3e1223c92fd3367ebea48e5a6cd10303a486026cf0ceda8ee1804e4174",
       "updated_at": "2026-06-19"
     },
     "AMAT": {
-      "content_hash": "45456c7c3e7d8239bf9157ae8bd591934dc25f6d77fac2161201f9c3cbe9e161",
+      "content_hash": "480c00b1113a4690a2c60a6798e4eff07db9fa3d272226ee01da4142abf58d23",
       "updated_at": "2026-06-19"
     },
     "BABA": {
-      "content_hash": "2a7aecda3e6a7a6947f02707ef2259e4253c4551555cf41a9d358134613874e4",
+      "content_hash": "d5742fcd67fffa3aef0c1336293b9cdc353306948ab83fcd334f46ce85ae2802",
       "updated_at": "2026-06-19"
     },
     "BIDU": {
-      "content_hash": "0ceda75fe293bd0d072c3d1a4a44aa8cb4049b3ffabd801d691cbd107b6c5943",
+      "content_hash": "408384d96da4d33d9753a48e122bed54d05ed8f832cd63bdea13f59894f32473",
       "updated_at": "2026-06-19"
     },
     "FISV": {
-      "content_hash": "a788bf9a9679e043027f1c1db1ee2d00c4cceebf9f51874d1a441cc0b59e99d4",
+      "content_hash": "de90e0552253850ee06aefc7f84e75735d7c3dbe09de9490758e7eab6b2ca786",
       "updated_at": "2026-06-19"
     },
     "GOOGL": {
-      "content_hash": "df24c781413314c1bb21f6ddb69953d4a6958e37f1ea295f445620de5864538e",
+      "content_hash": "4960a4d10627cbdd83e549ad51004235978ed586a517c0fd91412050040e10f9",
       "updated_at": "2026-06-19"
     },
     "IT": {
-      "content_hash": "029574eea23851a1335833567ccd6e68f99b6b389d58517ba06b12d0435d98ea",
+      "content_hash": "81af77bb5311b606ee98cbb502263635ed101f175e601ef98e4af4bf6640f191",
       "updated_at": "2026-06-19"
     },
     "KMX": {
-      "content_hash": "4ae9bc98a6e56e31f20ff965414719e5b843371346e2c39adec3d202647021a8",
+      "content_hash": "78625525796a68aa4cd526f39348a6d1f9d125c9d7c281caf182aafdb237da49",
       "updated_at": "2026-06-19"
     },
     "LRCX": {
-      "content_hash": "1d5d9188cb5ca08ee874853c322509c07c1ce6d966d1b0874c47e5fb44d31fe9",
+      "content_hash": "5e33b43c375def3d41403ab237eb41bec9590a7cf57f69d952540446e9bcdb02",
       "updated_at": "2026-06-19"
     },
     "META": {
-      "content_hash": "642f92435d032867e63a8a903243e24a10dab24d0350e44ed2d7fa5cd8972f7f",
+      "content_hash": "1bff7686be1e0f67b121f1504b474b1e692e9af9de7b9a78e4e5ea5c56007025",
       "updated_at": "2026-06-19"
     },
     "NVDA": {
-      "content_hash": "0fcd6422677f6c38701c0351de7a9b46e20ef59e1c1ff7e7d2a9572f20fcc56f",
+      "content_hash": "6e8d4060aeb37787af5762192c3db62aeb0be2b90c6a8ba07c121e86896ff6c0",
       "updated_at": "2026-06-19"
     },
     "QCOM": {
-      "content_hash": "e82977f9d57bdc8e7d31a6c82ab17144ac69b51befe4eccece5cca9260243dc1",
+      "content_hash": "1e7de84ec35027de8cd7bb4704ba2080ce826eabae0071b15e88291015454a97",
       "updated_at": "2026-06-19"
     },
     "SSU.DU": {
-      "content_hash": "50def7e17039f201b7b1df18845cdfc834d63322552a4ce999b3a75e52c40dc4",
+      "content_hash": "09e00b3c91355cfa8d2717c67bfb239054aacd69806a374b408468789a53b695",
       "updated_at": "2026-06-19"
     },
     "TSM": {
-      "content_hash": "0c4a9426923a92f0854a556570b2d44199e2086fa0793575cd5feb90ec055d97",
+      "content_hash": "46bcdc15ab6a212211d72256cf4712992c84a512e2a934a93d167efd8209a1e8",
       "updated_at": "2026-06-19"
     },
     "VUAA.L": {
-      "content_hash": "88fb49f8b440a07730d0db8a14752454cd3c594ac4efc5580e5665d23f4a2980",
+      "content_hash": "f479f7ca6183765b1bec500b3609cbacab33094d0c24924237bb94b14fbcb5de",
       "updated_at": "2026-06-19"
     }
   }
