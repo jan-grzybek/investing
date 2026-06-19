@@ -257,6 +257,19 @@
   .returns-compare__delta-metric { flex: 1 0 100%; }
   .returns-compare__delta-sep { display: none; }
   .returns-yearly { padding: 14px 16px; }
+  /* Four columns (Year / JG / benchmark / Δ) overflow iPhone-width
+     viewports. Drop the Δ column on phones -- the compare capsule
+     above already carries cumulative outperformance -- and tighten
+     padding. Keep auto table layout: the base ``width: 1%`` year-col
+     trick only shrinks to content under auto layout; pairing it with
+     ``table-layout: fixed`` (as an earlier attempt did) allocates a
+     literal 1% track and collapses Year into JG. */
+  .returns-yearly__wrap { overflow-x: hidden; }
+  .returns-yearly__table { min-width: 0; }
+  .returns-yearly__col-delta { display: none; }
+  .returns-yearly__table thead th { padding: 0 8px 10px; font-size: 0.8125rem; }
+  .returns-yearly__table tbody th[scope="row"],
+  .returns-yearly__table tbody td { padding: 10px 8px; font-size: 0.875rem; }
 }
 @media (max-width: 380px) {
   body { padding: 16px 12px 28px; }

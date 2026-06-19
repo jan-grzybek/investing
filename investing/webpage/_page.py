@@ -869,15 +869,21 @@ class Webpage:
             header_cells.extend(
                 [
                     f'<th scope="col">{bench_label}</th>',
-                    '<th scope="col">Δ</th>',
+                    '<th scope="col" class="returns-yearly__col-delta">Δ</th>',
                 ],
             )
 
-        metric_col_count = 3 if has_benchmark else 1
         colgroup = [
             '<col class="returns-yearly__col-year">',
-            *(['<col class="returns-yearly__col-metric">'] * metric_col_count),
+            '<col class="returns-yearly__col-metric">',
         ]
+        if has_benchmark:
+            colgroup.extend(
+                [
+                    '<col class="returns-yearly__col-metric">',
+                    '<col class="returns-yearly__col-delta">',
+                ],
+            )
 
         body_rows: list[str] = []
         for row in yearly_returns:
@@ -894,13 +900,15 @@ class Webpage:
                 bench_pct = row.get("bench%")
                 if bench_pct is None:
                     cells.append('<td class="returns-yearly__empty">&mdash;</td>')
-                    cells.append('<td class="returns-yearly__empty">&mdash;</td>')
+                    cells.append(
+                        '<td class="returns-yearly__empty returns-yearly__col-delta">&mdash;</td>',
+                    )
                 else:
                     delta = row["jg%"] - bench_pct
                     cells.extend(
                         [
                             f'<td class="{_value_class(bench_pct)}">{_fmt_pct(bench_pct)}%</td>',
-                            f'<td class="{_value_class(delta)}">'
+                            f'<td class="returns-yearly__col-delta {_value_class(delta)}">'
                             f"{_fmt_pct(delta, signed=True)} pp</td>",
                         ],
                     )

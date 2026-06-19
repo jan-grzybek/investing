@@ -324,6 +324,7 @@ class TestAddReturn:
         assert "8.2%" in w.return_html
         assert "5.1%" in w.return_html
         assert "+3.1 pp" in w.return_html
+        assert 'class="returns-yearly__col-delta' in w.return_html
         assert "returns-yearly__toggle" not in w.return_html
         compare_idx = w.return_html.index('class="returns-compare"')
         yearly_idx = w.return_html.index('class="returns-yearly"')
