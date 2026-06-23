@@ -642,11 +642,9 @@ def _tile_shows_identifier(px_w: float, px_h: float) -> bool:
     logo appears from 80 x 50 px; otherwise the ticker / weight stack
     appears from 60 x 46 px. Either counts as a non-empty tile.
     """
-    if px_w >= _LOGO_MIN_TILE_W_PX and px_h >= _LOGO_MIN_TILE_H_PX:
-        return True
-    if px_w >= _TEXT_MIN_TILE_W_PX and px_h >= _TEXT_MIN_TILE_H_PX:
-        return True
-    return False
+    return (px_w >= _LOGO_MIN_TILE_W_PX and px_h >= _LOGO_MIN_TILE_H_PX) or (
+        px_w >= _TEXT_MIN_TILE_W_PX and px_h >= _TEXT_MIN_TILE_H_PX
+    )
 
 
 def _tile_would_be_empty_on_canvas(tile: _Tile, canvas_w_px: float, canvas_h_px: float) -> bool:

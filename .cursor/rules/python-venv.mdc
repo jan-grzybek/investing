@@ -24,4 +24,13 @@ python3 -m venv .venv
 
 Do **not** `pip install` into system Python to fix `ModuleNotFoundError`. Do not run bare `python`, `pytest`, or `ruff` without the `.venv/bin/` prefix.
 
+After code changes, the **post-edit** / **post-agent** Cursor hooks run the same checks as CI (see [AGENTS.md](AGENTS.md)). If hooks are disabled, run the full suite manually before pushing:
+
+```bash
+.venv/bin/ruff check . && .venv/bin/ruff format --check .
+.venv/bin/mypy investing scripts/preview.py
+.venv/bin/python scripts/build_assets.py --check
+.venv/bin/python -m pytest -q --cov=investing --cov-report=term-missing:skip-covered
+```
+
 Fallback: `.testvenv/` if present (same activate pattern).

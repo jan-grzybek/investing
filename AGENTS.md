@@ -23,6 +23,10 @@ Dev dependencies live in **`.venv/`** (`pip install -e '.[dev]'`). The venv is g
 
 If `.venv/` is missing: `python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'`. Do not install project deps into system Python.
 
+## CI parity hooks
+
+Cursor runs [`.cursor/hooks/post-edit-verify.sh`](.cursor/hooks/post-edit-verify.sh) after each agent file edit and [`.cursor/hooks/post-agent-verify.sh`](.cursor/hooks/post-agent-verify.sh) when a session completes. Both mirror the **Tests** workflow (`ruff`, `mypy`, `scripts/build_assets.py --check`, full `pytest` with coverage). If a hook reports failures, fix them before pushing — the same gates run on GitHub (`test.yml`).
+
 ## Secrets and private data
 
 Pay **special attention** to not leaking secrets or private portfolio data — especially **raw spreadsheet source data**. The public site shows derived percentages only; nominal values from the Google Sheet must never appear in the repo, logs, tests, or agent output.
