@@ -268,7 +268,10 @@
   .returns-yearly__table { min-width: 0; }
   .returns-yearly__col-delta { display: none; }
   .returns-yearly__table thead th { padding: 0 8px 10px; font-size: 0.8125rem; }
-  .returns-yearly__table tbody th[scope="row"],
+  .returns-yearly__table tbody th[scope="row"] {
+    padding: 10px 8px 10px 0;
+    font-size: 0.875rem;
+  }
   .returns-yearly__table tbody td { padding: 10px 8px; font-size: 0.875rem; }
 }
 @media (max-width: 380px) {

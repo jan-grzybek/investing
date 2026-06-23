@@ -364,6 +364,57 @@ class TestSectorTreemapLayout:
         # Tile order matches the input order, so areas line up by index.
         assert max(range(3), key=lambda i: areas[i]) == 0
 
+    def test_tile_label_probe_catches_thin_strips(self):
+        from investing.webpage.sector_treemap import _Tile, _tile_too_small_for_labels
+
+        # Wide enough in canvas-% terms but too short on the reference
+        # mobile canvas (classic squarify strip).
+        assert _tile_too_small_for_labels(_Tile(0.0, 0.0, 25.0, 14.0))
+        assert not _tile_too_small_for_labels(_Tile(0.0, 0.0, 25.0, 20.0))
+
+    def test_merge_folds_only_unreadable_holdings_without_cascade(self):
+        from investing.webpage.sector_treemap import _merge_small_into_other, _Row
+
+        rows = [
+            _Row(ticker="NMS:HVY", name="Heavy", sector="Technology", weight=21.4, logo_url="x"),
+            _Row(
+                ticker="NMS:GOOGL",
+                name="Alpha",
+                sector="Communication Services",
+                weight=13.7,
+                logo_url="x",
+            ),
+            _Row(
+                ticker="NMS:META",
+                name="Meta",
+                sector="Communication Services",
+                weight=11.5,
+                logo_url="x",
+            ),
+            _Row(ticker="NMS:ADBE", name="Adobe", sector="Technology", weight=9.1, logo_url="x"),
+            _Row(ticker="NMS:AMAT", name="Amat", sector="Technology", weight=7.9, logo_url="x"),
+            _Row(ticker="NMS:LRCX", name="Lam", sector="Technology", weight=6.4, logo_url="x"),
+            _Row(
+                ticker="NMS:SPGI",
+                name="SPGI",
+                sector="Financial Services",
+                weight=6.0,
+                logo_url="x",
+            ),
+            _Row(ticker="NMS:UNH", name="UNH", sector="Healthcare", weight=4.7, logo_url="x"),
+            _Row(ticker="NMS:CRM", name="CRM", sector="Technology", weight=4.1, logo_url="x"),
+            _Row(ticker="NMS:SAP", name="SAP", sector="Other", weight=3.5, logo_url="x"),
+        ]
+        merged = _merge_small_into_other(rows)
+        # Only the thin-strip tail (SAP) folds; the aggregated Other
+        # tile may stay undersized and rely on the CSS colour-only
+        # fallback, so the loop must not keep merging real holdings
+        # just to grow that strip.
+        assert len(merged) == len(rows)
+        other = next(row for row in merged if row.is_aggregated)
+        assert other.folded_tickers == ("NMS:SAP",)
+        assert other.weight == 3.5
+
 
 class TestEqualVisualAreaLogoFactors:
     """The treemap's logo sizing pass combines aspect-ratio

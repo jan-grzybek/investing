@@ -276,6 +276,12 @@ _YEARLY_RETURNS_SCRIPT = _read_asset("yearly_returns.js")
 #     via ``:nth-of-type(n+4)`` until the user sets
 #     ``data-expanded="true"`` on the list.
 #
+# When an in-page anchor targets a holding capsule that is currently
+# hidden by that collapse rule (treemap tile, marquee logo, etc.),
+# a capture-phase click listener expands the matching list before
+# ``_NAV_SCROLL_SCRIPT`` scrolls, so ``getBoundingClientRect`` sees
+# the real layout instead of a ``display: none`` row.
+#
 # The "Default" button is special-cased: it never carries a
 # direction, and pressing it restores the upstream DOM order
 # (most recent buy first for the current list, most recent sell

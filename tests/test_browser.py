@@ -89,6 +89,50 @@ def test_trades_sort_toggles_date_direction(preview_page: Page):
     expect(date_header).to_have_attribute("aria-sort", "descending")
 
 
+def test_treemap_link_expands_collapsed_holdings_and_scrolls(preview_page: Page):
+    list_el = preview_page.locator('[data-holdings-list="current"]')
+    toggle = preview_page.locator('[data-holdings-toggle="current"]')
+    expect(toggle).to_be_visible()
+    expect(list_el).not_to_have_attribute("data-expanded", "true")
+
+    target = preview_page.evaluate(
+        """() => {
+            const list = document.querySelector('[data-holdings-list="current"]');
+            if (!list) return null;
+            const holdings = list.querySelectorAll('.holding');
+            for (let i = 0; i < holdings.length; i++) {
+                const holding = holdings[i];
+                if (getComputedStyle(holding).display === 'none') {
+                    const link = document.querySelector(
+                        '.treemap a[href="#' + holding.id + '"]'
+                    );
+                    if (link) return holding.id;
+                }
+            }
+            return null;
+        }"""
+    )
+    assert target, "preview needs a treemap tile for a collapsed holding"
+
+    link = preview_page.locator(f'.treemap a[href="#{target}"]')
+    expect(link).to_be_visible()
+    link.click()
+
+    expect(list_el).to_have_attribute("data-expanded", "true")
+    expect(toggle).to_have_attribute("aria-expanded", "true")
+    expect(toggle).to_contain_text("Show fewer holdings")
+    preview_page.wait_for_function(
+        """(id) => {
+            const el = document.getElementById(id);
+            if (!el) return false;
+            const r = el.getBoundingClientRect();
+            return r.top >= 0 && r.top < window.innerHeight * 0.75;
+        }""",
+        arg=target,
+        timeout=3000,
+    )
+
+
 def test_nav_scroll_sets_hash_on_section_link(preview_page: Page):
     link = preview_page.locator('nav.site-nav a[href="#current"]')
     expect(link).to_be_visible()

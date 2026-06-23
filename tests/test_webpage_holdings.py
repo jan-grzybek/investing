@@ -795,6 +795,19 @@ class TestHoldingsCollapse:
         ):
             assert needle in _HOLDINGS_SORT_SCRIPT
 
+    def test_anchor_click_expands_collapsed_holdings_before_scroll(self):
+        from investing.assets import _HOLDINGS_SORT_SCRIPT
+
+        script = _HOLDINGS_SORT_SCRIPT
+        for needle in (
+            "expandForAnchorTarget",
+            'a[href^="#"]:not(.skip-link)',
+            "getComputedStyle(holding).display",
+            "setupAnchorExpand",
+        ):
+            assert needle in script
+        assert ",true)" in script
+
     def test_toggle_sits_below_its_list(self, stub_logo_lookup, chdir_tmp, freeze_today):
         freeze_today(datetime(2025, 6, 1))
         w = Webpage()

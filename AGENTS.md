@@ -11,6 +11,18 @@ When working here, do **not**:
 
 Treat all changes as for a single maintainer who already knows the repo. Prefer minimal, direct changes over ecosystem polish for external audiences.
 
+## Python environment
+
+Dev dependencies live in **`.venv/`** (`pip install -e '.[dev]'`). The venv is gitignored; bare `python` / `pytest` / `ruff` on PATH use system Python and will hit `ModuleNotFoundError`.
+
+**Shell commands from the agent do not auto-activate the venv** — only the IDE's integrated terminal does (via `.vscode/settings.json`). Always prefix with `.venv/bin/`:
+
+- `.venv/bin/python -m pytest …`
+- `.venv/bin/python -m investing`
+- `.venv/bin/ruff check .` / `.venv/bin/mypy investing scripts/preview.py`
+
+If `.venv/` is missing: `python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'`. Do not install project deps into system Python.
+
 ## Secrets and private data
 
 Pay **special attention** to not leaking secrets or private portfolio data — especially **raw spreadsheet source data**. The public site shows derived percentages only; nominal values from the Google Sheet must never appear in the repo, logs, tests, or agent output.
@@ -41,6 +53,6 @@ The build runs in a **public** repository, so **GitHub Actions job logs are worl
 
 - Use [`investing.log`](investing/log.py) for diagnostics; route the curated build signal through `safe_run.emit_summary` only.
 - Do not re-raise with runtime values in the message (e.g. `raise ValueError(f"bad row: {row!r}")`). Follow the `SheetParseError` pattern in [`investing/sheets.py`](investing/sheets.py) — coordinates only, never cell contents.
-- Do not add `--no-redact` escape hatches for CI; reproduce failures locally with `python -m investing`.
+- Do not add `--no-redact` escape hatches for CI; reproduce failures locally with `.venv/bin/python -m investing`.
 
 Internal workflow notes: [CONTRIBUTING.md](CONTRIBUTING.md). Security policy: [SECURITY.md](SECURITY.md).

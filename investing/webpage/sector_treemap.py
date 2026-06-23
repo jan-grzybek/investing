@@ -33,19 +33,26 @@ from ..formatting import _fmt_pct
 from ..logos import _DEFAULT_LOGO_ASPECT
 from .anchors import holding_anchor, strip_exchange
 
-# ``_TEXT_MIN_TILE_*_PCT`` is the **fold-into-Other** threshold,
-# expressed in canvas-relative percent (0..100 of the chart's inline
-# / block size). Holdings whose squarified tile comes out narrower
-# or shorter than these cutoffs get rolled into a single aggregated
-# ``Other`` pseudo-row instead of trying to render an unreadable
-# tile (see :func:`_merge_small_into_other`). The merge is a layout
-# decision the renderer has to commit to in Python because CSS
-# cannot rearrange tiles based on viewport size; it therefore
-# targets the *worst-case* viewport we promise to support legibly
-# (a ~390 px iPhone where the canvas comes out roughly 358x268 px).
-# 12 % / 12 % maps to about 43x32 px on that worst-case mobile
-# canvas, which is the minimum box that holds a 13 px ticker symbol
-# plus an 11 px weight percent label without clipping.
+# Reference canvas size for the **fold-into-Other** readability probe
+# (see :func:`_tile_too_small_for_labels` and
+# :func:`_merge_small_into_other`). The merge is a layout decision
+# the renderer has to commit to in Python because CSS cannot
+# rearrange tiles based on viewport size; it therefore targets the
+# *worst-case* viewport we promise to support legibly (~360 px
+# content width on a phone with 16 px body padding and a 4 : 3
+# canvas aspect ratio).
+#
+# Percent-of-canvas thresholds are a poor fit here: squarify often
+# produces wide-but-thin strips whose width clears a naive 12 %
+# cutoff while the height is far too small for the ticker + weight
+# stack (a 25 % x 14 % tile is legible in width but only ~35 px
+# tall on the reference canvas). The probe therefore converts each
+# tile's squarified rectangle to pixel dimensions on the reference
+# canvas and compares against :data:`_MIN_LABEL_TILE_W_PX` /
+# :data:`_MIN_LABEL_TILE_H_PX`, which are derived from the mobile
+# padding / font clamps in ``50-treemap.css`` (~46 px stacked
+# height for ticker + percent, ~36 px width for a short symbol with
+# ellipsis fallback).
 #
 # Logo vs. ticker is the *responsive* decision: the CSS uses a
 # per-tile container size query (see ``.treemap__tile-logo`` and
@@ -57,8 +64,15 @@ from .anchors import holding_anchor, strip_exchange
 # phone displays the ticker symbol, and the same tile on a wide
 # desktop shows the logo without the build having to commit to one
 # answer up-front.
-_TEXT_MIN_TILE_W_PCT = 12.0
-_TEXT_MIN_TILE_H_PCT = 12.0
+_REF_CANVAS_W_PX = 328.0
+_REF_CANVAS_H_PX = _REF_CANVAS_W_PX * 3 / 4
+_MIN_LABEL_TILE_W_PX = 36.0
+_MIN_LABEL_TILE_H_PX = 46.0
+
+# Canvas-relative equivalents of the px cutoffs above, kept for
+# tests / docs that want a single number to cite.
+_TEXT_MIN_TILE_W_PCT = _MIN_LABEL_TILE_W_PX / _REF_CANVAS_W_PX * 100.0
+_TEXT_MIN_TILE_H_PCT = _MIN_LABEL_TILE_H_PX / _REF_CANVAS_H_PX * 100.0
 
 # Inset (in canvas-relative percent) shaved off **each side** of every
 # sector's bounding rectangle before the inner squarify packs the
@@ -623,6 +637,24 @@ def _layout_rows(rows: Sequence[_Row]) -> list[tuple[_Row, _Tile]]:
     return layout
 
 
+def _tile_too_small_for_labels(tile: _Tile) -> bool:
+    """Return whether ``tile`` cannot host the ticker + weight stack on
+    the worst-case mobile canvas.
+
+    Squarified treemaps often yield wide-but-thin strips whose area
+    looks generous in percent terms but whose height is too tight for
+    the stacked label the CSS emits in ticker-fallback mode. Converting
+    to reference-canvas pixels catches those strips; the aggregated
+    ``Other`` pseudo-row is exempt from this probe because its body
+    can fall back to a colour-only swatch when the tile is still too
+    small after folding (see the ``.treemap__tile--aggregated`` rules
+    in ``50-treemap.css``).
+    """
+    px_w = tile.w * _REF_CANVAS_W_PX / 100.0
+    px_h = tile.h * _REF_CANVAS_H_PX / 100.0
+    return px_w < _MIN_LABEL_TILE_W_PX or px_h < _MIN_LABEL_TILE_H_PX
+
+
 def _inset_rect(rect: _Tile, pad: float) -> _Tile:
     """Return a copy of ``rect`` shrunk inward by ``pad`` on each side.
 
@@ -662,8 +694,15 @@ def _merge_small_into_other(rows: Sequence[_Row]) -> list[_Row]:
     # logic regression fall over quickly rather than hanging.
     for _ in range(len(rows_list) + 1):
         layout = _layout_rows(rows_list)
+        # Only real holdings participate in the readability probe.
+        # The aggregated ``Other`` pseudo-row may legitimately land in
+        # a thin strip after a fold (same geometry as the holding it
+        # replaced); CSS hides its label stack on undersized tiles and
+        # keeps the swatch self-documenting via the legend. Folding
+        # additional real holdings just to grow that strip would
+        # over-merge the portfolio tail.
         too_small_exists = any(
-            tile.w < _TEXT_MIN_TILE_W_PCT or tile.h < _TEXT_MIN_TILE_H_PCT for _row, tile in layout
+            _tile_too_small_for_labels(tile) for row, tile in layout if not row.is_aggregated
         )
         if not too_small_exists:
             return rows_list
@@ -974,6 +1013,7 @@ def _ticker_tile(*, row: _Row, tile: _Tile) -> str:
         # which the build-time renderer doesn't have access to.
         return (
             '<div class="treemap__tile treemap__tile--aggregated" '
+            'role="img" '
             f'data-sector="{html.escape(row.sector)}" '
             f'style="{html.escape(style, quote=True)}" '
             f'title="{html.escape(tooltip)}" '

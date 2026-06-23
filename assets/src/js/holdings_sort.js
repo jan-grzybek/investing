@@ -1,1 +1,192 @@
-(function(){function rowKey(row,key){return row.getAttribute('data-sort-'+key)||'';}function cmpNum(a,b,key,dir){var av=parseFloat(rowKey(a,key)),bv=parseFloat(rowKey(b,key));var an=isNaN(av),bn=isNaN(bv);if(an&&bn)return 0;if(an)return 1;if(bn)return -1;if(av<bv)return dir==='desc'?1:-1;if(av>bv)return dir==='desc'?-1:1;return 0;}function cmpText(a,b,key,dir){var av=rowKey(a,key),bv=rowKey(b,key);if(av<bv)return dir==='desc'?1:-1;if(av>bv)return dir==='desc'?-1:1;return 0;}function setupGroup(group){var scope=group.getAttribute('data-holdings-sort');if(!scope)return;var list=document.querySelector('[data-holdings-list="'+scope+'"]');if(!list)return;var original=Array.prototype.slice.call(list.querySelectorAll('.holding'));var btns=group.querySelectorAll('.holdings__sort-btn');var state={key:'default',dir:null};function applyDefault(){for(var i=0;i<original.length;i++)list.appendChild(original[i]);}function applySort(key,kind,dir){var rows=Array.prototype.slice.call(list.querySelectorAll('.holding'));rows.sort(function(a,b){var c=kind==='number'?cmpNum(a,b,key,dir):cmpText(a,b,key,dir);if(c!==0)return c;var ai=original.indexOf(a),bi=original.indexOf(b);return ai-bi;});for(var i=0;i<rows.length;i++)list.appendChild(rows[i]);}function activate(btn,dir){var key=btn.getAttribute('data-holdings-sort-key');var kind=btn.getAttribute('data-holdings-sort-kind');if(key==='default'){applyDefault();state.key='default';state.dir=null;}else{applySort(key,kind,dir);state.key=key;state.dir=dir;}for(var i=0;i<btns.length;i++){var b=btns[i];if(b===btn){b.setAttribute('aria-pressed','true');if(key==='default'){b.removeAttribute('data-sort-dir');}else{b.setAttribute('data-sort-dir',dir);}}else{b.setAttribute('aria-pressed','false');b.removeAttribute('data-sort-dir');}}}for(var i=0;i<btns.length;i++){(function(btn){btn.addEventListener('click',function(){var key=btn.getAttribute('data-holdings-sort-key');var kind=btn.getAttribute('data-holdings-sort-kind');var dir;if(key==='default'){dir=null;}else if(state.key===key){dir=state.dir==='asc'?'desc':'asc';}else{dir=kind==='number'?'desc':'asc';}activate(btn,dir);});})(btns[i]);}}function setupToggle(toggle){var scope=toggle.getAttribute('data-holdings-toggle');if(!scope)return;var list=document.querySelector('[data-holdings-list="'+scope+'"]');if(!list)return;var total=toggle.getAttribute('data-total')||'';var showLabel='Show all '+total+' holdings';var hideLabel='Show fewer holdings';toggle.addEventListener('click',function(){var open=list.getAttribute('data-expanded')==='true';if(open){list.removeAttribute('data-expanded');toggle.setAttribute('aria-expanded','false');toggle.textContent=showLabel;}else{list.setAttribute('data-expanded','true');toggle.setAttribute('aria-expanded','true');toggle.textContent=hideLabel;}});}function boot(){var groups=document.querySelectorAll('.holdings__sort');for(var i=0;i<groups.length;i++)setupGroup(groups[i]);var toggles=document.querySelectorAll('.holdings__toggle');for(var t=0;t<toggles.length;t++)setupToggle(toggles[t]);}if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',boot);}else{boot();}})();
+(function () {
+  var HIDE_LABEL = "Show fewer holdings";
+
+  function rowKey(row, key) {
+    return row.getAttribute("data-sort-" + key) || "";
+  }
+
+  function cmpNum(a, b, key, dir) {
+    var av = parseFloat(rowKey(a, key));
+    var bv = parseFloat(rowKey(b, key));
+    var an = isNaN(av);
+    var bn = isNaN(bv);
+    if (an && bn) return 0;
+    if (an) return 1;
+    if (bn) return -1;
+    if (av < bv) return dir === "desc" ? 1 : -1;
+    if (av > bv) return dir === "desc" ? -1 : 1;
+    return 0;
+  }
+
+  function cmpText(a, b, key, dir) {
+    var av = rowKey(a, key);
+    var bv = rowKey(b, key);
+    if (av < bv) return dir === "desc" ? 1 : -1;
+    if (av > bv) return dir === "desc" ? -1 : 1;
+    return 0;
+  }
+
+  function expandHoldingsList(list, toggle) {
+    list.setAttribute("data-expanded", "true");
+    if (toggle) {
+      toggle.setAttribute("aria-expanded", "true");
+      toggle.textContent = HIDE_LABEL;
+    }
+  }
+
+  function collapseHoldingsList(list, toggle, showLabel) {
+    list.removeAttribute("data-expanded");
+    if (toggle) {
+      toggle.setAttribute("aria-expanded", "false");
+      toggle.textContent = showLabel;
+    }
+  }
+
+  function expandForAnchorTarget(el) {
+    var holding =
+      el.classList && el.classList.contains("holding")
+        ? el
+        : el.closest
+          ? el.closest(".holding")
+          : null;
+    if (!holding) return;
+    var list = holding.closest ? holding.closest("[data-holdings-list]") : null;
+    if (!list || list.getAttribute("data-expanded") === "true") return;
+    try {
+      if (getComputedStyle(holding).display !== "none") return;
+    } catch (err) {
+      return;
+    }
+    var scope = list.getAttribute("data-holdings-list");
+    if (!scope) return;
+    var toggle = document.querySelector('[data-holdings-toggle="' + scope + '"]');
+    expandHoldingsList(list, toggle);
+  }
+
+  function setupGroup(group) {
+    var scope = group.getAttribute("data-holdings-sort");
+    if (!scope) return;
+    var list = document.querySelector('[data-holdings-list="' + scope + '"]');
+    if (!list) return;
+    var original = Array.prototype.slice.call(list.querySelectorAll(".holding"));
+    var btns = group.querySelectorAll(".holdings__sort-btn");
+    var state = { key: "default", dir: null };
+
+    function applyDefault() {
+      for (var i = 0; i < original.length; i++) list.appendChild(original[i]);
+    }
+
+    function applySort(key, kind, dir) {
+      var rows = Array.prototype.slice.call(list.querySelectorAll(".holding"));
+      rows.sort(function (a, b) {
+        var c =
+          kind === "number"
+            ? cmpNum(a, b, key, dir)
+            : cmpText(a, b, key, dir);
+        if (c !== 0) return c;
+        var ai = original.indexOf(a);
+        var bi = original.indexOf(b);
+        return ai - bi;
+      });
+      for (var i = 0; i < rows.length; i++) list.appendChild(rows[i]);
+    }
+
+    function activate(btn, dir) {
+      var key = btn.getAttribute("data-holdings-sort-key");
+      var kind = btn.getAttribute("data-holdings-sort-kind");
+      if (key === "default") {
+        applyDefault();
+        state.key = "default";
+        state.dir = null;
+      } else {
+        applySort(key, kind, dir);
+        state.key = key;
+        state.dir = dir;
+      }
+      for (var i = 0; i < btns.length; i++) {
+        var b = btns[i];
+        if (b === btn) {
+          b.setAttribute("aria-pressed", "true");
+          if (key === "default") {
+            b.removeAttribute("data-sort-dir");
+          } else {
+            b.setAttribute("data-sort-dir", dir);
+          }
+        } else {
+          b.setAttribute("aria-pressed", "false");
+          b.removeAttribute("data-sort-dir");
+        }
+      }
+    }
+
+    for (var i = 0; i < btns.length; i++) {
+      (function (btn) {
+        btn.addEventListener("click", function () {
+          var key = btn.getAttribute("data-holdings-sort-key");
+          var kind = btn.getAttribute("data-holdings-sort-kind");
+          var dir;
+          if (key === "default") {
+            dir = null;
+          } else if (state.key === key) {
+            dir = state.dir === "asc" ? "desc" : "asc";
+          } else {
+            dir = kind === "number" ? "desc" : "asc";
+          }
+          activate(btn, dir);
+        });
+      })(btns[i]);
+    }
+  }
+
+  function setupToggle(toggle) {
+    var scope = toggle.getAttribute("data-holdings-toggle");
+    if (!scope) return;
+    var list = document.querySelector('[data-holdings-list="' + scope + '"]');
+    if (!list) return;
+    var total = toggle.getAttribute("data-total") || "";
+    var showLabel = "Show all " + total + " holdings";
+    toggle.addEventListener("click", function () {
+      var open = list.getAttribute("data-expanded") === "true";
+      if (open) {
+        collapseHoldingsList(list, toggle, showLabel);
+      } else {
+        expandHoldingsList(list, toggle);
+      }
+    });
+  }
+
+  function setupAnchorExpand() {
+    document.addEventListener(
+      "click",
+      function (e) {
+        if (e.defaultPrevented) return;
+        if (e.button !== 0) return;
+        if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+        var t = e.target;
+        if (!t || !t.closest) return;
+        var a = t.closest('a[href^="#"]:not(.skip-link)');
+        if (!a) return;
+        var href = a.getAttribute("href");
+        if (!href || href === "#") return;
+        var el = document.getElementById(href.slice(1));
+        if (!el) return;
+        expandForAnchorTarget(el);
+      },
+      true
+    );
+  }
+
+  function boot() {
+    var groups = document.querySelectorAll(".holdings__sort");
+    for (var i = 0; i < groups.length; i++) setupGroup(groups[i]);
+    var toggles = document.querySelectorAll(".holdings__toggle");
+    for (var t = 0; t < toggles.length; t++) setupToggle(toggles[t]);
+    setupAnchorExpand();
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", boot);
+  } else {
+    boot();
+  }
+})();

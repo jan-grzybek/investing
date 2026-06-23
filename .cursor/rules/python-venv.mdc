@@ -1,0 +1,27 @@
+---
+description: Use the project .venv for all Python shell commands
+alwaysApply: true
+---
+
+# Python environment
+
+Dependencies install into **`.venv/`** via `pip install -e '.[dev]'` (see [CONTRIBUTING.md](CONTRIBUTING.md)). The venv is gitignored; system `python` / `python3` on PATH does **not** have pytest, ruff, gspread, etc.
+
+**Agent shell commands do not inherit** `.vscode/settings.json` or integrated-terminal venv activation. Always use explicit venv paths:
+
+- `.venv/bin/python -m pytest …`
+- `.venv/bin/python -m investing`
+- `.venv/bin/python scripts/preview.py …`
+- `.venv/bin/ruff check .` / `.venv/bin/ruff format …`
+- `.venv/bin/mypy investing scripts/preview.py`
+
+If `.venv/` is missing, create it and install dev deps before running checks:
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -e '.[dev]'
+```
+
+Do **not** `pip install` into system Python to fix `ModuleNotFoundError`. Do not run bare `python`, `pytest`, or `ruff` without the `.venv/bin/` prefix.
+
+Fallback: `.testvenv/` if present (same activate pattern).

@@ -239,6 +239,7 @@
      so the swap has to happen at the filter-URL level. */
   display: none;
   max-width: 100%;
+  max-height: calc(100% - 1.25rem);
   object-fit: contain;
   filter: url(#treemap-logo-knockout-light);
   pointer-events: none;
@@ -334,6 +335,34 @@
 @container treemap (min-width: 541px) {
   @container tile (min-width: 90px) and (min-height: 64px) {
     .treemap__tile--aggregated .treemap__tile-text {
+      display: flex;
+    }
+  }
+}
+/* Responsive "drop the labels when they would overflow the tile"
+   rule for **real** (non-aggregated) tiles. The Python merge loop
+   folds holdings whose squarified rectangle cannot host the ticker +
+   weight stack on the worst-case mobile canvas, but a tile that
+   clears that probe on the reference size can still clip on a
+   slightly wider phone once the responsive font clamps land above
+   the minimum. Mirroring the aggregated-tile hide/show contract
+   keeps any residual undersized rectangle as a colour swatch (logo
+   and ticker swap rules already hide their respective identifiers;
+   this rule drops the weight percent too so nothing bleeds past the
+   tile edge). */
+.treemap__tile:not(.treemap__tile--aggregated) .treemap__tile-text {
+  display: none;
+}
+@container treemap (max-width: 540px) {
+  @container tile (min-width: 60px) and (min-height: 46px) {
+    .treemap__tile:not(.treemap__tile--aggregated) .treemap__tile-text {
+      display: flex;
+    }
+  }
+}
+@container treemap (min-width: 541px) {
+  @container tile (min-width: 90px) and (min-height: 50px) {
+    .treemap__tile:not(.treemap__tile--aggregated) .treemap__tile-text {
       display: flex;
     }
   }

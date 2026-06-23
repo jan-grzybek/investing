@@ -302,8 +302,9 @@ class TestEquitySectorTreemap:
         # a single aggregated ``Other`` tile (no logo, no link,
         # neutral grey swatch). Construct a 1 + 10 holdings portfolio
         # where the 10 tail holdings each carry 0.6 % -- well below
-        # the 14 %-canvas-width readability threshold once they get
-        # subdivided.
+        # the readability threshold once squarify subdivides the
+        # sector (wide-but-thin strips fail the px-based probe even
+        # when their canvas-% width looks generous).
         freeze_today(datetime(2025, 6, 1))
         w = Webpage()
         w.add_return(_total_return(), [])
