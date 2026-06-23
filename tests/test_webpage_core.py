@@ -367,10 +367,9 @@ class TestSectorTreemapLayout:
     def test_tile_empty_probe_catches_thin_strips(self):
         from investing.webpage.sector_treemap import _Tile, _tile_must_fold_into_other
 
-        # Wide enough in canvas-% terms but too short on the reference
-        # mobile canvas (classic squarify strip) -- colour-only on phone
-        # and desktop.
-        assert _tile_must_fold_into_other(_Tile(0.0, 0.0, 25.0, 14.0))
+        # Wide enough in canvas-% terms but too short on both reference
+        # canvases (classic squarify strip).
+        assert _tile_must_fold_into_other(_Tile(0.0, 0.0, 10.0, 8.0))
         assert not _tile_must_fold_into_other(_Tile(0.0, 0.0, 25.0, 20.0))
 
     def test_tile_empty_probe_checks_mobile_and_desktop_references(self):
@@ -385,8 +384,8 @@ class TestSectorTreemapLayout:
         )
 
         # Too short on the mobile reference but tall enough for a ticker
-        # on the desktop reference -- still folds because mobile would be
-        # a colour-only swatch.
+        # on the desktop reference -- stays an individual tile so desktop
+        # can show the logo / ticker while mobile falls back to a swatch.
         narrow = _Tile(0.0, 0.0, 17.0, 14.0)
         assert _tile_would_be_empty_on_canvas(
             narrow, _MOBILE_REF_CANVAS_W_PX, _MOBILE_REF_CANVAS_H_PX
@@ -394,9 +393,9 @@ class TestSectorTreemapLayout:
         assert not _tile_would_be_empty_on_canvas(
             narrow, _DESKTOP_REF_CANVAS_W_PX, _DESKTOP_REF_CANVAS_H_PX
         )
-        assert _tile_must_fold_into_other(narrow)
+        assert not _tile_must_fold_into_other(narrow)
 
-    def test_merge_folds_only_unreadable_holdings_without_cascade(self):
+    def test_merge_keeps_desktop_legible_tail_without_cascade(self):
         from investing.webpage.sector_treemap import _merge_small_into_other, _Row
 
         rows = [
@@ -430,14 +429,10 @@ class TestSectorTreemapLayout:
             _Row(ticker="NMS:SAP", name="SAP", sector="Other", weight=3.5, logo_url="x"),
         ]
         merged = _merge_small_into_other(rows)
-        # Only the thin-strip tail (SAP) folds; the aggregated Other
-        # tile may stay undersized and rely on the CSS colour-only
-        # fallback, so the loop must not keep merging real holdings
-        # just to grow that strip.
+        # SAP's strip is colour-only on mobile but legible on desktop;
+        # the loop must not fold it (or cascade into Other).
         assert len(merged) == len(rows)
-        other = next(row for row in merged if row.is_aggregated)
-        assert other.folded_tickers == ("NMS:SAP",)
-        assert other.weight == 3.5
+        assert not any(row.is_aggregated for row in merged)
 
 
 class TestEqualVisualAreaLogoFactors:

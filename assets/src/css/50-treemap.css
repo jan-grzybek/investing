@@ -341,9 +341,8 @@
 }
 /* Responsive "drop the labels when they would overflow the tile"
    rule for **real** (non-aggregated) tiles. The Python merge loop
-   folds holdings whose tile would be a colour-only swatch on the
-   mobile or desktop reference canvas; this rule is the CSS backstop
-   at runtime. Thresholds match :func:`_tile_shows_identifier` in
+   folds holdings whose tile would be a colour-only swatch on both
+   reference canvases; this rule is the CSS backstop at runtime on Thresholds match :func:`_tile_shows_identifier` in
    ``sector_treemap.py`` (60 x 46 px for the ticker / weight stack on
    every figure width once the logo is hidden). */
 .treemap__tile:not(.treemap__tile--aggregated) .treemap__tile-text {

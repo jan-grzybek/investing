@@ -39,19 +39,17 @@ from .anchors import holding_anchor, strip_exchange
 # the probe mirrors the per-viewport CSS container rules in
 # ``50-treemap.css``: a tile is **empty** when neither the logo nor
 # the ticker / weight stack would render on that reference canvas.
-# Holdings whose tile would be empty on the mobile **or** the desktop
-# reference are folded into ``Other equities``; the loop keeps every
-# other real holding as an individual tile.
+# Holdings whose tile would be empty on **both** the mobile and desktop
+# reference are folded into ``Other equities``. A holding that can
+# show a logo or ticker on at least one form factor stays as an
+# individual tile -- the same squarified rectangle is larger in px on
+# a wide desktop canvas, so CSS can show a logo or ticker there while
+# the phone renders a colour-only swatch for the same holding.
 #
 # Mobile reference (~360 px content width, 4 : 3 canvas aspect from
 # ``90-responsive.css``). Desktop reference (~832 px content width,
 # 2 : 1 canvas aspect from ``50-treemap.css``). The same squarified
-# rectangle maps to different pixel sizes on each canvas, so a strip
-# can host a ticker on a wide desktop tile while the same holding
-# would be a colour-only swatch on a narrow phone -- or vice versa.
-# Checking both references and folding when **either** would be empty
-# guarantees no colour-only swatch on any form factor. Holdings that
-# can show a logo or ticker on both canvases stay as individual tiles.
+# rectangle maps to different pixel sizes on each canvas.
 #
 # Thresholds below are kept in sync with the ``@container tile`` rules
 # in ``50-treemap.css`` (logo swap at 80 x 50 px; ticker / weight
@@ -656,18 +654,20 @@ def _tile_would_be_empty_on_canvas(tile: _Tile, canvas_w_px: float, canvas_h_px:
 
 
 def _tile_must_fold_into_other(tile: _Tile) -> bool:
-    """Return whether ``tile`` would be empty on the mobile or desktop
-    reference canvas and should fold into ``Other equities``.
+    """Return whether ``tile`` would be empty on **both** reference
+    canvases and should fold into ``Other equities``.
 
-    A holding stays an individual tile only when it can show a logo
-    or ticker on **both** reference canvases.
+    Holdings that can show a logo or ticker on at least one reference
+    size stay as individual tiles so wide viewports keep as many
+    equities as the layout allows. Mobile-only colour swatches rely on
+    tooltip / legend context (see ``50-treemap.css``).
 
     The aggregated ``Other`` pseudo-row is exempt from this probe
     (see :func:`_merge_small_into_other`).
     """
     return _tile_would_be_empty_on_canvas(
         tile, _MOBILE_REF_CANVAS_W_PX, _MOBILE_REF_CANVAS_H_PX
-    ) or _tile_would_be_empty_on_canvas(tile, _DESKTOP_REF_CANVAS_W_PX, _DESKTOP_REF_CANVAS_H_PX)
+    ) and _tile_would_be_empty_on_canvas(tile, _DESKTOP_REF_CANVAS_W_PX, _DESKTOP_REF_CANVAS_H_PX)
 
 
 def _inset_rect(rect: _Tile, pad: float) -> _Tile:
@@ -688,8 +688,8 @@ def _merge_small_into_other(rows: Sequence[_Row]) -> list[_Row]:
 
     The loop alternates between two cheap steps until convergence:
     re-run the squarified layout, then -- if any *real* holding's tile
-    would be a colour-only swatch on the mobile or desktop reference
-    canvas (see :func:`_tile_must_fold_into_other`) -- fold
+    would be a colour-only swatch on **both** the mobile and desktop
+    reference canvases (see :func:`_tile_must_fold_into_other`) -- fold
     the smallest-weight real holding into the aggregated ``Other``
     pseudo-row (creating it on first need). Each iteration drops the
     row count by exactly one, so the loop is guaranteed to terminate
