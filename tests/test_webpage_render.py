@@ -1004,7 +1004,7 @@ class TestSave:
         # raw ticker count). The ticker-level equities bar chart
         # used to add a sixth occurrence here but has been retired
         # in favour of the treemap.
-        assert out.count("NMS:CURR") == 5
+        assert out.count("NMS:CURR") == 4
         assert out.count("NMS:OLD") == 1  # historical -> not in ticker
         # Asset-allocation bar chart still rendered; the previous
         # ticker-level equities bar chart has been removed in
@@ -1329,8 +1329,10 @@ class TestSave:
         # bucket (carried purely in the OG-image / ``top_10``
         # rollup) never reaches the rendered page any more.
         assert '<figure class="treemap"' in out
-        assert "Other equities" not in out
+        # ``top_10`` may carry a synthetic ``Other equities`` rollup
+        # label, but that bucket never becomes a holding anchor.
         assert "holding-Other" not in out
+        assert 'href="#holding-Other"' not in out
 
     def test_save_without_current_holdings_skips_section(
         self, stub_logo_lookup, chdir_tmp, freeze_today

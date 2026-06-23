@@ -22,6 +22,7 @@ __all__ = [
     "_RETURN_CHART_SCRIPT",
     "_TICKER_MARQUEE_SCRIPT",
     "_TRADES_SORT_SCRIPT",
+    "_TREEMAP_LAYOUT_SCRIPT",
     "_YEARLY_RETURNS_SCRIPT",
 ]
 
@@ -298,6 +299,14 @@ _YEARLY_RETURNS_SCRIPT = _read_asset("yearly_returns.js")
 # Kept as a tight ES5-flavoured IIFE so the inline payload stays
 # small and gets a single stable SHA-256 hash (pinned in CSP).
 _HOLDINGS_SORT_SCRIPT = _read_asset("holdings_sort.js")
+
+# Client-side squarify + fold-into-Other for the equities treemap.
+# Reads holdings from the ``<script class="treemap__payload">`` JSON
+# island in each ``<figure class="treemap">``, measures the canvas,
+# merges holdings whose tile would be unlabeled at the current pixel
+# size, and repaints tiles + legend on load and ``ResizeObserver``
+# resize. Kept as a tight ES5-flavoured IIFE for a stable CSP hash.
+_TREEMAP_LAYOUT_SCRIPT = _read_asset("treemap_layout.js")
 
 
 # Drives the decorative current-holdings marquee at the top of the

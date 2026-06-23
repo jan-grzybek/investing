@@ -12,6 +12,7 @@ from tests._webpage_support import (
     _total_return,
     _trade_event,
     stub_logo_lookup,
+    treemap_layout_block,
 )
 
 
@@ -46,13 +47,18 @@ class TestEquitySectorTreemap:
         w.save()
 
         out = (chdir_tmp / "index.html").read_text()
-        # Container + per-sector tiles + legend chips are all
-        # emitted.
+        # Payload + empty canvas shell; tiles paint client-side.
         assert '<figure class="treemap"' in out
         assert 'class="treemap__canvas"' in out
-        assert out.count('class="treemap__tile"') == 2
-        assert 'data-sector="Technology"' in out
-        assert 'data-sector="Healthcare"' in out
+        assert 'class="treemap__payload"' in out
+        holdings = [
+            _holding(ticker="NMS:AAA", name="Alpha", weight=60.0, sector="Technology"),
+            _holding(ticker="NMS:BBB", name="Beta", weight=40.0, sector="Healthcare"),
+        ]
+        block = treemap_layout_block(holdings)
+        assert block.count('class="treemap__tile"') == 2
+        assert 'data-sector="Technology"' in block
+        assert 'data-sector="Healthcare"' in block
         # The historical-only ticker never receives a tile because
         # ``add_holding`` filters on ``is_current`` before pushing
         # onto the treemap list, and an absent ``current_weight%``
@@ -111,12 +117,11 @@ class TestEquitySectorTreemap:
         w.add_holding(_holding(ticker="NMS:BBB", name="Beta", weight=30.0, sector="Technology"))
         w.save()
 
-        out = (chdir_tmp / "index.html").read_text()
-        treemap_block = out[
-            out.index('<figure class="treemap"') : out.index(
-                "</figure>", out.index('<figure class="treemap"')
-            )
+        holdings = [
+            _holding(ticker="NMS:AAA", name="Alpha", weight=70.0, sector="Technology"),
+            _holding(ticker="NMS:BBB", name="Beta", weight=30.0, sector="Technology"),
         ]
+        treemap_block = treemap_layout_block(holdings)
         assert 'href="#holding-NMS-AAA"' in treemap_block
         assert 'href="#holding-NMS-BBB"' in treemap_block
         # Both tiles share the same sector swatch CSS variable so
@@ -143,7 +148,14 @@ class TestEquitySectorTreemap:
         w.save()
 
         out = (chdir_tmp / "index.html").read_text()
-        assert 'data-sector="Other"' in out
+        assert 'class="treemap__payload"' in out
+        block = treemap_layout_block(
+            [
+                _holding(ticker="NMS:AAA", name="Alpha", weight=50.0, sector=""),
+                _holding(ticker="NMS:BBB", name="Beta", weight=50.0, sector="Technology"),
+            ]
+        )
+        assert 'data-sector="Other"' in block
         # The fallback colour variable is wired in too.
         assert "--treemap-color-other" in out
 
@@ -171,8 +183,12 @@ class TestEquitySectorTreemap:
         w.save()
 
         out = (chdir_tmp / "index.html").read_text()
-        assert 'aria-label="NMS:AAA - Alpha Inc. (Technology): 100%"' in out
-        assert 'title="NMS:AAA - Alpha Inc. (Technology): 100%"' in out
+        assert 'class="treemap__payload"' in out
+        block = treemap_layout_block(
+            [_holding(ticker="NMS:AAA", name="Alpha Inc.", weight=100.0, sector="Technology")]
+        )
+        assert 'aria-label="NMS:AAA - Alpha Inc. (Technology): 100%"' in block
+        assert 'title="NMS:AAA - Alpha Inc. (Technology): 100%"' in block
 
     def test_tiles_emit_both_logo_and_ticker_for_css_swap(
         self,
@@ -201,10 +217,12 @@ class TestEquitySectorTreemap:
         )
         w.save()
 
-        out = (chdir_tmp / "index.html").read_text()
-        fig_start = out.index('<figure class="treemap"')
-        fig_end = out.index("</figure>", fig_start)
-        block = out[fig_start:fig_end]
+        block = treemap_layout_block(
+            [
+                _holding(ticker="NMS:AAA", weight=60.0, sector="Technology"),
+                _holding(ticker="NMS:BBB", weight=40.0, sector="Technology"),
+            ]
+        )
         # Two real holdings -> two logos AND two visible ticker spans.
         assert block.count('<img class="treemap__tile-logo"') == 2
         assert block.count('class="treemap__tile-ticker"') == 2
@@ -255,13 +273,21 @@ class TestEquitySectorTreemap:
             )
         w.save()
 
-        out = (chdir_tmp / "index.html").read_text()
-        fig_start = out.index('<figure class="treemap"')
-        fig_end = out.index("</figure>", fig_start)
-        block = out[fig_start:fig_end]
-
+        holdings = []
+        for ticker in aspect_table:
+            holdings.append(
+                _holding(
+                    ticker=ticker,
+                    weight=100.0 / len(aspect_table),
+                    sector="Technology",
+                )
+            )
+        block = treemap_layout_block(
+            holdings,
+            logo_url_for=cache,
+            logo_aspect_for=cache.aspect_ratio,
+        )
         # For each tile, parse the inline factors off the <img>
-        # and check the equal-area invariant.
         for ticker in aspect_table:
             label_idx = block.index(f'aria-label="{ticker}')
             tile = block[block.rfind("<a", 0, label_idx) : block.index("</a>", label_idx)]
@@ -321,10 +347,16 @@ class TestEquitySectorTreemap:
             )
         w.save()
 
-        out = (chdir_tmp / "index.html").read_text()
-        fig_start = out.index('<figure class="treemap"')
-        fig_end = out.index("</figure>", fig_start)
-        block = out[fig_start:fig_end]
+        holdings = [_holding(ticker="NMS:HVY", weight=94.0, sector="Technology")]
+        for i in range(10):
+            holdings.append(
+                _holding(
+                    ticker=f"NMS:T{i:02d}",
+                    weight=0.6,
+                    sector="Technology",
+                ),
+            )
+        block = treemap_layout_block(holdings)
         # The aggregated tile renders as a ``<div>`` (no holding
         # card to anchor to), uses the Other sector class hook, and
         # carries an ``Other`` label.
@@ -368,10 +400,16 @@ class TestEquitySectorTreemap:
             )
         w.save()
 
-        out = (chdir_tmp / "index.html").read_text()
-        fig_start = out.index('<figure class="treemap"')
-        fig_end = out.index("</figure>", fig_start)
-        block = out[fig_start:fig_end]
+        holdings = [_holding(ticker="NMS:HVY", weight=95.0, sector="Technology")]
+        for i in range(5):
+            holdings.append(
+                _holding(
+                    ticker=f"NMS:T{i}",
+                    weight=1.0,
+                    sector="Technology",
+                ),
+            )
+        block = treemap_layout_block(holdings)
         # ``Other`` tile renders with the rolled-up weight.
         agg_idx = block.index("treemap__tile--aggregated")
         # The visible weight label sits inside the tile's text span.
@@ -401,14 +439,13 @@ class TestEquitySectorTreemap:
         )
         w.save()
 
-        out = (chdir_tmp / "index.html").read_text()
-        # Scope the check to the figure body -- the class name itself
-        # appears once in the inlined stylesheet block (rule
-        # definition), but the rendered tiles inside the figure must
-        # not carry the aggregated marker.
-        fig_start = out.index('<figure class="treemap"')
-        fig_end = out.index("</figure>", fig_start)
-        assert "treemap__tile--aggregated" not in out[fig_start:fig_end]
+        block = treemap_layout_block(
+            [
+                _holding(ticker="NMS:AAA", weight=50.0, sector="Technology"),
+                _holding(ticker="NMS:BBB", weight=50.0, sector="Technology"),
+            ]
+        )
+        assert "treemap__tile--aggregated" not in block
 
     def test_treemap_sits_between_equities_heading_and_sort_control(
         self,

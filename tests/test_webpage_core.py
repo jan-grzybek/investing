@@ -374,23 +374,25 @@ class TestSectorTreemapLayout:
 
     def test_tile_empty_probe_checks_multiple_reference_widths(self):
         from investing.webpage.sector_treemap import (
-            _DESKTOP_REF_CANVAS_H_PX,
-            _DESKTOP_REF_CANVAS_W_PX,
-            _MOBILE_REF_CANVAS_H_PX,
-            _MOBILE_REF_CANVAS_W_PX,
             _Tile,
             _tile_must_fold_into_other,
             _tile_would_be_empty_on_canvas,
+        )
+        from tests._webpage_support import (
+            DESKTOP_TREEMAP_CANVAS_H,
+            DESKTOP_TREEMAP_CANVAS_W,
+            MOBILE_TREEMAP_CANVAS_H,
+            MOBILE_TREEMAP_CANVAS_W,
         )
 
         # Legible on the wide desktop reference but unlabeled on phone
         # and at the 541 px desktop breakpoint -- must fold.
         narrow = _Tile(0.0, 0.0, 17.0, 14.0)
         assert _tile_would_be_empty_on_canvas(
-            narrow, _MOBILE_REF_CANVAS_W_PX, _MOBILE_REF_CANVAS_H_PX
+            narrow, MOBILE_TREEMAP_CANVAS_W, MOBILE_TREEMAP_CANVAS_H
         )
         assert not _tile_would_be_empty_on_canvas(
-            narrow, _DESKTOP_REF_CANVAS_W_PX, _DESKTOP_REF_CANVAS_H_PX
+            narrow, DESKTOP_TREEMAP_CANVAS_W, DESKTOP_TREEMAP_CANVAS_H
         )
         assert _tile_must_fold_into_other(narrow)
 

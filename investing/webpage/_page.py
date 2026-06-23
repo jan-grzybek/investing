@@ -244,10 +244,20 @@ class Webpage:
         # be referenced from <head>. If Pillow / fonts aren't available
         # the page still renders, just without a fresh social preview.
         self._render_og_image(out_dir)
+        treemap_payload_json = ""
+        if self._current_equity_for_treemap:
+            aspect_for = getattr(self._logo_resolver, "aspect_ratio", None)
+            coverage_for = getattr(self._logo_resolver, "coverage_ratio", None)
+            treemap_payload_json = _sector_treemap.build_payload_json(
+                self._current_equity_for_treemap,
+                logo_url_for=self._get_logo_url,
+                logo_aspect_for=aspect_for,
+                logo_coverage_for=coverage_for,
+            )
         parts: list[str] = []
         parts.append("<!DOCTYPE html>")
         parts.append('<html lang="en">')
-        parts.append(self._head())
+        parts.append(self._head(treemap_payload_json))
         parts.append("<body>")
         # Skip link: visually hidden until focused, lets keyboard users
         # bypass the sticky nav and jump straight to <main>.
@@ -523,9 +533,9 @@ class Webpage:
         )
 
     @classmethod
-    def _head(cls) -> str:
+    def _head(cls, treemap_payload_json: str = "") -> str:
         """Delegate to :func:`investing.webpage.head.build_head`."""
-        return build_head(cls._site_meta())
+        return build_head(cls._site_meta(), treemap_payload_json=treemap_payload_json)
 
     @classmethod
     def _jsonld(cls) -> str:

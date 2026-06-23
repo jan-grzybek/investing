@@ -20,6 +20,7 @@ _INLINE_PAYLOADS = (
     ("trades_sort", assets._TRADES_SORT_SCRIPT),
     ("yearly_returns", assets._YEARLY_RETURNS_SCRIPT),
     ("holdings_sort", assets._HOLDINGS_SORT_SCRIPT),
+    ("treemap_layout", assets._TREEMAP_LAYOUT_SCRIPT),
 )
 
 _STYLE_PAYLOADS = (("page.css", assets._PAGE_STYLES),)
@@ -45,6 +46,7 @@ def test_served_asset_bytes_match_repo_files():
         ("trades_sort.js", assets._TRADES_SORT_SCRIPT),
         ("yearly_returns.js", assets._YEARLY_RETURNS_SCRIPT),
         ("holdings_sort.js", assets._HOLDINGS_SORT_SCRIPT),
+        ("treemap_layout.js", assets._TREEMAP_LAYOUT_SCRIPT),
         ("page.css", assets._PAGE_STYLES),
     )
     for name, loaded in pairs:
@@ -83,5 +85,5 @@ def test_build_head_inlines_match_asset_module_and_csp():
     assert assets._PAGE_STYLES in head
 
     hashes = re.findall(r"'sha256-([A-Za-z0-9+/=]+)'", head)
-    assert len(hashes) >= 8
+    assert len(hashes) >= 9
     assert len(hashes) == len(set(hashes)), "duplicate CSP hashes in head"

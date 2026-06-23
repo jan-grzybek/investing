@@ -25,6 +25,7 @@ recomputing coordinates client-side.
 from __future__ import annotations
 
 import html
+import json
 import math
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
@@ -34,10 +35,11 @@ from ..logos import _DEFAULT_LOGO_ASPECT
 from .anchors import holding_anchor, strip_exchange
 
 # Reference content widths for the **fold-into-Other** empty-tile probe
-# (see :func:`_tile_must_fold_into_other`). Layout is fixed at build
-# time, so the probe samples several figure widths that mirror the
-# page's responsive contract: narrow phone, typical phone, the
-# ``540px`` aspect-ratio breakpoint, and desktop / max-content widths
+# (see :func:`_tile_must_fold_into_other`). The client-side layout
+# script and :func:`_merge_small_into_other_at_canvas` sample several
+# figure widths that mirror the page's responsive contract: narrow
+# phone, typical phone, the ``540px`` aspect-ratio breakpoint, and
+# desktop / max-content widths
 # from ``00-base.css`` / ``90-responsive.css``. For each width the
 # canvas height follows the same aspect rule as CSS (4 : 3 up to
 # ``540px``, 2 : 1 above). A holding folds when its squarified tile
@@ -54,17 +56,6 @@ _LOGO_MIN_TILE_W_PX = 80.0
 _LOGO_MIN_TILE_H_PX = 50.0
 _TEXT_MIN_TILE_W_PX = 60.0
 _TEXT_MIN_TILE_H_PX = 46.0
-
-# Legacy single-point references kept for tests / docs.
-_MOBILE_REF_CANVAS_W_PX = 358.0
-_MOBILE_REF_CANVAS_H_PX = _MOBILE_REF_CANVAS_W_PX * 3 / 4
-_DESKTOP_REF_CANVAS_W_PX = 832.0
-_DESKTOP_REF_CANVAS_H_PX = _DESKTOP_REF_CANVAS_W_PX / 2
-
-# Canvas-relative equivalents at the mobile reference size, for tests
-# / docs that want a single number to cite.
-_TEXT_MIN_TILE_W_PCT = _TEXT_MIN_TILE_W_PX / _MOBILE_REF_CANVAS_W_PX * 100.0
-_TEXT_MIN_TILE_H_PCT = _TEXT_MIN_TILE_H_PX / _MOBILE_REF_CANVAS_H_PX * 100.0
 
 
 def _ref_canvas_wh(content_w_px: float) -> tuple[float, float]:
@@ -99,7 +90,7 @@ _REF_CANVAS_SPECS: tuple[tuple[float, float], ...] = tuple(
 # eye's noticing threshold at ``0.4`` percent.
 #
 # Knock-on effect on the merge loop: a tile that was just clearing
-# ``_TEXT_MIN_TILE_*_PCT`` could dip below after the inset shrinks
+# ``_TEXT_MIN_TILE_*_PX`` could dip below after the inset shrinks
 # its sector's usable area, which means
 # :func:`_merge_small_into_other` might fold one extra holding into
 # the aggregated bucket. That is an acceptable consequence -- the
@@ -691,6 +682,63 @@ def _inset_rect(rect: _Tile, pad: float) -> _Tile:
     return _Tile(rect.x + pad, rect.y + pad, rect.w - 2 * pad, rect.h - 2 * pad)
 
 
+def _merge_small_into_other_at_canvas(
+    rows: Sequence[_Row],
+    canvas_w_px: float,
+    canvas_h_px: float,
+) -> list[_Row]:
+    """Fold holdings whose tile would be unlabeled at ``(canvas_w_px, canvas_h_px)``.
+
+    Mirrors the client-side merge in ``treemap_layout.js``, which
+    re-layouts against the canvas's rendered pixel dimensions on
+    load and resize.
+    """
+    rows_list = list(rows)
+    for _ in range(len(rows_list) + 1):
+        layout = _layout_rows(rows_list)
+        to_fold = [
+            row
+            for row, tile in layout
+            if not row.is_aggregated
+            and _tile_would_be_empty_on_canvas(tile, canvas_w_px, canvas_h_px)
+        ]
+        if not to_fold:
+            return rows_list
+        remaining_real = [row for row in rows_list if not row.is_aggregated and row not in to_fold]
+        if not remaining_real:
+            return rows_list
+        rows_list = [row for row in rows_list if row not in to_fold]
+        existing_other = next((row for row in rows_list if row.is_aggregated), None)
+        batch_weight = sum(row.weight for row in to_fold)
+        batch_tickers = tuple(row.ticker for row in to_fold)
+        if existing_other is None:
+            rows_list.append(
+                _Row(
+                    ticker="",
+                    name="Other",
+                    sector=_OTHER_SECTOR,
+                    weight=batch_weight,
+                    logo_url="",
+                    folded_tickers=batch_tickers,
+                )
+            )
+        else:
+            rows_list = [
+                _Row(
+                    ticker=existing_other.ticker,
+                    name=existing_other.name,
+                    sector=existing_other.sector,
+                    weight=existing_other.weight + batch_weight,
+                    logo_url=existing_other.logo_url,
+                    folded_tickers=existing_other.folded_tickers + batch_tickers,
+                )
+                if row.is_aggregated
+                else row
+                for row in rows_list
+            ]
+    return rows_list
+
+
 def _merge_small_into_other(rows: Sequence[_Row]) -> list[_Row]:
     """Iteratively fold holdings whose tile would be unlabeled into Other.
 
@@ -752,6 +800,128 @@ def _merge_small_into_other(rows: Sequence[_Row]) -> list[_Row]:
     return rows_list
 
 
+def _rows_from_holdings(
+    holdings: Iterable[dict],
+    *,
+    logo_url_for: LogoResolver,
+    logo_aspect_for: LogoAspectResolver,
+    logo_coverage_for: LogoCoverageResolver,
+) -> list[_Row]:
+    rows: list[_Row] = []
+    for holding in holdings:
+        weight = holding.get("current_weight%")
+        if weight is None or weight <= 0:
+            continue
+        ticker = holding["ticker"]
+        name = holding.get("name") or ticker
+        sector = (holding.get("sector") or "").strip() or _OTHER_SECTOR
+        rows.append(
+            _Row(
+                ticker=ticker,
+                name=name,
+                sector=sector,
+                weight=float(weight),
+                logo_url=logo_url_for(ticker),
+                logo_aspect=logo_aspect_for(ticker),
+                logo_density=logo_coverage_for(ticker),
+            )
+        )
+    rows.sort(key=lambda row: row.weight, reverse=True)
+    return rows
+
+
+def build_payload_json(
+    holdings: Iterable[dict],
+    *,
+    logo_url_for: LogoResolver,
+    logo_aspect_for: LogoAspectResolver | None = None,
+    logo_coverage_for: LogoCoverageResolver | None = None,
+) -> str:
+    """Serialize current-equity holdings for client-side treemap layout.
+
+    Returns JSON text safe to embed in a ``<script type="application/json">``
+    island (``</`` escaped). The treemap script hashes this payload in CSP
+    when it is non-empty.
+    """
+    if logo_aspect_for is None:
+        logo_aspect_for = _default_logo_aspect_for
+    if logo_coverage_for is None:
+        logo_coverage_for = _default_logo_coverage_for
+    rows = _rows_from_holdings(
+        holdings,
+        logo_url_for=logo_url_for,
+        logo_aspect_for=logo_aspect_for,
+        logo_coverage_for=logo_coverage_for,
+    )
+    if not rows:
+        return ""
+    holdings_payload: list[dict[str, object]] = []
+    for row in rows:
+        w_factor, h_factor = _equal_area_factors(row.logo_aspect, row.logo_density)
+        holdings_payload.append(
+            {
+                "ticker": row.ticker,
+                "name": row.name,
+                "sector": row.sector,
+                "weight": row.weight,
+                "logoUrl": row.logo_url,
+                "logoWFactor": round(w_factor, 3),
+                "logoHFactor": round(h_factor, 3),
+                "anchor": holding_anchor(row.ticker),
+                "shortTicker": strip_exchange(row.ticker),
+            }
+        )
+    payload = {
+        "holdings": holdings_payload,
+        "sectorColors": dict(_SECTOR_COLORS),
+        "otherSector": _OTHER_SECTOR,
+        "otherDisplayLabel": _OTHER_DISPLAY_LABEL,
+        "otherDisplayLabelShort": _OTHER_DISPLAY_LABEL_SHORT,
+    }
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
+
+
+def layout_at_canvas_block(
+    holdings: Iterable[dict],
+    canvas_w_px: float,
+    canvas_h_px: float,
+    *,
+    logo_url_for: LogoResolver,
+    logo_aspect_for: LogoAspectResolver | None = None,
+    logo_coverage_for: LogoCoverageResolver | None = None,
+) -> str:
+    """Render tile + legend HTML for a canvas size (test / parity helper).
+
+    Mirrors ``treemap_layout.js`` at ``(canvas_w_px, canvas_h_px)`` so
+    assertions can target the client layout without a browser.
+    """
+    if logo_aspect_for is None:
+        logo_aspect_for = _default_logo_aspect_for
+    if logo_coverage_for is None:
+        logo_coverage_for = _default_logo_coverage_for
+    rows = _rows_from_holdings(
+        holdings,
+        logo_url_for=logo_url_for,
+        logo_aspect_for=logo_aspect_for,
+        logo_coverage_for=logo_coverage_for,
+    )
+    if not rows:
+        return ""
+    rows = _merge_small_into_other_at_canvas(rows, canvas_w_px, canvas_h_px)
+    layout = _layout_rows(rows)
+    sector_totals: dict[str, float] = {}
+    sector_order: list[str] = []
+    for row in rows:
+        if row.sector not in sector_totals:
+            sector_order.append(row.sector)
+            sector_totals[row.sector] = 0.0
+        sector_totals[row.sector] += row.weight
+    sector_order.sort(key=lambda s: -sector_totals[s])
+    tile_html = [_ticker_tile(row=row, tile=tile) for row, tile in layout]
+    legend_html = [_legend_chip(s, sector_totals[s]) for s in sector_order]
+    return "".join(tile_html) + "".join(legend_html)
+
+
 def render(
     holdings: Iterable[dict],
     *,
@@ -767,18 +937,13 @@ def render(
     handing the iterable over -- so the chart is by construction a
     pure equity view.
 
-    Sizing strategy: every tile shows the weight percent. Tiles
-    above ``_TEXT_MIN_TILE_*_PCT`` additionally emit both a
-    ``<img class="treemap__tile-logo">`` and a
-    ``<span class="treemap__tile-ticker">`` -- which of the two is
-    actually visible is decided by a per-tile CSS container size
-    query, so the same tile reads as a logo on a wide canvas and as
-    the ticker symbol on a narrow canvas without the build having
-    to commit to one answer. Holdings whose tile falls below the
-    ticker fold threshold are rolled into a single aggregated
-    ``Other`` pseudo-row (see :func:`_merge_small_into_other`); that
-    decision IS baked in here because rearranging tiles is a layout
-    change CSS cannot do alone.
+    Layout and fold-into-Other decisions run client-side in
+    ``treemap_layout.js`` against the canvas's rendered pixel size.
+    The build emits a JSON payload plus an empty canvas shell; the
+    script squarifies, merges unlabeled tiles into ``Other equities``,
+    and paints tiles and legend chips. Per-tile logo-vs-ticker
+    visibility still follows the ``@container tile`` rules in
+    ``50-treemap.css``.
 
     ``logo_aspect_for`` resolves a logo's intrinsic aspect ratio
     (width / height) for the equal-area sizing factors emitted on
@@ -801,66 +966,24 @@ def render(
     they do for the top-N bar chart: omit the surrounding heading /
     caption rather than render an empty container.
     """
-    if logo_aspect_for is None:
-        logo_aspect_for = _default_logo_aspect_for
-    if logo_coverage_for is None:
-        logo_coverage_for = _default_logo_coverage_for
-    rows: list[_Row] = []
-    for holding in holdings:
-        weight = holding.get("current_weight%")
-        if weight is None or weight <= 0:
-            continue
-        ticker = holding["ticker"]
-        name = holding.get("name") or ticker
-        sector = (holding.get("sector") or "").strip() or _OTHER_SECTOR
-        rows.append(
-            _Row(
-                ticker=ticker,
-                name=name,
-                sector=sector,
-                weight=float(weight),
-                logo_url=logo_url_for(ticker),
-                logo_aspect=logo_aspect_for(ticker),
-                logo_density=logo_coverage_for(ticker),
-            )
-        )
-    if not rows:
+    payload_json = build_payload_json(
+        holdings,
+        logo_url_for=logo_url_for,
+        logo_aspect_for=logo_aspect_for,
+        logo_coverage_for=logo_coverage_for,
+    )
+    if not payload_json:
         return ""
-
-    rows.sort(key=lambda row: row.weight, reverse=True)
-    rows = _merge_small_into_other(rows)
-    layout = _layout_rows(rows)
-
-    # Build the legend off the post-merge weights so the swatch
-    # totals match the rendered tiles exactly (no orphaned "Tech
-    # 6.4%" chip pointing at a holding that's now inside the
-    # aggregated Other bucket).
-    sector_totals: dict[str, float] = {}
-    sector_order: list[str] = []
-    for row in rows:
-        if row.sector not in sector_totals:
-            sector_order.append(row.sector)
-            sector_totals[row.sector] = 0.0
-        sector_totals[row.sector] += row.weight
-    sector_order.sort(key=lambda s: -sector_totals[s])
-
-    tile_html = [_ticker_tile(row=row, tile=tile) for row, tile in layout]
-    legend_html = [_legend_chip(s, sector_totals[s]) for s in sector_order]
 
     return (
         '<figure class="treemap" '
         'aria-label="Equity holdings grouped by sector">'
-        # Inline SVG ``<filter>`` referenced by each tile's
-        # ``filter: url(#treemap-logo-knockout)`` declaration. Lives
-        # inside the figure (rather than at the top of <body>) so it
-        # only ships when the chart actually renders.
         f"{_LOGO_KNOCKOUT_SVG}"
-        '<div class="treemap__canvas">'
-        f"{''.join(tile_html)}"
-        "</div>"
-        '<figcaption class="treemap__legend" aria-hidden="true">'
-        f"{''.join(legend_html)}"
-        "</figcaption>"
+        '<script type="application/json" class="treemap__payload">'
+        f"{payload_json}"
+        "</script>"
+        '<div class="treemap__canvas"></div>'
+        '<figcaption class="treemap__legend" aria-hidden="true"></figcaption>'
         "</figure>"
     )
 
@@ -964,11 +1087,10 @@ def _ticker_tile(*, row: _Row, tile: _Tile) -> str:
     the current viewport (see the ``@container tile`` rules in
     ``page.css``). Wide-canvas viewports show the logo; narrow ones
     swap to the ticker symbol; both share the weight-percent line
-    below. The fold-into-Other tier is the only layout decision
-    baked in here -- holdings whose squarified tile sits below
-    :data:`_TEXT_MIN_TILE_W_PCT` / :data:`_TEXT_MIN_TILE_H_PCT` are
-    rolled into the aggregated row upstream of this function (see
-    :func:`_merge_small_into_other`). Full ticker + company name +
+    below. The fold-into-Other decision runs client-side in
+    ``treemap_layout.js`` (and in :func:`layout_at_canvas_block` for
+    tests) using the ``_TEXT_MIN_TILE_*_PX`` thresholds mirrored from
+    ``50-treemap.css``. Full ticker + company name +
     sector context lives on the ``aria-label`` / ``title`` for
     screen-readers and hover users.
     """

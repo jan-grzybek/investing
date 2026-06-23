@@ -86,6 +86,39 @@ def _holding(
     }
 
 
+MOBILE_TREEMAP_CANVAS_W = 358.0
+MOBILE_TREEMAP_CANVAS_H = MOBILE_TREEMAP_CANVAS_W * 0.75
+DESKTOP_TREEMAP_CANVAS_W = 832.0
+DESKTOP_TREEMAP_CANVAS_H = DESKTOP_TREEMAP_CANVAS_W / 2
+
+
+def _stub_logo_url(ticker: str) -> str:
+    encoded = ticker.replace(":", "%3A")
+    return f"{LOGOS_ADDRESS}{encoded}.svg"
+
+
+def treemap_layout_block(
+    holdings,
+    *,
+    canvas_w: float = MOBILE_TREEMAP_CANVAS_W,
+    canvas_h: float = MOBILE_TREEMAP_CANVAS_H,
+    logo_url_for=_stub_logo_url,
+    logo_aspect_for=None,
+    logo_coverage_for=None,
+) -> str:
+    """Client-parity treemap tile HTML at a reference canvas size."""
+    from investing.webpage.sector_treemap import layout_at_canvas_block
+
+    return layout_at_canvas_block(
+        holdings,
+        canvas_w,
+        canvas_h,
+        logo_url_for=logo_url_for,
+        logo_aspect_for=logo_aspect_for,
+        logo_coverage_for=logo_coverage_for,
+    )
+
+
 def _total_return():
     return {
         "start_date": datetime(2024, 1, 1),

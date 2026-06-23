@@ -20,6 +20,7 @@ from ..assets import (
     _RETURN_CHART_SCRIPT,
     _TICKER_MARQUEE_SCRIPT,
     _TRADES_SORT_SCRIPT,
+    _TREEMAP_LAYOUT_SCRIPT,
     _YEARLY_RETURNS_SCRIPT,
 )
 from ..formatting import _sha256_b64
@@ -95,7 +96,7 @@ def build_jsonld(meta: SiteMeta) -> SafeHtml:
     return SafeHtml(json.dumps(payload, ensure_ascii=False).replace("</", "<\\/"))
 
 
-def build_csp(jsonld: SafeHtml) -> SafeHtml:
+def build_csp(jsonld: SafeHtml, treemap_payload_json: str = "") -> SafeHtml:
     """Construct the page's Content-Security-Policy.
 
     Inline ``<script>`` / ``<style>`` payloads are pinned by their
@@ -117,9 +118,10 @@ def build_csp(jsonld: SafeHtml) -> SafeHtml:
     trades_sort_hash = _sha256_b64(_TRADES_SORT_SCRIPT)
     yearly_returns_hash = _sha256_b64(_YEARLY_RETURNS_SCRIPT)
     holdings_sort_hash = _sha256_b64(_HOLDINGS_SORT_SCRIPT)
-    return SafeHtml(
-        "default-src 'self'; "
-        f"script-src 'self' 'sha256-{jsonld_hash}' "
+    treemap_layout_hash = _sha256_b64(_TREEMAP_LAYOUT_SCRIPT)
+    treemap_payload_hash = _sha256_b64(treemap_payload_json) if treemap_payload_json else None
+    script_hashes = (
+        f"'sha256-{jsonld_hash}' "
         f"'sha256-{hash_clear_hash}' "
         f"'sha256-{nav_scroll_hash}' "
         f"'sha256-{return_chart_hash}' "
@@ -127,6 +129,13 @@ def build_csp(jsonld: SafeHtml) -> SafeHtml:
         f"'sha256-{trades_sort_hash}' "
         f"'sha256-{yearly_returns_hash}' "
         f"'sha256-{holdings_sort_hash}' "
+        f"'sha256-{treemap_layout_hash}'"
+    )
+    if treemap_payload_hash is not None:
+        script_hashes += f" 'sha256-{treemap_payload_hash}'"
+    return SafeHtml(
+        "default-src 'self'; "
+        f"script-src 'self' {script_hashes} "
         "https://static.cloudflareinsights.com; "
         "style-src 'self' 'unsafe-inline'; "
         f"style-src-elem 'self' 'sha256-{style_hash}'; "
@@ -140,7 +149,7 @@ def build_csp(jsonld: SafeHtml) -> SafeHtml:
     )
 
 
-def build_head(meta: SiteMeta) -> SafeHtml:
+def build_head(meta: SiteMeta, treemap_payload_json: str = "") -> SafeHtml:
     """Render the page's ``<head>`` block.
 
     Pulls together the SEO / OG / Twitter / canonical / theme-color
@@ -155,7 +164,7 @@ def build_head(meta: SiteMeta) -> SafeHtml:
     url = escape(meta.url)
     image = escape(meta.social_image)
     jsonld_str = build_jsonld(meta)
-    csp = build_csp(jsonld_str)
+    csp = build_csp(jsonld_str, treemap_payload_json)
     return SafeHtml(
         "<head>\n"
         '<meta charset="UTF-8">\n'
@@ -197,6 +206,7 @@ def build_head(meta: SiteMeta) -> SafeHtml:
         f"<script>{_TRADES_SORT_SCRIPT}</script>\n"
         f"<script>{_YEARLY_RETURNS_SCRIPT}</script>\n"
         f"<script>{_HOLDINGS_SORT_SCRIPT}</script>\n"
+        f"<script>{_TREEMAP_LAYOUT_SCRIPT}</script>\n"
         f"<style>{_PAGE_STYLES}</style>\n"
         "</head>"
     )
