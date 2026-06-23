@@ -4,6 +4,7 @@
   var LOGO_MIN_H = 50;
   var TEXT_MIN_W = 60;
   var TEXT_MIN_H = 46;
+  var FOLD_SAFETY_PX = 1;
 
   function fmtPct(value) {
     var abs = Math.abs(value);
@@ -209,10 +210,98 @@
     );
   }
 
-  function tileWouldBeEmpty(tile, canvasW, canvasH) {
-    var pxW = (tile.w * canvasW) / 100;
-    var pxH = (tile.h * canvasH) / 100;
+  function tileShouldFold(tile, canvasW, canvasH) {
+    var pxW = (tile.w * canvasW) / 100 - FOLD_SAFETY_PX;
+    var pxH = (tile.h * canvasH) / 100 - FOLD_SAFETY_PX;
     return !tileShowsIdentifier(pxW, pxH);
+  }
+
+  function isElementVisible(el) {
+    if (!el) return false;
+    try {
+      var style = getComputedStyle(el);
+      if (style.display === "none" || style.visibility === "hidden") return false;
+      if (parseFloat(style.opacity) === 0) return false;
+    } catch (err) {
+      return false;
+    }
+    var box = el.getBoundingClientRect();
+    return box.width > 0 && box.height > 0;
+  }
+
+  function realTileHasVisibleLabel(tileEl) {
+    if (!tileEl || tileEl.classList.contains("treemap__tile--aggregated")) {
+      return true;
+    }
+    return (
+      isElementVisible(tileEl.querySelector(".treemap__tile-logo")) ||
+      isElementVisible(tileEl.querySelector(".treemap__tile-text"))
+    );
+  }
+
+  function collectUnlabeledAnchors(canvas) {
+    var anchors = [];
+    var tiles = canvas.querySelectorAll("a.treemap__tile");
+    for (var i = 0; i < tiles.length; i++) {
+      if (!realTileHasVisibleLabel(tiles[i])) {
+        var href = tiles[i].getAttribute("href") || "";
+        if (href.charAt(0) === "#") anchors.push(href.slice(1));
+      }
+    }
+    return anchors;
+  }
+
+  function foldRowsByAnchors(rows, anchors, otherSector) {
+    if (!anchors.length) return rows;
+    var toFold = [];
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i];
+      if (!row.foldedTickers && anchors.indexOf(row.anchor) >= 0) {
+        toFold.push(row);
+      }
+    }
+    if (!toFold.length) return rows;
+    var remainingReal = [];
+    for (var ri = 0; ri < rows.length; ri++) {
+      var r = rows[ri];
+      if (!r.foldedTickers && toFold.indexOf(r) < 0) remainingReal.push(r);
+    }
+    if (!remainingReal.length) return rows;
+    var next = [];
+    for (var ni = 0; ni < rows.length; ni++) {
+      if (toFold.indexOf(rows[ni]) < 0) next.push(rows[ni]);
+    }
+    var batchWeight = 0;
+    var batchTickers = [];
+    for (var bi = 0; bi < toFold.length; bi++) {
+      batchWeight += toFold[bi].weight;
+      batchTickers.push(toFold[bi].ticker);
+    }
+    var existingOther = null;
+    for (var oi = 0; oi < next.length; oi++) {
+      if (next[oi].foldedTickers) {
+        existingOther = next[oi];
+        break;
+      }
+    }
+    if (!existingOther) {
+      next.push({
+        ticker: "",
+        name: "Other",
+        sector: otherSector,
+        weight: batchWeight,
+        logoUrl: "",
+        logoWFactor: 1,
+        logoHFactor: 1,
+        anchor: "",
+        shortTicker: "",
+        foldedTickers: batchTickers,
+      });
+    } else {
+      existingOther.weight += batchWeight;
+      existingOther.foldedTickers = existingOther.foldedTickers.concat(batchTickers);
+    }
+    return next;
   }
 
   function mergeSmallIntoOther(rows, canvasW, canvasH, otherSector) {
@@ -223,7 +312,7 @@
       var toFold = [];
       for (var li = 0; li < layout.length; li++) {
         var entry = layout[li];
-        if (!entry.row.foldedTickers && tileWouldBeEmpty(entry.tile, canvasW, canvasH)) {
+        if (!entry.row.foldedTickers && tileShouldFold(entry.tile, canvasW, canvasH)) {
           toFold.push(entry.row);
         }
       }
@@ -375,6 +464,10 @@
         "; --logo-h-factor: " +
         row.logoHFactor.toFixed(3) +
         ";";
+      img.onerror = function () {
+        anchor.classList.add("treemap__tile--no-logo");
+        img.style.display = "none";
+      };
       inner.appendChild(img);
     }
     var text = document.createElement("span");
@@ -454,6 +547,28 @@
     return out;
   }
 
+  function paintTreemap(canvas, rows, meta, colorMap) {
+    var layout = layoutRows(rows);
+    canvas.textContent = "";
+    for (var li = 0; li < layout.length; li++) {
+      var entry = layout[li];
+      var sectorVar = sectorColor(
+        entry.row.sector,
+        colorMap,
+        meta.otherSector,
+        "--treemap-color-other"
+      );
+      var el;
+      if (entry.row.foldedTickers) {
+        el = buildAggregatedTile(entry.row, entry.tile, meta, sectorVar);
+      } else {
+        el = buildRealTile(entry.row, entry.tile, sectorVar);
+      }
+      canvas.appendChild(el);
+    }
+    return layout;
+  }
+
   function layoutFigure(figure) {
     var payloadEl = figure.querySelector(".treemap__payload");
     var canvas = figure.querySelector(".treemap__canvas");
@@ -479,24 +594,13 @@
     rows.sort(function (a, b) {
       return b.weight - a.weight;
     });
-    rows = mergeSmallIntoOther(rows, canvasW, canvasH, meta.otherSector);
-    var layout = layoutRows(rows);
-    canvas.textContent = "";
-    for (var li = 0; li < layout.length; li++) {
-      var entry = layout[li];
-      var sectorVar = sectorColor(
-        entry.row.sector,
-        colorMap,
-        meta.otherSector,
-        "--treemap-color-other"
-      );
-      var el;
-      if (entry.row.foldedTickers) {
-        el = buildAggregatedTile(entry.row, entry.tile, meta, sectorVar);
-      } else {
-        el = buildRealTile(entry.row, entry.tile, sectorVar);
-      }
-      canvas.appendChild(el);
+    var maxPasses = rows.length + 2;
+    for (var pass = 0; pass < maxPasses; pass++) {
+      rows = mergeSmallIntoOther(rows, canvasW, canvasH, meta.otherSector);
+      paintTreemap(canvas, rows, meta, colorMap);
+      var unlabeled = collectUnlabeledAnchors(canvas);
+      if (!unlabeled.length) break;
+      rows = foldRowsByAnchors(rows, unlabeled, meta.otherSector);
     }
     buildLegend(rows, meta, colorMap, legend);
   }
@@ -522,14 +626,21 @@
     }, 80);
     for (var fi = 0; fi < figures.length; fi++) {
       var figure = figures[fi];
-      layoutFigure(figure);
-      var canvas = figure.querySelector(".treemap__canvas");
-      if (!canvas) continue;
+      var runLayout = function () {
+        layoutFigure(figure);
+      };
+      if (typeof requestAnimationFrame === "function") {
+        requestAnimationFrame(function () {
+          requestAnimationFrame(runLayout);
+        });
+      } else {
+        runLayout();
+      }
       if (typeof ResizeObserver !== "function") continue;
       var observer = new ResizeObserver(function () {
         relayout(figure);
       });
-      observer.observe(canvas);
+      observer.observe(figure);
     }
   }
 

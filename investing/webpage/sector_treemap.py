@@ -57,6 +57,12 @@ _LOGO_MIN_TILE_H_PX = 50.0
 _TEXT_MIN_TILE_W_PX = 60.0
 _TEXT_MIN_TILE_H_PX = 46.0
 
+# Shave a pixel off the fold probe so tiles that barely clear the CSS
+# ``@container tile`` thresholds (font rounding, inner padding) still
+# fold into ``Other equities`` rather than shipping as colour-only
+# swatches. Matches ``FOLD_SAFETY_PX`` in ``treemap_layout.js``.
+_FOLD_SAFETY_PX = 1.0
+
 
 def _ref_canvas_wh(content_w_px: float) -> tuple[float, float]:
     """Return ``(canvas_w, canvas_h)`` for a figure at ``content_w_px``."""
@@ -645,6 +651,20 @@ def _tile_shows_identifier(px_w: float, px_h: float) -> bool:
     )
 
 
+def _tile_would_fold_at_canvas(tile: _Tile, canvas_w_px: float, canvas_h_px: float) -> bool:
+    """Return whether a real holding tile should fold at ``(canvas_w_px, canvas_h_px)``.
+
+    Uses :data:`_FOLD_SAFETY_PX` so borderline tiles that would lose their
+    label after padding / sub-pixel rounding still merge into Other.
+    """
+    px_w = tile.w * canvas_w_px / 100.0
+    px_h = tile.h * canvas_h_px / 100.0
+    return not _tile_shows_identifier(
+        px_w - _FOLD_SAFETY_PX,
+        px_h - _FOLD_SAFETY_PX,
+    )
+
+
 def _tile_would_be_empty_on_canvas(tile: _Tile, canvas_w_px: float, canvas_h_px: float) -> bool:
     """Return whether ``tile`` would render as a colour-only swatch on a
     canvas of ``(canvas_w_px, canvas_h_px)`` pixels."""
@@ -664,7 +684,7 @@ def _tile_must_fold_into_other(tile: _Tile) -> bool:
     (see :func:`_merge_small_into_other`).
     """
     return any(
-        _tile_would_be_empty_on_canvas(tile, canvas_w, canvas_h)
+        _tile_would_fold_at_canvas(tile, canvas_w, canvas_h)
         for canvas_w, canvas_h in _REF_CANVAS_SPECS
     )
 
@@ -699,8 +719,7 @@ def _merge_small_into_other_at_canvas(
         to_fold = [
             row
             for row, tile in layout
-            if not row.is_aggregated
-            and _tile_would_be_empty_on_canvas(tile, canvas_w_px, canvas_h_px)
+            if not row.is_aggregated and _tile_would_fold_at_canvas(tile, canvas_w_px, canvas_h_px)
         ]
         if not to_fold:
             return rows_list
