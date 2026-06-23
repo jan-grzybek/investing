@@ -33,46 +33,43 @@ from ..formatting import _fmt_pct
 from ..logos import _DEFAULT_LOGO_ASPECT
 from .anchors import holding_anchor, strip_exchange
 
-# Reference canvas size for the **fold-into-Other** readability probe
-# (see :func:`_tile_too_small_for_labels` and
-# :func:`_merge_small_into_other`). The merge is a layout decision
-# the renderer has to commit to in Python because CSS cannot
-# rearrange tiles based on viewport size; it therefore targets the
-# *worst-case* viewport we promise to support legibly (~360 px
-# content width on a phone with 16 px body padding and a 4 : 3
-# canvas aspect ratio).
+# Reference canvas sizes for the **fold-into-Other** empty-tile probe
+# (see :func:`_tile_must_fold_into_other` and
+# :func:`_merge_small_into_other`). Layout is fixed at build time, so
+# the probe mirrors the per-viewport CSS container rules in
+# ``50-treemap.css``: a tile is **empty** when neither the logo nor
+# the ticker / weight stack would render on that reference canvas.
+# Holdings whose tile would be empty on the mobile **or** the desktop
+# reference are folded into ``Other equities``; the loop keeps every
+# other real holding as an individual tile.
 #
-# Percent-of-canvas thresholds are a poor fit here: squarify often
-# produces wide-but-thin strips whose width clears a naive 12 %
-# cutoff while the height is far too small for the ticker + weight
-# stack (a 25 % x 14 % tile is legible in width but only ~35 px
-# tall on the reference canvas). The probe therefore converts each
-# tile's squarified rectangle to pixel dimensions on the reference
-# canvas and compares against :data:`_MIN_LABEL_TILE_W_PX` /
-# :data:`_MIN_LABEL_TILE_H_PX`, which are derived from the mobile
-# padding / font clamps in ``50-treemap.css`` (~46 px stacked
-# height for ticker + percent, ~36 px width for a short symbol with
-# ellipsis fallback).
+# Mobile reference (~360 px content width, 4 : 3 canvas aspect from
+# ``90-responsive.css``). Desktop reference (~832 px content width,
+# 2 : 1 canvas aspect from ``50-treemap.css``). The same squarified
+# rectangle maps to different pixel sizes on each canvas, so a strip
+# can host a ticker on a wide desktop tile while the same holding
+# would be a colour-only swatch on a narrow phone -- or vice versa.
+# Checking both references and folding when **either** would be empty
+# guarantees no colour-only swatch on any form factor. Holdings that
+# can show a logo or ticker on both canvases stay as individual tiles.
 #
-# Logo vs. ticker is the *responsive* decision: the CSS uses a
-# per-tile container size query (see ``.treemap__tile-logo`` and
-# the ``@container tile`` rules in ``page.css``) to swap the logo
-# in or out based on each tile's actual rendered px dimensions on
-# the current viewport. The renderer therefore emits **both**
-# elements for every non-Other tile and lets CSS pick which one
-# is visible -- so a tile that's too small for a logo on a 360 px
-# phone displays the ticker symbol, and the same tile on a wide
-# desktop shows the logo without the build having to commit to one
-# answer up-front.
-_REF_CANVAS_W_PX = 328.0
-_REF_CANVAS_H_PX = _REF_CANVAS_W_PX * 3 / 4
-_MIN_LABEL_TILE_W_PX = 36.0
-_MIN_LABEL_TILE_H_PX = 46.0
+# Thresholds below are kept in sync with the ``@container tile`` rules
+# in ``50-treemap.css`` (logo swap at 80 x 50 px; ticker / weight
+# stack at 60 x 46 px on every figure width once the logo is hidden).
+_MOBILE_REF_CANVAS_W_PX = 358.0
+_MOBILE_REF_CANVAS_H_PX = _MOBILE_REF_CANVAS_W_PX * 3 / 4
+_DESKTOP_REF_CANVAS_W_PX = 832.0
+_DESKTOP_REF_CANVAS_H_PX = _DESKTOP_REF_CANVAS_W_PX / 2
 
-# Canvas-relative equivalents of the px cutoffs above, kept for
-# tests / docs that want a single number to cite.
-_TEXT_MIN_TILE_W_PCT = _MIN_LABEL_TILE_W_PX / _REF_CANVAS_W_PX * 100.0
-_TEXT_MIN_TILE_H_PCT = _MIN_LABEL_TILE_H_PX / _REF_CANVAS_H_PX * 100.0
+_LOGO_MIN_TILE_W_PX = 80.0
+_LOGO_MIN_TILE_H_PX = 50.0
+_TEXT_MIN_TILE_W_PX = 60.0
+_TEXT_MIN_TILE_H_PX = 46.0
+
+# Canvas-relative equivalents at the mobile reference size, for tests
+# / docs that want a single number to cite.
+_TEXT_MIN_TILE_W_PCT = _TEXT_MIN_TILE_W_PX / _MOBILE_REF_CANVAS_W_PX * 100.0
+_TEXT_MIN_TILE_H_PCT = _TEXT_MIN_TILE_H_PX / _MOBILE_REF_CANVAS_H_PX * 100.0
 
 # Inset (in canvas-relative percent) shaved off **each side** of every
 # sector's bounding rectangle before the inner squarify packs the
@@ -637,22 +634,42 @@ def _layout_rows(rows: Sequence[_Row]) -> list[tuple[_Row, _Tile]]:
     return layout
 
 
-def _tile_too_small_for_labels(tile: _Tile) -> bool:
-    """Return whether ``tile`` cannot host the ticker + weight stack on
-    the worst-case mobile canvas.
+def _tile_shows_identifier(px_w: float, px_h: float) -> bool:
+    """Return whether CSS would show a logo or ticker on a tile of
+    ``(px_w, px_h)`` pixels.
 
-    Squarified treemaps often yield wide-but-thin strips whose area
-    looks generous in percent terms but whose height is too tight for
-    the stacked label the CSS emits in ticker-fallback mode. Converting
-    to reference-canvas pixels catches those strips; the aggregated
-    ``Other`` pseudo-row is exempt from this probe because its body
-    can fall back to a colour-only swatch when the tile is still too
-    small after folding (see the ``.treemap__tile--aggregated`` rules
-    in ``50-treemap.css``).
+    Mirrors the ``@container tile`` rules in ``50-treemap.css``: the
+    logo appears from 80 x 50 px; otherwise the ticker / weight stack
+    appears from 60 x 46 px. Either counts as a non-empty tile.
     """
-    px_w = tile.w * _REF_CANVAS_W_PX / 100.0
-    px_h = tile.h * _REF_CANVAS_H_PX / 100.0
-    return px_w < _MIN_LABEL_TILE_W_PX or px_h < _MIN_LABEL_TILE_H_PX
+    if px_w >= _LOGO_MIN_TILE_W_PX and px_h >= _LOGO_MIN_TILE_H_PX:
+        return True
+    if px_w >= _TEXT_MIN_TILE_W_PX and px_h >= _TEXT_MIN_TILE_H_PX:
+        return True
+    return False
+
+
+def _tile_would_be_empty_on_canvas(tile: _Tile, canvas_w_px: float, canvas_h_px: float) -> bool:
+    """Return whether ``tile`` would render as a colour-only swatch on a
+    canvas of ``(canvas_w_px, canvas_h_px)`` pixels."""
+    px_w = tile.w * canvas_w_px / 100.0
+    px_h = tile.h * canvas_h_px / 100.0
+    return not _tile_shows_identifier(px_w, px_h)
+
+
+def _tile_must_fold_into_other(tile: _Tile) -> bool:
+    """Return whether ``tile`` would be empty on the mobile or desktop
+    reference canvas and should fold into ``Other equities``.
+
+    A holding stays an individual tile only when it can show a logo
+    or ticker on **both** reference canvases.
+
+    The aggregated ``Other`` pseudo-row is exempt from this probe
+    (see :func:`_merge_small_into_other`).
+    """
+    return _tile_would_be_empty_on_canvas(
+        tile, _MOBILE_REF_CANVAS_W_PX, _MOBILE_REF_CANVAS_H_PX
+    ) or _tile_would_be_empty_on_canvas(tile, _DESKTOP_REF_CANVAS_W_PX, _DESKTOP_REF_CANVAS_H_PX)
 
 
 def _inset_rect(rect: _Tile, pad: float) -> _Tile:
@@ -669,12 +686,13 @@ def _inset_rect(rect: _Tile, pad: float) -> _Tile:
 
 
 def _merge_small_into_other(rows: Sequence[_Row]) -> list[_Row]:
-    """Iteratively fold tiny-tile holdings into a single Other row.
+    """Iteratively fold holdings whose tile would be empty into Other.
 
     The loop alternates between two cheap steps until convergence:
-    re-run the squarified layout, then -- if any tile (real or
-    aggregated) comes out below the readability threshold -- fold
-    the smallest-weight *real* holding into the aggregated ``Other``
+    re-run the squarified layout, then -- if any *real* holding's tile
+    would be a colour-only swatch on the mobile or desktop reference
+    canvas (see :func:`_tile_must_fold_into_other`) -- fold
+    the smallest-weight real holding into the aggregated ``Other``
     pseudo-row (creating it on first need). Each iteration drops the
     row count by exactly one, so the loop is guaranteed to terminate
     in at most ``len(rows)`` passes.
@@ -702,7 +720,7 @@ def _merge_small_into_other(rows: Sequence[_Row]) -> list[_Row]:
         # additional real holdings just to grow that strip would
         # over-merge the portfolio tail.
         too_small_exists = any(
-            _tile_too_small_for_labels(tile) for row, tile in layout if not row.is_aggregated
+            _tile_must_fold_into_other(tile) for row, tile in layout if not row.is_aggregated
         )
         if not too_small_exists:
             return rows_list

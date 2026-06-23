@@ -341,30 +341,17 @@
 }
 /* Responsive "drop the labels when they would overflow the tile"
    rule for **real** (non-aggregated) tiles. The Python merge loop
-   folds holdings whose squarified rectangle cannot host the ticker +
-   weight stack on the worst-case mobile canvas, but a tile that
-   clears that probe on the reference size can still clip on a
-   slightly wider phone once the responsive font clamps land above
-   the minimum. Mirroring the aggregated-tile hide/show contract
-   keeps any residual undersized rectangle as a colour swatch (logo
-   and ticker swap rules already hide their respective identifiers;
-   this rule drops the weight percent too so nothing bleeds past the
-   tile edge). */
+   folds holdings whose tile would be a colour-only swatch on the
+   mobile or desktop reference canvas; this rule is the CSS backstop
+   at runtime. Thresholds match :func:`_tile_shows_identifier` in
+   ``sector_treemap.py`` (60 x 46 px for the ticker / weight stack on
+   every figure width once the logo is hidden). */
 .treemap__tile:not(.treemap__tile--aggregated) .treemap__tile-text {
   display: none;
 }
-@container treemap (max-width: 540px) {
-  @container tile (min-width: 60px) and (min-height: 46px) {
-    .treemap__tile:not(.treemap__tile--aggregated) .treemap__tile-text {
-      display: flex;
-    }
-  }
-}
-@container treemap (min-width: 541px) {
-  @container tile (min-width: 90px) and (min-height: 50px) {
-    .treemap__tile:not(.treemap__tile--aggregated) .treemap__tile-text {
-      display: flex;
-    }
+@container tile (min-width: 60px) and (min-height: 46px) {
+  .treemap__tile:not(.treemap__tile--aggregated) .treemap__tile-text {
+    display: flex;
   }
 }
 .treemap__tile-weight {
