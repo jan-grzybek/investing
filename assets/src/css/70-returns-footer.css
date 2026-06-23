@@ -20,14 +20,14 @@
   min-width: 18rem;
   border-collapse: collapse;
   font-variant-numeric: tabular-nums;
+  table-layout: fixed;
 }
-/* Mobile: shrink the year column to its label so metric columns
-   keep room and stay on one line. Desktop: fixed layout with a
-   wider year track so the table reads evenly across columns. */
-.returns-yearly__col-year { width: 1%; }
-@media (min-width: 541px) {
-  .returns-yearly__table { table-layout: fixed; }
-  .returns-yearly__col-year { width: 26%; }
+/* Year uses its own track; JG / benchmark / Δ share the rest equally
+   (see ``returns-yearly__col-metric`` / ``returns-yearly__col-delta``). */
+.returns-yearly__col-year { width: 26%; }
+.returns-yearly__col-metric,
+.returns-yearly__col-delta {
+  width: 24.67%;
 }
 .returns-yearly__table thead th {
   padding: 0 12px 10px;
