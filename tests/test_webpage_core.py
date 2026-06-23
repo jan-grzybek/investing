@@ -372,7 +372,7 @@ class TestSectorTreemapLayout:
         assert _tile_must_fold_into_other(_Tile(0.0, 0.0, 10.0, 8.0))
         assert not _tile_must_fold_into_other(_Tile(0.0, 0.0, 25.0, 20.0))
 
-    def test_tile_empty_probe_checks_mobile_and_desktop_references(self):
+    def test_tile_empty_probe_checks_multiple_reference_widths(self):
         from investing.webpage.sector_treemap import (
             _DESKTOP_REF_CANVAS_H_PX,
             _DESKTOP_REF_CANVAS_W_PX,
@@ -383,9 +383,8 @@ class TestSectorTreemapLayout:
             _tile_would_be_empty_on_canvas,
         )
 
-        # Too short on the mobile reference but tall enough for a ticker
-        # on the desktop reference -- stays an individual tile so desktop
-        # can show the logo / ticker while mobile falls back to a swatch.
+        # Legible on the wide desktop reference but unlabeled on phone
+        # and at the 541 px desktop breakpoint -- must fold.
         narrow = _Tile(0.0, 0.0, 17.0, 14.0)
         assert _tile_would_be_empty_on_canvas(
             narrow, _MOBILE_REF_CANVAS_W_PX, _MOBILE_REF_CANVAS_H_PX
@@ -393,46 +392,65 @@ class TestSectorTreemapLayout:
         assert not _tile_would_be_empty_on_canvas(
             narrow, _DESKTOP_REF_CANVAS_W_PX, _DESKTOP_REF_CANVAS_H_PX
         )
-        assert not _tile_must_fold_into_other(narrow)
+        assert _tile_must_fold_into_other(narrow)
 
-    def test_merge_keeps_desktop_legible_tail_without_cascade(self):
+    def test_merge_folds_tail_unlabeled_at_any_reference_width(self):
         from investing.webpage.sector_treemap import _merge_small_into_other, _Row
 
         rows = [
-            _Row(ticker="NMS:HVY", name="Heavy", sector="Technology", weight=21.4, logo_url="x"),
+            _Row(
+                ticker="NMS:FISV",
+                name="Fiserv",
+                sector="Financial Services",
+                weight=20.2,
+                logo_url="x",
+            ),
+            _Row(ticker="NMS:TSM", name="TSM", sector="Technology", weight=19.9, logo_url="x"),
+            _Row(ticker="NMS:IT", name="IT", sector="Technology", weight=15.1, logo_url="x"),
+            _Row(
+                ticker="NMS:KMX", name="KMX", sector="Consumer Cyclical", weight=9.0, logo_url="x"
+            ),
             _Row(
                 ticker="NMS:GOOGL",
-                name="Alpha",
+                name="GOOGL",
                 sector="Communication Services",
-                weight=13.7,
+                weight=9.2,
                 logo_url="x",
             ),
+            _Row(ticker="NMS:SSU", name="Samsung", sector="Technology", weight=4.6, logo_url="x"),
+            _Row(
+                ticker="NMS:AIRJ", name="AirJoule", sector="Industrials", weight=4.4, logo_url="x"
+            ),
+            _Row(ticker="NMS:QCOM", name="QCOM", sector="Technology", weight=4.3, logo_url="x"),
             _Row(
                 ticker="NMS:META",
-                name="Meta",
+                name="META",
                 sector="Communication Services",
-                weight=11.5,
+                weight=1.5,
                 logo_url="x",
             ),
-            _Row(ticker="NMS:ADBE", name="Adobe", sector="Technology", weight=9.1, logo_url="x"),
-            _Row(ticker="NMS:AMAT", name="Amat", sector="Technology", weight=7.9, logo_url="x"),
-            _Row(ticker="NMS:LRCX", name="Lam", sector="Technology", weight=6.4, logo_url="x"),
             _Row(
-                ticker="NMS:SPGI",
-                name="SPGI",
-                sector="Financial Services",
-                weight=6.0,
+                ticker="NMS:BIDU",
+                name="BIDU",
+                sector="Communication Services",
+                weight=1.4,
                 logo_url="x",
             ),
-            _Row(ticker="NMS:UNH", name="UNH", sector="Healthcare", weight=4.7, logo_url="x"),
-            _Row(ticker="NMS:CRM", name="CRM", sector="Technology", weight=4.1, logo_url="x"),
-            _Row(ticker="NMS:SAP", name="SAP", sector="Other", weight=3.5, logo_url="x"),
+            _Row(
+                ticker="NMS:BABA", name="BABA", sector="Consumer Cyclical", weight=0.3, logo_url="x"
+            ),
         ]
         merged = _merge_small_into_other(rows)
-        # SAP's strip is colour-only on mobile but legible on desktop;
-        # the loop must not fold it (or cascade into Other).
-        assert len(merged) == len(rows)
-        assert not any(row.is_aggregated for row in merged)
+        other = next(row for row in merged if row.is_aggregated)
+        folded = set(other.folded_tickers)
+        assert folded == {
+            "NMS:BABA",
+            "NMS:BIDU",
+            "NMS:META",
+            "NMS:AIRJ",
+        }
+        assert len(merged) == 8
+        assert abs(other.weight - 7.6) < 1e-9
 
 
 class TestEqualVisualAreaLogoFactors:

@@ -33,41 +33,50 @@ from ..formatting import _fmt_pct
 from ..logos import _DEFAULT_LOGO_ASPECT
 from .anchors import holding_anchor, strip_exchange
 
-# Reference canvas sizes for the **fold-into-Other** empty-tile probe
-# (see :func:`_tile_must_fold_into_other` and
-# :func:`_merge_small_into_other`). Layout is fixed at build time, so
-# the probe mirrors the per-viewport CSS container rules in
-# ``50-treemap.css``: a tile is **empty** when neither the logo nor
-# the ticker / weight stack would render on that reference canvas.
-# Holdings whose tile would be empty on **both** the mobile and desktop
-# reference are folded into ``Other equities``. A holding that can
-# show a logo or ticker on at least one form factor stays as an
-# individual tile -- the same squarified rectangle is larger in px on
-# a wide desktop canvas, so CSS can show a logo or ticker there while
-# the phone renders a colour-only swatch for the same holding.
+# Reference content widths for the **fold-into-Other** empty-tile probe
+# (see :func:`_tile_must_fold_into_other`). Layout is fixed at build
+# time, so the probe samples several figure widths that mirror the
+# page's responsive contract: narrow phone, typical phone, the
+# ``540px`` aspect-ratio breakpoint, and desktop / max-content widths
+# from ``00-base.css`` / ``90-responsive.css``. For each width the
+# canvas height follows the same aspect rule as CSS (4 : 3 up to
+# ``540px``, 2 : 1 above). A holding folds when its squarified tile
+# would be a colour-only swatch at **any** sampled width -- individual
+# equity tiles must never ship unlabeled on a supported viewport.
 #
-# Mobile reference (~360 px content width, 4 : 3 canvas aspect from
-# ``90-responsive.css``). Desktop reference (~832 px content width,
-# 2 : 1 canvas aspect from ``50-treemap.css``). The same squarified
-# rectangle maps to different pixel sizes on each canvas.
-#
-# Thresholds below are kept in sync with the ``@container tile`` rules
-# in ``50-treemap.css`` (logo swap at 80 x 50 px; ticker / weight
-# stack at 60 x 46 px on every figure width once the logo is hidden).
-_MOBILE_REF_CANVAS_W_PX = 358.0
-_MOBILE_REF_CANVAS_H_PX = _MOBILE_REF_CANVAS_W_PX * 3 / 4
-_DESKTOP_REF_CANVAS_W_PX = 832.0
-_DESKTOP_REF_CANVAS_H_PX = _DESKTOP_REF_CANVAS_W_PX / 2
+# Thresholds below match the ``@container tile`` rules in
+# ``50-treemap.css`` (logo swap at 80 x 50 px; ticker / weight stack
+# at 60 x 46 px once the logo is hidden).
+_REF_ASPECT_MOBILE_BREAK_PX = 540.0
+_REF_CONTENT_WIDTHS_PX: tuple[float, ...] = (328.0, 358.0, 541.0, 832.0, 848.0)
 
 _LOGO_MIN_TILE_W_PX = 80.0
 _LOGO_MIN_TILE_H_PX = 50.0
 _TEXT_MIN_TILE_W_PX = 60.0
 _TEXT_MIN_TILE_H_PX = 46.0
 
+# Legacy single-point references kept for tests / docs.
+_MOBILE_REF_CANVAS_W_PX = 358.0
+_MOBILE_REF_CANVAS_H_PX = _MOBILE_REF_CANVAS_W_PX * 3 / 4
+_DESKTOP_REF_CANVAS_W_PX = 832.0
+_DESKTOP_REF_CANVAS_H_PX = _DESKTOP_REF_CANVAS_W_PX / 2
+
 # Canvas-relative equivalents at the mobile reference size, for tests
 # / docs that want a single number to cite.
 _TEXT_MIN_TILE_W_PCT = _TEXT_MIN_TILE_W_PX / _MOBILE_REF_CANVAS_W_PX * 100.0
 _TEXT_MIN_TILE_H_PCT = _TEXT_MIN_TILE_H_PX / _MOBILE_REF_CANVAS_H_PX * 100.0
+
+
+def _ref_canvas_wh(content_w_px: float) -> tuple[float, float]:
+    """Return ``(canvas_w, canvas_h)`` for a figure at ``content_w_px``."""
+    if content_w_px <= _REF_ASPECT_MOBILE_BREAK_PX:
+        return content_w_px, content_w_px * 3 / 4
+    return content_w_px, content_w_px / 2
+
+
+_REF_CANVAS_SPECS: tuple[tuple[float, float], ...] = tuple(
+    _ref_canvas_wh(w) for w in _REF_CONTENT_WIDTHS_PX
+)
 
 # Inset (in canvas-relative percent) shaved off **each side** of every
 # sector's bounding rectangle before the inner squarify packs the
@@ -654,20 +663,19 @@ def _tile_would_be_empty_on_canvas(tile: _Tile, canvas_w_px: float, canvas_h_px:
 
 
 def _tile_must_fold_into_other(tile: _Tile) -> bool:
-    """Return whether ``tile`` would be empty on **both** reference
-    canvases and should fold into ``Other equities``.
+    """Return whether ``tile`` would be unlabeled at any sampled width.
 
-    Holdings that can show a logo or ticker on at least one reference
-    size stay as individual tiles so wide viewports keep as many
-    equities as the layout allows. Mobile-only colour swatches rely on
-    tooltip / legend context (see ``50-treemap.css``).
+    Individual equity tiles must show a logo or ticker on every
+    supported viewport; holdings that would be a colour-only swatch at
+    any reference canvas size fold into ``Other equities``.
 
     The aggregated ``Other`` pseudo-row is exempt from this probe
     (see :func:`_merge_small_into_other`).
     """
-    return _tile_would_be_empty_on_canvas(
-        tile, _MOBILE_REF_CANVAS_W_PX, _MOBILE_REF_CANVAS_H_PX
-    ) and _tile_would_be_empty_on_canvas(tile, _DESKTOP_REF_CANVAS_W_PX, _DESKTOP_REF_CANVAS_H_PX)
+    return any(
+        _tile_would_be_empty_on_canvas(tile, canvas_w, canvas_h)
+        for canvas_w, canvas_h in _REF_CANVAS_SPECS
+    )
 
 
 def _inset_rect(rect: _Tile, pad: float) -> _Tile:
@@ -684,64 +692,49 @@ def _inset_rect(rect: _Tile, pad: float) -> _Tile:
 
 
 def _merge_small_into_other(rows: Sequence[_Row]) -> list[_Row]:
-    """Iteratively fold holdings whose tile would be empty into Other.
+    """Iteratively fold holdings whose tile would be unlabeled into Other.
 
-    The loop alternates between two cheap steps until convergence:
-    re-run the squarified layout, then -- if any *real* holding's tile
-    would be a colour-only swatch on **both** the mobile and desktop
-    reference canvases (see :func:`_tile_must_fold_into_other`) -- fold
-    the smallest-weight real holding into the aggregated ``Other``
-    pseudo-row (creating it on first need). Each iteration drops the
-    row count by exactly one, so the loop is guaranteed to terminate
-    in at most ``len(rows)`` passes.
+    Each pass re-runs the squarified layout, collects every *real*
+    holding whose tile would be a colour-only swatch at any sampled
+    reference width (see :func:`_tile_must_fold_into_other`), and
+    folds **all** of them into the aggregated ``Other`` pseudo-row
+    in one batch. Batching avoids the layout thrash that one-at-a-time
+    tail folding causes -- removing a single small holding can reshape
+    neighbouring tiles enough to falsely trip the probe on holdings
+    that were legible in the original layout.
 
-    Why the merge target is "smallest real holding" rather than
-    "the offending tile": squarify's tile dimensions depend on the
-    full weight distribution, not just any single row, so folding
-    the tail one at a time is the cleanest way to grow ``Other`` to
-    a fitting size without thrashing the layout. The heaviest
-    holdings are also the ones the user came for, so always tearing
-    from the bottom of the weight list keeps the chart's headline
-    real estate intact.
+    The loop repeats until no real holding fails the probe. The
+    aggregated ``Other`` pseudo-row is exempt from the probe itself.
     """
     rows_list = list(rows)
-    # Bounded iteration count -- the merge loop is monotonically
-    # decreasing in row count but a defensive ceiling makes a
-    # logic regression fall over quickly rather than hanging.
     for _ in range(len(rows_list) + 1):
         layout = _layout_rows(rows_list)
-        # Only real holdings participate in the readability probe.
-        # The aggregated ``Other`` pseudo-row may legitimately land in
-        # a thin strip after a fold (same geometry as the holding it
-        # replaced); CSS hides its label stack on undersized tiles and
-        # keeps the swatch self-documenting via the legend. Folding
-        # additional real holdings just to grow that strip would
-        # over-merge the portfolio tail.
-        too_small_exists = any(
-            _tile_must_fold_into_other(tile) for row, tile in layout if not row.is_aggregated
-        )
-        if not too_small_exists:
+        to_fold = [
+            row
+            for row, tile in layout
+            if not row.is_aggregated and _tile_must_fold_into_other(tile)
+        ]
+        if not to_fold:
             return rows_list
-        real_rows = [row for row, _tile in layout if not row.is_aggregated]
-        if len(real_rows) <= 1:
-            # Nothing left to fold -- either the only remaining row is
-            # the aggregated bucket (whose tile percentages will sit
-            # at 100 / 100 trivially) or the only real holding is
-            # itself the entire portfolio. Either way, returning here
-            # avoids destroying the chart's last identifiable tile.
+        remaining_real = [row for row in rows_list if not row.is_aggregated and row not in to_fold]
+        if not remaining_real:
+            # Every real holding failed the probe -- keep the chart's
+            # last identifiable tile rather than folding into a single
+            # colour block.
             return rows_list
-        smallest = min(real_rows, key=lambda row: row.weight)
-        rows_list = [row for row in rows_list if row is not smallest]
+        rows_list = [row for row in rows_list if row not in to_fold]
         existing_other = next((row for row in rows_list if row.is_aggregated), None)
+        batch_weight = sum(row.weight for row in to_fold)
+        batch_tickers = tuple(row.ticker for row in to_fold)
         if existing_other is None:
             rows_list.append(
                 _Row(
                     ticker="",
                     name="Other",
                     sector=_OTHER_SECTOR,
-                    weight=smallest.weight,
+                    weight=batch_weight,
                     logo_url="",
-                    folded_tickers=(smallest.ticker,),
+                    folded_tickers=batch_tickers,
                 )
             )
         else:
@@ -751,9 +744,9 @@ def _merge_small_into_other(rows: Sequence[_Row]) -> list[_Row]:
                     ticker="",
                     name="Other",
                     sector=_OTHER_SECTOR,
-                    weight=existing_other.weight + smallest.weight,
+                    weight=existing_other.weight + batch_weight,
                     logo_url="",
-                    folded_tickers=existing_other.folded_tickers + (smallest.ticker,),
+                    folded_tickers=existing_other.folded_tickers + batch_tickers,
                 )
             )
     return rows_list
