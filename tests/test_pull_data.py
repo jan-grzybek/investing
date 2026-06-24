@@ -233,6 +233,37 @@ class TestPullData:
         assert excinfo.value.worksheet == "Equities"
         assert excinfo.value.field == "quantity"
 
+    def test_non_positive_quantity_raises(self, patch_gspread):
+        # A zero quantity would divide-by-zero in the burst
+        # volume-weighted average price; a negative one would silently
+        # flip cashflow signs and corrupt MoIC / IRR / weights. Both
+        # are rejected at ingestion with a located error.
+        for bad_qty in ("0", "-5"):
+            sh = _build_spreadsheet(
+                equities=[_equity_row("01-01-2024", "AAPL", bad_qty, "1.0", "BUY")],
+                returns=[],
+                cash=[],
+            )
+            patch_gspread(sh)
+            with pytest.raises(SheetParseError) as excinfo:
+                pull_data()
+            assert excinfo.value.worksheet == "Equities"
+            assert excinfo.value.field == "quantity"
+            assert excinfo.value.row == 3
+
+    def test_non_positive_price_raises(self, patch_gspread):
+        for bad_price in ("0", "-1.5"):
+            sh = _build_spreadsheet(
+                equities=[_equity_row("01-01-2024", "AAPL", "10", bad_price, "BUY")],
+                returns=[],
+                cash=[],
+            )
+            patch_gspread(sh)
+            with pytest.raises(SheetParseError) as excinfo:
+                pull_data()
+            assert excinfo.value.worksheet == "Equities"
+            assert excinfo.value.field == "price_per_share"
+
     def test_empty_sheets_return_empty_collections(self, patch_gspread):
         sh = _build_spreadsheet(equities=[], returns=[], cash=[])
         patch_gspread(sh)

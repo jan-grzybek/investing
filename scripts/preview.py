@@ -205,8 +205,14 @@ def _build_dataset() -> dict:
 
     Tickers are picked from the repo's ``logos/`` directory so every
     holding's logo resolves to a real file already deployed alongside
-    ``index.html``. Numbers are made up but plausibly shaped."""
-    start = datetime(2022, 6, 1)
+    ``index.html``. Numbers are made up but plausibly shaped.
+
+    ``start`` is pinned to an early-January inception several years
+    back so the synthetic "Returns by year" table spans enough
+    *complete* calendar years (the current year and any inception
+    stub are dropped) to exercise the "Show all N years" toggle in
+    the preview / browser smoke tests."""
+    start = datetime(2019, 1, 1)
     end = datetime.today()
 
     total_return = {

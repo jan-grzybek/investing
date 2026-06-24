@@ -108,6 +108,18 @@ def build_csp(jsonld: SafeHtml, treemap_payload_json: str = "") -> SafeHtml:
     widths / delta positions (programmatic and not hashable).
     ``style-src`` stays as the CSP2 fallback for browsers that
     don't understand the CSP3 directives.
+
+    Delivery caveat: this policy ships in a ``<meta http-equiv>`` tag
+    because GitHub Pages serves static files and cannot set real HTTP
+    response headers. Browsers honour most directives via ``<meta>``
+    (the hash-based ``script-src``, ``style-src``, ``img-src``,
+    ``form-action`` and ``base-uri`` all take effect), but a few are
+    **ignored** when delivered this way -- notably ``frame-ancestors``
+    (and ``sandbox`` / report directives). ``frame-ancestors 'none'``
+    is retained below for defense-in-depth should the page ever be
+    promoted behind a host that can emit a real header; clickjacking is
+    otherwise not enforceable on GitHub Pages, and the page carries no
+    forms, auth, or state, so the residual risk is cosmetic framing only.
     """
     style_hash = _sha256_b64(_PAGE_STYLES)
     jsonld_hash = _sha256_b64(jsonld)

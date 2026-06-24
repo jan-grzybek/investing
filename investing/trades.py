@@ -79,6 +79,9 @@ def combine_and_sort(transactions: list[EquityTransaction]) -> list[Trade]:
                 date=datetime.strptime(date, "%d-%m-%Y"),
                 ticker=ticker,
                 quantity=total_quantity,
+                # ``total_quantity`` is a sum of strictly-positive share
+                # counts (``sheets._parse_equity_row`` rejects zero /
+                # negative quantities), so it is always > 0 here.
                 price=total_value / total_quantity,
                 action=action,
             )
@@ -211,8 +214,9 @@ def _combine_trade_events(
     combined: list[dict] = []
     for group in groups:
         total_qty = sum(e["quantity"] for e in group)
-        # ``quantity`` is always positive here (the sheet ingestion
-        # rejects zero / negative rows), so the divide is safe.
+        # ``quantity`` is always positive here -- ``sheets._parse_equity_row``
+        # rejects zero / negative quantities at ingestion -- so the divide
+        # is safe.
         weighted_price = sum(e["quantity"] * e["price"] for e in group) / total_qty
         # BUY bursts inherit their effective category from the FIRST
         # event (did this burst open the position?); SELL bursts from

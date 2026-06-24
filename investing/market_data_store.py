@@ -28,10 +28,13 @@ Merge policy (split-aware):
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
+import io
 import json
 import math
 import os
+import tempfile
 import threading
 from collections.abc import Callable, Iterable
 from datetime import datetime
@@ -628,10 +631,30 @@ class MarketDataStore:
         try:
             path = self._fx_path(currency)
             path.parent.mkdir(parents=True, exist_ok=True)
-            # ``np.savez`` always appends ``.npz`` to its file argument.
-            tmp_base = path.parent / f"{currency}.tmp"
-            np.savez(tmp_base, dates=dates, rates=rates)
-            os.replace(Path(f"{tmp_base}.npz"), path)
+            # Serialize to memory first, then commit through a uniquely
+            # named temp file in the destination directory. Writing
+            # ``np.savez`` to a shared ``<currency>.tmp.npz`` would race
+            # the ``os.replace`` if two threads ever persisted the same
+            # currency at once -- the manifest path carries a lock for
+            # exactly this hazard, and FX should not be the weaker link
+            # if a future change moves FX resolution into the holdings
+            # thread pool. A per-call temp name keeps the write atomic
+            # and collision-free without taking a lock.
+            buf = io.BytesIO()
+            np.savez(buf, dates=dates, rates=rates)
+            fd, tmp_name = tempfile.mkstemp(
+                dir=path.parent,
+                prefix=f".{currency}-",
+                suffix=".npz.tmp",
+            )
+            try:
+                with os.fdopen(fd, "wb") as handle:
+                    handle.write(buf.getvalue())
+                os.replace(tmp_name, path)
+            except BaseException:
+                with contextlib.suppress(OSError):
+                    os.unlink(tmp_name)
+                raise
         except OSError as exc:
             logger.debug("FX snapshot write failed for %s: %s", currency, exc)
 

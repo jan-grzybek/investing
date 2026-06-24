@@ -632,14 +632,18 @@ class Holding:
                 "cannot determine which side of the split owns the shares",
             )
 
-        # Build the event timeline. Trades carry priority 0 (they
-        # come first within a calendar day so a same-day BUY-then-DIV
-        # records the new shares before the dividend is paid out);
-        # dividends carry priority 1. Splits aren't first-class
-        # events here -- ``_split_factor_strictly_after`` rebases
-        # the quantity tracker into the current share frame on the
-        # fly, which is the only frame ``_dividends`` is denominated
-        # in.
+        # Build the event timeline. Dividends carry priority 0 and
+        # trades priority 1, so on a shared calendar day the dividend
+        # settles against the position held at the START of that day --
+        # before the day's trades apply. yfinance dates dividends by
+        # their ex-dividend date, and ex-div eligibility is exactly the
+        # holding as of the prior close: a BUY landing on the ex-div
+        # date does NOT collect that dividend, while a SELL on the
+        # ex-div date still does. Ordering dividends ahead of same-day
+        # trades reproduces both. Splits aren't first-class events
+        # here -- ``_split_factor_strictly_after`` rebases the quantity
+        # tracker into the current share frame on the fly, which is the
+        # only frame ``_dividends`` is denominated in.
         events: list[tuple[datetime, int, str, dict]] = []
         for ev in self._trade_events:
             factor = self._split_factor_strictly_after(ev["date"])
@@ -647,7 +651,7 @@ class Holding:
             events.append(
                 (
                     ev["date"],
-                    0,
+                    1,
                     kind,
                     {
                         # Native value of the trade -- multiplying raw
@@ -667,7 +671,7 @@ class Holding:
             events.append(
                 (
                     div["date"],
-                    1,
+                    0,
                     "DIV",
                     {"per_share_current": div["dividend"]},
                 )

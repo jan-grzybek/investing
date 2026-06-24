@@ -21,6 +21,27 @@ class TestCalcTwr:
         assert result["cagr%"] == 0.0
         assert result["history"] == []
 
+    def test_zero_base_period_does_not_divide_by_zero(self, at_datetime):
+        # A snapshot whose value + flow nets to zero (portfolio fully
+        # withdrawn, then re-funded on a later row) leaves no capital
+        # base for the next sub-period. calc_twr must skip that
+        # sub-period's multiply rather than raising ZeroDivisionError,
+        # and keep every history multiplier finite.
+        when = datetime(2024, 12, 31)
+        result = calc_twr(
+            [
+                _val(datetime(2024, 1, 1), 100.0),
+                _val(datetime(2024, 6, 1), 100.0, flow=-100.0),
+                _val(datetime(2024, 9, 1), 50.0, flow=50.0),
+            ],
+            current_value=60.0,
+            now=at_datetime(when),
+        )
+        assert all(m == m for _, m in result["history"])  # no NaN
+        # Flat through the drained period, then 60/100 on the re-funded
+        # leg: 1.0 * 1.0 * 0.6 = 0.6 -> -40%.
+        assert result["twr%"] == pytest.approx(-40.0)
+
     def test_single_valuation_returns_no_growth(self, at_datetime):
         when = datetime(2024, 1, 1)
         result = calc_twr(

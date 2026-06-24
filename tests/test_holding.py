@@ -363,6 +363,58 @@ class TestSummaryDividends:
         summary = holding.summary()
         assert summary["tsr%"] == pytest.approx(50.0)
 
+    def test_dividend_not_credited_to_same_day_buy(
+        self, install_ticker, stub_exchange_rate, freeze_today
+    ):
+        # yfinance dates dividends by their ex-dividend date, and a BUY
+        # that lands ON the ex-div date does NOT collect that dividend.
+        # The payout must settle against the 10 shares held going into
+        # the day, not the 20 held after the same-day top-up.
+        freeze_today(datetime(2025, 1, 1))
+        install_ticker(
+            _make_ticker(
+                price=100.0,
+                dividends={_date_key(datetime(2024, 6, 1)): 5.00},
+            )
+        )
+        holding = Holding("TST", fx=stub_exchange_rate)
+        holding.buy(Trade(datetime(2024, 1, 1), "TST", 10, 100.0, "BUY"))
+        holding.buy(Trade(datetime(2024, 6, 1), "TST", 10, 100.0, "BUY"))
+
+        summary = holding.summary()
+
+        # invested = 2 * 1000 = 2000; dividend on 10 shares only =
+        # 10 * 5 * (1 - 0.15) = 42.5; open MTM = 20 * 100 = 2000.
+        # tsr = (2000 + 42.5) / 2000 - 1 = 2.125%  -- NOT 4.25%, which
+        # is what crediting the dividend to all 20 shares would give.
+        expected = (2000.0 + 10 * 5.00 * (1.0 - WITHHOLDING_TAX_RATE)) / 2000.0 - 1.0
+        assert summary["tsr%"] == pytest.approx(expected * 100)
+
+    def test_dividend_credited_to_same_day_sell(
+        self, install_ticker, stub_exchange_rate, freeze_today
+    ):
+        # The mirror case: a SELL on the ex-div date still collects the
+        # dividend (the holder owned the shares through the prior
+        # close). Closing the whole position on the ex-div date must
+        # still pay the dividend on the pre-sale 10 shares.
+        freeze_today(datetime(2025, 1, 1))
+        install_ticker(
+            _make_ticker(
+                price=100.0,
+                dividends={_date_key(datetime(2024, 6, 1)): 5.00},
+            )
+        )
+        holding = Holding("TST", fx=stub_exchange_rate)
+        holding.buy(Trade(datetime(2024, 1, 1), "TST", 10, 100.0, "BUY"))
+        holding.sell(Trade(datetime(2024, 6, 1), "TST", 10, 100.0, "SELL"))
+
+        summary = holding.summary()
+
+        # invested = 1000; returned = sale 1000 + dividend on 10 shares
+        # 42.5 = 1042.5. tsr = 1042.5 / 1000 - 1 = 4.25%.
+        expected = (1000.0 + 10 * 5.00 * (1.0 - WITHHOLDING_TAX_RATE)) / 1000.0 - 1.0
+        assert summary["tsr%"] == pytest.approx(expected * 100)
+
 
 class TestSummary:
     def test_open_position_summary_shape_and_signs(

@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 import numpy as np
 
@@ -276,12 +276,19 @@ def calc_twr(
     twr = 1.0
     history.append((valuations[0]["date"], twr))
     for valuation in valuations[1:]:
-        twr *= valuation["value"] / start_value
+        # Guard the degenerate sub-period where the prior snapshot's
+        # value + flow netted to zero (a portfolio fully drained and
+        # later re-funded): there is no capital base to measure a
+        # return against, so the sub-period contributes a neutral 1.0
+        # multiplier rather than dividing by zero.
+        if start_value > 0:
+            twr *= valuation["value"] / start_value
         start_value = valuation["value"] + valuation["flow"]
         history.append((valuation["date"], twr))
     today = _now()
     if today.date() > valuations[-1]["date"].date():
-        twr *= current_value / start_value
+        if start_value > 0:
+            twr *= current_value / start_value
         history.append((today, twr))
     cagr = twr ** (DAYS_YEAR / max((today - start_date).days, 1)) - 1.0
     twr -= 1.0
@@ -794,28 +801,64 @@ def _ffill(arr: np.ndarray) -> np.ndarray:
     return out
 
 
-def _multiplier_on_or_before(
+# A calendar year counts as starting "from the beginning" even when
+# the first recorded snapshot lands a few days into January -- a
+# portfolio opened in the first week of the year is treated as a full
+# year rather than dropped as a partial stub. Applied to the inception
+# year only (later years always start well before their January).
+_YEAR_START_TOLERANCE_DAYS = 7
+
+
+def _multiplier_at(
     history: list[tuple[datetime, float]],
     day: date,
 ) -> float:
-    """Last TWR multiplier in ``history`` with sample date on or before ``day``."""
-    result = 1.0
-    for sample_date, multiplier in history:
-        if sample_date.date() <= day:
-            result = multiplier
-        else:
-            break
-    return result
+    """Cumulative TWR multiplier at ``day``, interpolated between snapshots.
+
+    When ``day`` lands between two valuation snapshots, the straddling
+    sub-period's return is apportioned to ``day`` by **log-linear
+    (geometric) interpolation** -- a constant continuously-compounded
+    rate across the gap -- so the fraction of the period that fell on
+    each side of the boundary carries the matching fraction of the
+    period's return. Geometric (rather than linear) apportionment keeps
+    the per-year ratios chaining back to the full-period multiplier.
+
+    ``day`` at/before the first sample clamps to the start multiplier
+    (1.0 by convention); past the last sample clamps to the last
+    multiplier. A non-positive multiplier inside the bracket (a
+    degenerate liquidation) makes the geometric form undefined, so the
+    interpolation falls back to linear there.
+    """
+    if not history:
+        return 1.0
+    first_date, first_mult = history[0]
+    if day <= first_date.date():
+        return first_mult
+    prev_date, prev_mult = first_date, first_mult
+    for sample_date, mult in history[1:]:
+        sd = sample_date.date()
+        if sd == day:
+            return mult
+        if sd > day:
+            span = (sd - prev_date.date()).days
+            if span <= 0:
+                return prev_mult
+            frac = (day - prev_date.date()).days / span
+            if prev_mult > 0.0 and mult > 0.0:
+                return prev_mult * (mult / prev_mult) ** frac
+            return prev_mult + (mult - prev_mult) * frac
+        prev_date, prev_mult = sample_date, mult
+    return prev_mult
 
 
-def _period_return_from_multipliers(
+def _year_return_pct(
     history: list[tuple[datetime, float]],
     anchor: date,
     end: date,
 ) -> float:
-    """Sub-period TWR between ``anchor`` and ``end``, expressed in percent."""
-    start_mult = _multiplier_on_or_before(history, anchor)
-    end_mult = _multiplier_on_or_before(history, end)
+    """Boundary-interpolated TWR between ``anchor`` and ``end`` (percent)."""
+    start_mult = _multiplier_at(history, anchor)
+    end_mult = _multiplier_at(history, end)
     if start_mult == 0.0:
         return 0.0
     return (end_mult / start_mult - 1.0) * 100.0
@@ -827,17 +870,38 @@ def calc_yearly_returns(
     benchmark: Benchmark | None = None,
     benchmark_history: list[tuple[datetime, float]] | None = None,
     now: NowFn | None = None,
+    last_snapshot: date | None = None,
 ) -> list[YearlyReturn]:
-    """Calendar-year (and YTD) total returns for JG vs the primary benchmark.
+    """Complete-calendar-year total returns for JG vs the primary benchmark.
 
-    Each row links the TWR multiplier curve at year boundaries using
-    the last known sample on or before each anchor/end date -- no
-    interpolation between spreadsheet valuations. The benchmark side
-    uses daily ``Adj Close`` (or the resampled ``benchmark_history``
-    fallback used by preview/tests) over the same anchor/end windows.
+    Only **complete** calendar years are emitted. A year is complete
+    when the portfolio was open from its start (an inception up to
+    ``_YEAR_START_TOLERANCE_DAYS`` into January counts as "from the
+    start") and a recorded valuation snapshot closes it (one dated on
+    or after 31 Dec -- a snapshot taken a few days into the new year
+    satisfies this and is apportioned back to the boundary). The
+    inception stub year and the still-running current year are dropped
+    until a closing snapshot makes them whole, so the table never shows
+    a partial year.
 
-    Rows are returned newest-first. The current calendar year is
-    flagged ``is_ytd`` and runs through ``now()`` rather than 31 Dec.
+    Each row links the cumulative TWR multiplier at the exact Jan-1 /
+    Dec-31 boundaries via :func:`_multiplier_at`, which apportions a
+    straddling sub-period's return by day-count -- a snapshot that
+    doesn't land precisely on the boundary still yields a clean
+    calendar-year figure. The benchmark side uses daily ``Adj Close``
+    (or the resampled ``benchmark_history`` fallback used by
+    preview/tests) over the same windows; its native daily granularity
+    already lands on the boundary, so no apportionment is needed there.
+
+    ``last_snapshot`` is the date of the most recent *recorded*
+    valuation. It is distinct from ``history[-1]``: :func:`calc_twr`
+    appends a synthetic live mark-to-market at ``now`` to the history,
+    and that live mark must NOT count as a year-closing snapshot (the
+    contract is "wait for an actual recorded snapshot to close the
+    year"). It defaults to the last history date for callers (tests,
+    previews) that build a history without that synthetic tail.
+
+    Rows are returned newest-first.
     """
     _now: NowFn = now if now is not None else datetime.today
     history = total_return.get("history") or []
@@ -847,40 +911,40 @@ def calc_yearly_returns(
     start_date = total_return["start_date"]
     portfolio_start = start_date.date()
     today = _now().date()
-    first_year = portfolio_start.year
-    last_year = today.year
+    recorded_through = last_snapshot if last_snapshot is not None else history[-1][0].date()
+    tolerance = timedelta(days=_YEAR_START_TOLERANCE_DAYS)
     rows: list[YearlyReturn] = []
 
-    for year in range(last_year, first_year - 1, -1):
-        if year == portfolio_start.year:
-            anchor = portfolio_start
-        else:
-            anchor = date(year - 1, 12, 31)
-
-        period_end = min(date(year, 12, 31), today)
-        is_ytd = year == today.year and period_end < date(year, 12, 31)
-        if anchor > period_end:
+    for year in range(today.year, portfolio_start.year - 1, -1):
+        year_start = date(year, 1, 1)
+        year_end = date(year, 12, 31)
+        # Complete-year gate (start edge): the portfolio existed from
+        # the year's beginning, tolerating an inception up to a week
+        # into January. Drops the partial inception stub.
+        if portfolio_start > year_start + tolerance:
+            continue
+        # Complete-year gate (end edge): a recorded snapshot reaches
+        # the year-end. Drops the still-running current year and waits
+        # until the maintainer records a boundary-crossing valuation.
+        if recorded_through < year_end:
             continue
 
-        jg_pct = _period_return_from_multipliers(history, anchor, period_end)
+        anchor = date(year - 1, 12, 31)
+        jg_pct = _year_return_pct(history, anchor, year_end)
         bench_pct: float | None = None
         if benchmark is not None:
             bench_pct = benchmark.period_return_pct(
                 anchor,
-                period_end,
-                pin_live_end=period_end == today,
+                year_end,
+                pin_live_end=year_end == today,
             )
         elif benchmark_history:
-            bench_pct = _period_return_from_multipliers(
-                benchmark_history,
-                anchor,
-                period_end,
-            )
+            bench_pct = _year_return_pct(benchmark_history, anchor, year_end)
 
         row: YearlyReturn = {
             "year": year,
             "jg%": jg_pct,
-            "is_ytd": is_ytd,
+            "is_ytd": False,
         }
         if bench_pct is not None:
             row["bench%"] = bench_pct
@@ -895,6 +959,7 @@ def get_benchmarks(
     fx: FxRate | None = None,
     now: NowFn | None = None,
     store: MarketDataStore | None = None,
+    last_snapshot: date | None = None,
 ) -> tuple[list[BenchmarkSummary], list[YearlyReturn]]:
     fx = _fx_or_default(fx)
     history = total_return.get("history") or []
@@ -919,5 +984,6 @@ def get_benchmarks(
                 total_return,
                 benchmark=benchmark,
                 now=now,
+                last_snapshot=last_snapshot,
             )
     return benchmarks, yearly_returns

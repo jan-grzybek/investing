@@ -29,7 +29,7 @@ Cursor runs [`.cursor/hooks/post-edit-verify.sh`](.cursor/hooks/post-edit-verify
 
 ## Secrets and private data
 
-Pay **special attention** to not leaking secrets or private portfolio data — especially **raw spreadsheet source data**. The public site shows derived percentages only; nominal values from the Google Sheet must never appear in the repo, logs, tests, or agent output.
+Pay **special attention** to not leaking secrets or private portfolio data — especially **raw spreadsheet source data**. The public site shows derived percentages (plus per-share transaction prices, see below); **absolute nominal values** from the Google Sheet — anything that reveals net worth at a point in time — must never appear in the repo, logs, tests, or agent output.
 
 The build runs in a **public** repository, so **GitHub Actions job logs are world-readable** and act as a side channel for both secrets and nominal sheet values. See [SECURITY.md](SECURITY.md) for the full threat model, mitigations in [`investing/safe_run.py`](investing/safe_run.py), and third-party script policy.
 
@@ -41,9 +41,11 @@ The build runs in a **public** repository, so **GitHub Actions job logs are worl
 
 **Spreadsheet source data** — treat as confidential even when credentials are not involved:
 
-- Share counts, cash balances, per-trade prices and sizes
-- Dividend payouts, FX rates, and other nominal amounts used to derive published percentages
+- Share counts and per-trade *sizes*, cash balances, and total portfolio value (net worth)
+- Dividend cash payouts and other absolute nominal amounts used to derive published percentages
 - Raw sheet rows, cell values, or dumps of ingested data
+
+The privacy line is **net worth**: nothing may disclose an absolute portfolio value — or a share count / position value / cash balance from which one could be derived — at any point in time. Per-share transaction *prices* are intentionally published in the Trades section: they are market-observable and reveal nothing about position size on their own (size is shown only as relative percentages). Publishing a per-share price is therefore **not** a leak; publishing a quantity, a cash amount, or any absolute USD figure is.
 
 **Safe practices:**
 

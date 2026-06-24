@@ -113,11 +113,31 @@ def render(
         return height - (value - view_min) / y_span * height
 
     # Smooth interpolation when there are three or more points,
-    # straight segments for two.
-    if len(time_x) >= 3:
+    # straight segments for two. Two preconditions gate the dense
+    # log-space fit:
+    #   * ``time_x`` strictly increasing -- ``Pchip`` requires it, and
+    #     two valuation snapshots dated the same day would otherwise
+    #     raise ``ValueError`` and abort the whole build.
+    #   * every sample strictly positive -- the fit runs in log space,
+    #     and a multiplier of 0 (a full liquidation) or below (a
+    #     net-negative wipeout) would make ``np.log`` emit -inf / NaN
+    #     that lands both in the SVG ``points`` (malformed path) and in
+    #     the ``data-chart`` JSON as the literal ``NaN`` token (invalid
+    #     JSON -> the client scrubber's ``JSON.parse`` throws).
+    # Fall back conservatively: raw points when the timeline isn't
+    # strictly increasing, a linear-space Pchip when any sample is
+    # non-positive.
+    strictly_increasing = bool(np.all(np.diff(time_x) > 0))
+    all_positive = all(bool(np.all(s[2] > 0.0)) for s in series)
+    if len(time_x) >= 3 and strictly_increasing:
         dense = np.linspace(x_min, x_max, 200)
         interp_x = dense
-        interp_targets = {id(s[2]): np.exp(Pchip(time_x, np.log(s[2]))(dense)) for s in series}
+        if all_positive:
+            interp_targets = {id(s[2]): np.exp(Pchip(time_x, np.log(s[2]))(dense)) for s in series}
+        else:
+            interp_targets = {
+                id(s[2]): np.asarray(Pchip(time_x, s[2])(dense), dtype=float) for s in series
+            }
     else:
         interp_x = time_x
         interp_targets = {id(s[2]): s[2] for s in series}

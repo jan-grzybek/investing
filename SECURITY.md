@@ -9,10 +9,16 @@ This repository builds a public web page from a *private* data source:
    passed in as `GSHEET_CREDS` and the sheet identifier
    `GSHEET_ID`. Both come from repository secrets and are scoped to
    the deploy job.
-2. **Nominal portfolio values** read from that Google Sheet -- share
-   counts, per-trade prices, cash balances, dividend payouts, FX
-   rates. None of these are intended to be published. The page only
-   ever exposes *derived percentages* (weights, returns, allocations).
+2. **Absolute portfolio values** read from that Google Sheet -- share
+   counts, per-trade sizes, cash balances, dividend cash payouts, and
+   above all the total portfolio value (net worth). None of these are
+   intended to be published. The page exposes *derived percentages*
+   (weights, returns, allocations) plus per-share transaction prices
+   (market-observable, and disclosing nothing about position size on
+   their own). The invariant: no published value, alone or combined
+   with others, may reveal net worth -- or a share count / position
+   value / cash balance from which it could be derived -- at any point
+   in time.
 
 Because the build runs in a public repository, **job logs are
 world-readable** and act as a side channel for both classes of data.

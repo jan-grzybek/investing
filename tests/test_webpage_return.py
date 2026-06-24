@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from investing.webpage import Webpage
+from investing.webpage.return_chart import render as _render_chart
 from tests._webpage_support import (
     _benchmark,
     _total_return,
@@ -358,3 +359,57 @@ class TestAddReturn:
         assert 'class="returns-yearly"' in w.return_html
         assert "S&amp;P 500" not in w.return_html
         assert " pp" not in w.return_html
+
+
+class TestReturnChartRobustness:
+    @staticmethod
+    def _tr(history):
+        return {
+            "start_date": history[0][0],
+            "history": history,
+            "twr%": 0.0,
+            "cagr%": 0.0,
+        }
+
+    def test_non_positive_multiplier_does_not_emit_nan(self):
+        # A full liquidation drives the TWR multiplier to 0 (a
+        # net-negative wipeout below it). The log-space interpolation
+        # would push -inf / NaN into both the SVG ``points`` and the
+        # ``data-chart`` JSON; the linear-space fallback must keep every
+        # emitted number finite.
+        history = [
+            (datetime(2024, 1, 1), 1.2),
+            (datetime(2024, 6, 1), 0.6),
+            (datetime(2024, 12, 1), 0.0),
+        ]
+        out = _render_chart(self._tr(history), [], benchmark_label=lambda _b: "X")
+        assert out.startswith("<figure")
+        assert "NaN" not in out
+        assert "nan" not in out
+
+    def test_negative_multiplier_does_not_emit_nan(self):
+        history = [
+            (datetime(2024, 1, 1), 1.2),
+            (datetime(2024, 6, 1), 0.4),
+            (datetime(2024, 12, 1), -0.3),
+        ]
+        out = _render_chart(self._tr(history), [], benchmark_label=lambda _b: "X")
+        assert out.startswith("<figure")
+        assert "NaN" not in out
+        assert "nan" not in out
+
+    def test_duplicate_sample_dates_do_not_crash(self):
+        # Two valuations on the same calendar day make the timeline
+        # non-strictly-increasing; the dense Pchip fit would raise
+        # ValueError and abort the build. The renderer must fall back to
+        # raw points instead.
+        history = [
+            (datetime(2024, 1, 1), 1.0),
+            (datetime(2024, 6, 1), 1.1),
+            (datetime(2024, 6, 1), 1.2),
+            (datetime(2024, 12, 1), 1.3),
+        ]
+        out = _render_chart(self._tr(history), [], benchmark_label=lambda _b: "X")
+        assert out.startswith("<figure")
+        assert "NaN" not in out
+        assert "nan" not in out

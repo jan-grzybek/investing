@@ -308,6 +308,31 @@ def _parse_equity_row(
             convert=float,
         )
     )
+    # Positivity guard. ``quantity`` is a share count used as a divisor
+    # when computing the burst volume-weighted average price
+    # (``trades.combine_and_sort`` / ``_combine_trade_events``), so a
+    # zero would raise ``ZeroDivisionError`` deep in the pipeline; a
+    # negative quantity or price would silently flip cashflow signs and
+    # corrupt MoIC / IRR / weights. Reject both at ingestion with the
+    # same coordinate-only ``SheetParseError`` contract the rest of the
+    # parser uses (no cell value in the message, so the leak-safe
+    # wrapper stays leak-safe).
+    if quantity <= 0:
+        raise SheetParseError(
+            worksheet=schema.name,
+            row=row_index,
+            column=_EquitiesCols.QUANTITY.column,
+            field=_EquitiesCols.QUANTITY.label,
+            reason="must be a positive whole number",
+        )
+    if price <= 0:
+        raise SheetParseError(
+            worksheet=schema.name,
+            row=row_index,
+            column=_EquitiesCols.PRICE.column,
+            field=_EquitiesCols.PRICE.label,
+            reason="must be a positive number",
+        )
     return {
         "date": schema.cell(row, _EquitiesCols.DATE),
         "ticker": schema.cell(row, _EquitiesCols.TICKER),

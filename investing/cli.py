@@ -384,11 +384,17 @@ def build_page(
     rollup = compute_rollup(holdings, cash, fx=_fx)
     apply_rollup(holdings, rollup)
     total_return = calc_twr(valuations, rollup.total_value_usd, now=_now)
+    # Date of the most recent *recorded* valuation snapshot (distinct
+    # from the synthetic live mark ``calc_twr`` appends to the history).
+    # Gates which calendar years ``calc_yearly_returns`` will close --
+    # the live mark must not stand in for an actual year-end snapshot.
+    last_snapshot = max((v["date"] for v in valuations), default=None)
     benchmarks, yearly_returns = get_benchmarks(
         total_return,
         fx=_fx,
         now=_now,
         store=_store_arg,
+        last_snapshot=last_snapshot.date() if last_snapshot is not None else None,
     )
     _save(
         total_return,
