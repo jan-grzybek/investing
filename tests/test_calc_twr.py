@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from math import isfinite
 
 import pytest
 
@@ -37,7 +38,7 @@ class TestCalcTwr:
             current_value=60.0,
             now=at_datetime(when),
         )
-        assert all(m == m for _, m in result["history"])  # no NaN
+        assert all(isfinite(m) for _, m in result["history"])
         # Flat through the drained period, then 60/100 on the re-funded
         # leg: 1.0 * 1.0 * 0.6 = 0.6 -> -40%.
         assert result["twr%"] == pytest.approx(-40.0)

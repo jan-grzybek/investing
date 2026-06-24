@@ -651,7 +651,7 @@ class MarketDataStore:
                 with os.fdopen(fd, "wb") as handle:
                     handle.write(buf.getvalue())
                 os.replace(tmp_name, path)
-            except BaseException:
+            except Exception:
                 with contextlib.suppress(OSError):
                     os.unlink(tmp_name)
                 raise
