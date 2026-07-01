@@ -2,71 +2,71 @@
   "fx": {},
   "history": {
     "VUAA.L": {
-      "content_hash": "f81afedf10fb0ed3aab2e49b815b5415b325116164642830d0be83b516cffc02",
-      "updated_at": "2026-06-19"
+      "content_hash": "5e29e557cd9ca845b4fc27c3682437f142337d7c03d65c3aa406eef59db5fa60",
+      "updated_at": "2026-07-01"
     }
   },
   "schema_version": 1,
   "tickers": {
     "AIRJ": {
       "content_hash": "2d524f3e1223c92fd3367ebea48e5a6cd10303a486026cf0ceda8ee1804e4174",
-      "updated_at": "2026-06-19"
+      "updated_at": "2026-07-01"
     },
     "AMAT": {
       "content_hash": "480c00b1113a4690a2c60a6798e4eff07db9fa3d272226ee01da4142abf58d23",
-      "updated_at": "2026-06-19"
+      "updated_at": "2026-07-01"
     },
     "BABA": {
       "content_hash": "d5742fcd67fffa3aef0c1336293b9cdc353306948ab83fcd334f46ce85ae2802",
-      "updated_at": "2026-06-19"
+      "updated_at": "2026-07-01"
     },
     "BIDU": {
       "content_hash": "408384d96da4d33d9753a48e122bed54d05ed8f832cd63bdea13f59894f32473",
-      "updated_at": "2026-06-19"
+      "updated_at": "2026-07-01"
     },
     "FISV": {
       "content_hash": "de90e0552253850ee06aefc7f84e75735d7c3dbe09de9490758e7eab6b2ca786",
-      "updated_at": "2026-06-19"
+      "updated_at": "2026-07-01"
     },
     "GOOGL": {
       "content_hash": "4960a4d10627cbdd83e549ad51004235978ed586a517c0fd91412050040e10f9",
-      "updated_at": "2026-06-19"
+      "updated_at": "2026-07-01"
     },
     "IT": {
       "content_hash": "81af77bb5311b606ee98cbb502263635ed101f175e601ef98e4af4bf6640f191",
-      "updated_at": "2026-06-19"
+      "updated_at": "2026-07-01"
     },
     "KMX": {
       "content_hash": "78625525796a68aa4cd526f39348a6d1f9d125c9d7c281caf182aafdb237da49",
-      "updated_at": "2026-06-19"
+      "updated_at": "2026-07-01"
     },
     "LRCX": {
       "content_hash": "5e33b43c375def3d41403ab237eb41bec9590a7cf57f69d952540446e9bcdb02",
-      "updated_at": "2026-06-19"
+      "updated_at": "2026-07-01"
     },
     "META": {
       "content_hash": "1bff7686be1e0f67b121f1504b474b1e692e9af9de7b9a78e4e5ea5c56007025",
-      "updated_at": "2026-06-19"
+      "updated_at": "2026-07-01"
     },
     "NVDA": {
       "content_hash": "6e8d4060aeb37787af5762192c3db62aeb0be2b90c6a8ba07c121e86896ff6c0",
-      "updated_at": "2026-06-19"
+      "updated_at": "2026-07-01"
     },
     "QCOM": {
       "content_hash": "1e7de84ec35027de8cd7bb4704ba2080ce826eabae0071b15e88291015454a97",
-      "updated_at": "2026-06-19"
+      "updated_at": "2026-07-01"
     },
     "SSU.DU": {
       "content_hash": "09e00b3c91355cfa8d2717c67bfb239054aacd69806a374b408468789a53b695",
-      "updated_at": "2026-06-19"
+      "updated_at": "2026-07-01"
     },
     "TSM": {
       "content_hash": "46bcdc15ab6a212211d72256cf4712992c84a512e2a934a93d167efd8209a1e8",
-      "updated_at": "2026-06-19"
+      "updated_at": "2026-07-01"
     },
     "VUAA.L": {
       "content_hash": "f479f7ca6183765b1bec500b3609cbacab33094d0c24924237bb94b14fbcb5de",
-      "updated_at": "2026-06-19"
+      "updated_at": "2026-07-01"
     }
   }
 }
