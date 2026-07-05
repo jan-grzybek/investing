@@ -62,9 +62,7 @@ def test_every_head_icon_reference_is_staged():
     )
     href_values = set(re.findall(r'<link[^>]+href="([^"]+)"', head))
     # Absolute URLs (e.g. rel="canonical") are not our files to ship.
-    local_icons = {
-        h for h in href_values if not h.startswith(("http://", "https://", "//"))
-    }
+    local_icons = {h for h in href_values if not h.startswith(("http://", "https://", "//"))}
     assert local_icons, "expected build_head to emit at least one local <link> icon"
 
     shipped = set(stage_site._ROOT_ARTIFACTS) | set(stage_site._STATIC_ROOT_FILES)
