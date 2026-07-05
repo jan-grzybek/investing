@@ -32,8 +32,21 @@ _ROOT_ARTIFACTS = (
     "robots.txt",
 )
 
-# Static files committed at the repo root.
-_STATIC_ROOT_FILES = ("favicon.svg",)
+# Static icon files committed at the repo root. Every entry here is
+# referenced by ``investing.webpage.head.build_head`` via a
+# root-relative ``<link rel="icon">`` / ``apple-touch-icon`` href, so
+# each one must ship: a missing file 404s on the live site, which
+# leaves search engines (Google in particular probes the raster
+# ``favicon.ico`` / ``favicon.png``) with no crawlable favicon and no
+# logo beside the result. ``test_stage_site`` cross-checks this tuple
+# against the hrefs ``build_head`` actually emits so the two can't
+# drift apart again.
+_STATIC_ROOT_FILES = (
+    "favicon.svg",
+    "favicon.png",
+    "favicon.ico",
+    "apple-touch-icon.png",
+)
 
 # Directories whose contents ship as-is (no ``src/`` subtrees).
 _SITE_DIRS = (
