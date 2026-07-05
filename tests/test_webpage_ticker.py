@@ -70,6 +70,26 @@ class TestTicker:
         assert "NMS:LIVE" in out
         assert "NMS:DEAD" not in out
 
+    def test_excludes_current_fixed_income_holdings(self, stub_logo_lookup):
+        # The marquee is an equity-only surface (consistent with the
+        # equity-only OG image logo strip): a current bond / treasury
+        # ETF still renders as a capsule in its Fixed Income
+        # sub-section, but its logo must not scroll in the top strip.
+        w = Webpage()
+        w.add_holding(_holding(ticker="NMS:EQTY", name="Equity Co."))
+        w.add_holding(
+            _holding(
+                ticker="NMS:TLT",
+                name="iShares 20+ Year Treasury Bond ETF",
+                asset_class="fixed_income",
+            )
+        )
+        out = w._build_ticker()
+        assert "NMS:EQTY" in out
+        assert "NMS:TLT" not in out
+        # Only the single equity logo is in the strip (x2 copies).
+        assert out.count('class="ticker__logo"') == 2
+
     def test_each_logo_is_wrapped_in_anchor_to_holding_capsule(
         self,
         stub_logo_lookup,

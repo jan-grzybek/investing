@@ -117,8 +117,12 @@ class Webpage:
         # tests can pass a plain function that resolves against a
         # synthetic source without monkey-patching the class.
         self._logo_resolver: LogoResolver = logo_cache if logo_cache is not None else LogoCache()
-        # ``(ticker, name, logo_url)`` tuples for current holdings, in
-        # the order they were added. Drives the marquee ticker.
+        # ``(ticker, name, logo_url)`` tuples for current *equity*
+        # holdings, in the order they were added. Drives the marquee
+        # ticker, which is an equity-only surface -- fixed-income
+        # holdings are excluded upstream in ``add_holding`` so the
+        # moving logo strip stays consistent with the equity-only OG
+        # image and sector treemap.
         self._current_logos: list[tuple[str, str, str]] = []
         # Minimal payload for the sector treemap: one entry per
         # current equity holding, carrying the four fields the
@@ -163,7 +167,15 @@ class Webpage:
         # tagged ``"fixed_income"`` route to the dedicated FI lists.
         asset_class = holding.get("asset_class") or "equity"
         is_fixed_income = asset_class == "fixed_income"
-        if holding["is_current"]:
+        if holding["is_current"] and not is_fixed_income:
+            # The marquee ticker and the sector treemap are both
+            # equity-only surfaces (matching the equity-only OG image
+            # logo strip fed from ``top_10``): the moving logo strip
+            # at the top of the page and the treemap below it reflect
+            # the equity sleeve, not bond / treasury ETFs. Fixed-income
+            # holdings still render as capsules in their own Current /
+            # Historical Fixed Income sub-sections; they're just kept
+            # out of these two decorative equity views.
             self._current_logos.append(
                 (
                     holding["ticker"],
@@ -171,26 +183,25 @@ class Webpage:
                     self._get_logo_url(holding["ticker"]),
                 )
             )
-            if not is_fixed_income:
-                # Stash the four fields the sector treemap needs.
-                # Historical / closed holdings have no current weight
-                # so they would be rejected by the renderer's
-                # ``weight is None or <= 0`` guard anyway; filtering
-                # here keeps the list payload aligned with the chart's
-                # equity-only contract. Fixed-income holdings are
-                # also excluded -- the treemap exists to surface the
-                # equity sleeve's sector composition; bond / treasury
-                # tickers don't carry an upstream GICS sector and
-                # would either land in "Other" or break the chart's
-                # contract entirely.
-                self._current_equity_for_treemap.append(
-                    {
-                        "ticker": holding["ticker"],
-                        "name": holding["name"],
-                        "sector": holding.get("sector") or "",
-                        "current_weight%": holding.get("current_weight%"),
-                    }
-                )
+            # Stash the four fields the sector treemap needs.
+            # Historical / closed holdings have no current weight
+            # so they would be rejected by the renderer's
+            # ``weight is None or <= 0`` guard anyway; filtering
+            # here keeps the list payload aligned with the chart's
+            # equity-only contract. Fixed-income holdings are
+            # also excluded -- the treemap exists to surface the
+            # equity sleeve's sector composition; bond / treasury
+            # tickers don't carry an upstream GICS sector and
+            # would either land in "Other" or break the chart's
+            # contract entirely.
+            self._current_equity_for_treemap.append(
+                {
+                    "ticker": holding["ticker"],
+                    "name": holding["name"],
+                    "sector": holding.get("sector") or "",
+                    "current_weight%": holding.get("current_weight%"),
+                }
+            )
         card = self._build_holding_card(holding)
         if is_fixed_income:
             bucket = (
@@ -469,7 +480,7 @@ class Webpage:
         )
 
     def _build_ticker(self) -> str:
-        """Render a slow horizontal marquee of current-holdings logos.
+        """Render a slow horizontal marquee of current-equity-holdings logos.
 
         Each logo carries the ticker + name in its ``title`` attribute
         for sighted users who hover and is wrapped in an in-page
