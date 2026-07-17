@@ -29,7 +29,7 @@ curl-cffi==0.15.0
     # via yfinance
 defusedxml==0.7.1
     # via cairosvg
-google-auth==2.55.2
+google-auth==2.56.0
     # via
     #   google-auth-oauthlib
     #   gspread
@@ -54,7 +54,7 @@ oauthlib==3.3.1
     # via requests-oauthlib
 pandas==3.0.3
     # via yfinance
-peewee==4.1.2
+peewee==4.2.4
     # via yfinance
 pillow==12.3.0
     # via
