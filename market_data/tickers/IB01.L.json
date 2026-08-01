@@ -1,0 +1,12 @@
+{
+  "dividends": [],
+  "info": {
+    "currency": "USD",
+    "exchange": "LSE",
+    "longName": "iShares $ Treasury Bond 0-1yr UCITS ETF",
+    "shortName": "ISHARES PLC ISH $ TR BND 0-1YR ",
+    "symbol": "IB01.L"
+  },
+  "schema_version": 1,
+  "splits": []
+}
