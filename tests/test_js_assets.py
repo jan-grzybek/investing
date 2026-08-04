@@ -12,11 +12,10 @@ ASSETS = REPO_ROOT / "assets"
 EXPECTED_JS = (
     "hash_clear.js",
     "holdings_sort.js",
+    "metrics_note.js",
     "nav_scroll.js",
     "return_chart.js",
-    "ticker_marquee.js",
     "trades_sort.js",
-    "yearly_returns.js",
 )
 
 
@@ -29,9 +28,20 @@ def test_minified_js_exists_and_is_wrapped(name: str):
     assert body.rstrip().endswith("})();")
 
 
-def test_yearly_returns_source_matches_served_contract():
-    src = (REPO_ROOT / "assets/src/js/yearly_returns.js").read_text(encoding="utf-8")
-    assert "returns-yearly__toggle" in src
+def test_holdings_sort_source_matches_served_contract():
+    src = (REPO_ROOT / "assets/src/js/holdings_sort.js").read_text(encoding="utf-8")
+    # The three attributes the renderer and the script have to agree
+    # on: the table root, the per-column key, and the state the header
+    # publishes back to assistive tech.
+    for token in ("data-holdings-table", "data-sort-key", "aria-sort"):
+        assert token in src
+    served = (ASSETS / "holdings_sort.js").read_text(encoding="utf-8")
+    assert "data-holdings-table" in served
+
+
+def test_metrics_note_source_matches_served_contract():
+    src = (REPO_ROOT / "assets/src/js/metrics_note.js").read_text(encoding="utf-8")
+    assert "metrics-note__toggle" in src
     assert "aria-expanded" in src
-    served = (ASSETS / "yearly_returns.js").read_text(encoding="utf-8")
-    assert "returns-yearly__toggle" in served
+    served = (ASSETS / "metrics_note.js").read_text(encoding="utf-8")
+    assert "metrics-note__toggle" in served

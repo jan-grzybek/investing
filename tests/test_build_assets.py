@@ -32,7 +32,7 @@ def test_build_outputs_includes_all_js_and_css():
     outputs = build_assets._build_outputs()
     js_names = {p.name for p in outputs if p.suffix == ".js"}
     assert "holdings_sort.js" in js_names
-    assert "yearly_returns.js" in js_names
+    assert "metrics_note.js" in js_names
     assert _REPO_ROOT / "assets" / "page.css" in outputs
 
 

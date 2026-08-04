@@ -1,0 +1,103 @@
+/* Two stacked part-of-a-whole bars, ~120px total, where a
+   three-row bar chart plus a 416px treemap used to sit.
+
+   A stacked bar is the honest primitive here: the segments sum to
+   the frame, which is the entire claim. And it survives to phone
+   widths without a layout engine, which the treemap did not -- that
+   chart needed a client-side squarify pass and a fold-small-tiles
+   -into-Other heuristic just to stay legible. */
+.allocation {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  margin-top: 10px;
+  padding: 20px 24px 22px;
+  background: var(--card-bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.allocation__block + .allocation__block {
+  padding-top: 20px;
+  border-top: 1px solid color-mix(in srgb, var(--line) 60%, transparent);
+}
+.allocation__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 9px;
+}
+.allocation__title {
+  margin: 0;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+/* Names the denominator. The equity bar is a share of the equity
+   sleeve, not of the whole portfolio, and saying so is what keeps
+   the two bars from looking like they disagree about what 100%
+   means -- which is precisely the defect the old treemap had
+   against the allocation chart above it. */
+.allocation__note {
+  font-size: 0.75rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.allocation__bar {
+  display: flex;
+  height: 30px;
+  border-radius: 6px;
+  overflow: hidden;
+  gap: 2px;
+}
+.allocation__segment {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  cursor: default;
+}
+/* Segment labels sit on saturated fills, so they take a fixed white
+   rather than ``--fg``: the ink has to clear every hue in the
+   sector palette, and the page's body slate does not clear the
+   darker ones. The text-shadow buys the last of the contrast on the
+   lightest fills without painting a chip behind every number. */
+.allocation__segment-value {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #ffffff;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+.allocation__key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+.allocation__key-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+}
+.allocation__key-swatch {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  flex: 0 0 auto;
+}
+/* Segments too narrow to hold their own percentage defer it to the
+   legend, so the bar never renders a clipped number. */
+.allocation__key-value {
+  font-weight: 600;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+}

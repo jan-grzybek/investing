@@ -1,3 +1,6 @@
+.trades {
+  font-variant-numeric: tabular-nums;
+}
 .trades__wrap {
   /* Wrap is a named **inline-size** container query container so the
      ``@container trades (max-width: ...)`` rules further down can
@@ -45,6 +48,7 @@
   vertical-align: middle;
 }
 .trades__col--price { text-align: right; }
+.trades__col--price .trades__sort { justify-content: flex-end; }
 /* Sort buttons: visually identical to the surrounding header text
    so the table reads as a tight grid -- the interactive affordance
    is communicated by the indicator triangle plus the focus ring,
@@ -66,6 +70,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  width: 100%;
 }
 .trades__sort:focus-visible {
   outline: 2px solid var(--accent);
@@ -176,6 +181,12 @@
 @container trades (max-width: 430px) {
   .trades__col--action,
   .trades__cell--action { display: none; }
+  /* With four columns left, the 12px gutters are what tips the
+     table into a horizontal scroll on a 390px phone. Halving them
+     buys back ~32px, which is more than the overflow. */
+  .trades thead th,
+  .trades tbody td { padding-left: 8px; padding-right: 8px; }
+  .trades { font-size: 0.875rem; }
 }
 /* Solid-pill BUY / SELL badge. Uppercase + letter-spacing give it
    the "label" affordance a typographic reader expects from a
@@ -236,7 +247,7 @@
    already carries: OPEN / INCREASE read as growth (green),
    CLOSE / DECREASE as reduction (red). Those colour classes are
    defined further up and shared with the holding capsules' TSR
-   / CAGR readouts so the whole page speaks one colour-coding
+   / IRR readouts so the whole page speaks one colour-coding
    language. ``--pct`` rows additionally get a heavier weight so
    the signed percentage stands out as a numeric readout. */
 .trades__detail--pct {

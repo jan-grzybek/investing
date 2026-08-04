@@ -100,10 +100,10 @@ class TestAddTrades:
         # every block to prevent the "longer label grows the pill"
         # regression from creeping back in.
         bodies = blocks_for(_PAGE_STYLES, ".trade__badge")
-        assert len(bodies) >= 2  # base + at least the 540px override
+        assert bodies
         assert has_declaration(bodies[0], "text-align", "center")
         sizing_bodies = [body for body in bodies if "width:" in body]
-        assert len(sizing_bodies) >= 2  # base + 540px both restate width
+        assert sizing_bodies
         for body in sizing_bodies:
             assert has_declaration(body, "width", "7em")
         for body in bodies:
@@ -641,30 +641,32 @@ class TestSaveTradesSection:
         w.save()
         out = (chdir_tmp / "index.html").read_text()
         # Section anchor + heading + methodology subtitle are present.
-        # The visible heading is just "Trades" -- the same word the
-        # nav link uses, keeping the section name and the nav label
-        # in lock-step. The URL fragment stays ``#trades`` so old
-        # bookmarks and the nav link don't break.
-        assert 'id="trades"' in out
-        assert ">Trades</h2>" in out
+        # "Activity" is the same word the nav link uses, keeping the
+        # section name and the nav label in lock-step; the fragment is
+        # ``#activity`` to match.
+        assert 'id="activity"' in out
+        assert ">Activity</h2>" in out
         # Previous headings are fully retired -- a leftover "Recent
-        # trades" or "Trade log" anywhere on the page would mean we
-        # missed a comment or label during the rename.
+        # trades", "Trade log" or bare "Trades" heading anywhere on the
+        # page would mean we missed a label during the rename.
         assert "Recent trades" not in out
         assert "Trade log" not in out
-        # Subtitle covers the section's two methodology facts: it
-        # spans the full ownership history (no trailing-year cutoff
-        # any more) and rolling-quarter bursts are combined.
+        assert ">Trades</h2>" not in out
+        # Subtitle covers the section's three methodology facts: it
+        # spans the full ownership history (no trailing-year cutoff),
+        # rolling-quarter bursts are combined, and sizes are never
+        # published.
         assert "Every executed trade since inception" in out
         assert "rolling quarter" in out
+        assert "Sizes are never published" in out
         # Nav picks up the new section once trades are present.
-        assert 'href="#trades"' in out
+        assert 'href="#activity"' in out
         # Section sits below historical / current sections in the
         # source order so the activity log reads as detail after the
         # high-level portfolio summary.
         idx_perf = out.index('id="performance"')
-        idx_trades = out.index('id="trades"')
-        assert idx_perf < idx_trades
+        idx_activity = out.index('id="activity"')
+        assert idx_perf < idx_activity
         # Single ``<table class="trades">`` per page, with the
         # sortable thead and the row tbody wired up via
         # ``data-sort-*`` attributes. Sanity-check the contract the
@@ -673,14 +675,16 @@ class TestSaveTradesSection:
         assert out.count('<table class="trades"') == 1
         assert 'data-sort-default="date"' in out
         assert 'data-sort-default-dir="desc"' in out
-        # All five sortable column headers carry their sort key so
-        # the click handler can dispatch on it.
-        for key in ("ticker", "name", "action", "detail", "date"):
+        # Every sortable column header carries its sort key so the
+        # click handler can dispatch on it.
+        for key in ("ticker", "name", "action", "detail", "date", "price"):
             assert f'data-sort-key="{key}"' in out
-        # The Price column is non-sortable (mixing currencies in a
-        # numeric sort would imply an FX-converted ordering the
-        # page doesn't compute), so it never carries a sort key.
-        assert 'data-sort-key="price"' not in out
+        # Price sorts by currency first and by amount within each
+        # currency -- a real ordering, where a bare numeric sort across
+        # USD / EUR / GBp would not be. The header says so rather than
+        # leaving the reader to discover it.
+        assert 'data-sort-currency="USD"' in out
+        assert "Sorts by currency first" in out
 
     def test_save_skips_trades_section_when_empty(
         self,
@@ -699,9 +703,9 @@ class TestSaveTradesSection:
         # "Trades" substring -- the section's name also lives in
         # a CSS comment in the embedded stylesheet, so a plain
         # substring search would yield a false positive.
-        assert 'id="trades"' not in out
-        assert ">Trades</h2>" not in out
-        assert 'href="#trades"' not in out
+        assert 'id="activity"' not in out
+        assert ">Activity</h2>" not in out
+        assert 'href="#activity"' not in out
         # No actual rendered table either.
         assert '<table class="trades"' not in out
         assert 'class="trades__row"' not in out
@@ -712,9 +716,10 @@ class TestSaveTradesSection:
         chdir_tmp,
         freeze_today,
     ):
-        # When the page carries both the historical holdings section
-        # and the trades section, trades appears last so the page
-        # reads as: performance -> current -> historical -> activity.
+        # When the page carries both the closed-positions section and
+        # the activity section, activity appears last so the page reads
+        # as: performance -> allocation -> holdings -> closed ->
+        # activity -> method.
         freeze_today(datetime(2025, 6, 1))
         w = Webpage()
         w.add_return(_total_return(), [])
@@ -729,6 +734,7 @@ class TestSaveTradesSection:
         w.add_trades([_trade_event(start=datetime(2024, 1, 1))])
         w.save()
         out = (chdir_tmp / "index.html").read_text()
-        idx_hist = out.index('id="historical"')
-        idx_trades = out.index('id="trades"')
-        assert idx_hist < idx_trades
+        idx_closed = out.index('id="closed"')
+        idx_activity = out.index('id="activity"')
+        idx_method = out.index('id="method"')
+        assert idx_closed < idx_activity < idx_method

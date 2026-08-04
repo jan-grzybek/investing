@@ -16,11 +16,9 @@ _INLINE_PAYLOADS = (
     ("hash_clear", assets._HASH_CLEAR_SCRIPT),
     ("nav_scroll", assets._NAV_SCROLL_SCRIPT),
     ("return_chart", assets._RETURN_CHART_SCRIPT),
-    ("ticker_marquee", assets._TICKER_MARQUEE_SCRIPT),
     ("trades_sort", assets._TRADES_SORT_SCRIPT),
-    ("yearly_returns", assets._YEARLY_RETURNS_SCRIPT),
+    ("metrics_note", assets._METRICS_NOTE_SCRIPT),
     ("holdings_sort", assets._HOLDINGS_SORT_SCRIPT),
-    ("treemap_layout", assets._TREEMAP_LAYOUT_SCRIPT),
 )
 
 _STYLE_PAYLOADS = (("page.css", assets._PAGE_STYLES),)
@@ -36,17 +34,27 @@ def _meta() -> SiteMeta:
     )
 
 
+def test_removed_scripts_leave_no_orphaned_assets():
+    """The marquee, treemap and year-toggle scripts are gone.
+
+    Each was tied to a surface the redesign removed, and a stale
+    ``assets/*.js`` left behind would still be served by Pages while
+    nothing on the page loaded it -- dead bytes with a live URL.
+    """
+    for name in ("ticker_marquee.js", "treemap_layout.js", "yearly_returns.js"):
+        assert not (_REPO_ROOT / "assets" / name).exists()
+        assert not (_REPO_ROOT / "assets" / "src" / "js" / name).exists()
+
+
 def test_served_asset_bytes_match_repo_files():
     assets_dir = _REPO_ROOT / "assets"
     pairs = (
         ("hash_clear.js", assets._HASH_CLEAR_SCRIPT),
         ("nav_scroll.js", assets._NAV_SCROLL_SCRIPT),
         ("return_chart.js", assets._RETURN_CHART_SCRIPT),
-        ("ticker_marquee.js", assets._TICKER_MARQUEE_SCRIPT),
         ("trades_sort.js", assets._TRADES_SORT_SCRIPT),
-        ("yearly_returns.js", assets._YEARLY_RETURNS_SCRIPT),
+        ("metrics_note.js", assets._METRICS_NOTE_SCRIPT),
         ("holdings_sort.js", assets._HOLDINGS_SORT_SCRIPT),
-        ("treemap_layout.js", assets._TREEMAP_LAYOUT_SCRIPT),
         ("page.css", assets._PAGE_STYLES),
     )
     for name, loaded in pairs:
@@ -85,5 +93,5 @@ def test_build_head_inlines_match_asset_module_and_csp():
     assert assets._PAGE_STYLES in head
 
     hashes = re.findall(r"'sha256-([A-Za-z0-9+/=]+)'", head)
-    assert len(hashes) >= 9
+    assert len(hashes) >= len(_INLINE_PAYLOADS) + len(_STYLE_PAYLOADS)
     assert len(hashes) == len(set(hashes)), "duplicate CSP hashes in head"

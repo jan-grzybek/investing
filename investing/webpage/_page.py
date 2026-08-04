@@ -2,10 +2,16 @@
 entrypoint that wires per-section content into a single
 rendered ``index.html`` + companion artefacts.
 
+The page leads with the alpha and then proves it: hero, chart,
+year-by-year, allocation, holdings, closed positions, activity,
+method. Every section below the hero is evidence for the claim the
+hero makes, in roughly the order a sceptical reader would ask for it.
+
 This module hosts the main :class:`Webpage` class. The renderer is
 intentionally kept together because most of its sections share
-internal state through the instance; the self-contained helpers
-(anchors, sitemap/robots, logo cache) live next to it in the
+internal state through the instance; the self-contained pieces (the
+hero, the chart, the two holdings tables, the allocation bars, the
+year table, anchors, sitemap/robots) live next to it in the
 ``investing.webpage`` package.
 """
 
@@ -15,15 +21,8 @@ import html
 from datetime import datetime
 from pathlib import Path
 
-from dateutil.relativedelta import relativedelta
-
 from ..clock import NowFn
-from ..formatting import (
-    _fmt_date_long,
-    _fmt_pct,
-    _format_duration,
-    _value_class,
-)
+from ..formatting import _fmt_date_long
 from ..log import logger
 from ..logos import LogoCache, LogoResolver
 from ..paths import COURAGE_LOGO
@@ -39,20 +38,16 @@ from ..types import (
     TradeEvent,
     YearlyReturn,
 )
-from . import bars as _bars
+from . import allocation as _allocation
+from . import hero as _hero
 from . import holdings_view as _holdings_view
 from . import og_image as _og_image
 from . import return_chart as _return_chart
-from . import sector_treemap as _sector_treemap
 from . import trades_view as _trades_view
+from . import yearly_view as _yearly_view
 from .anchors import holding_anchor, strip_exchange
 from .head import SiteMeta, build_analytics_tag, build_head, build_jsonld
 from .sitemap import write_robots_txt, write_sitemap
-
-# Default number of calendar-year rows visible before the "Show all"
-# toggle expands the table. Kept in sync with the CSS
-# ``nth-of-type(n+5)`` cutoff (four visible rows).
-_YEARLY_VISIBLE_DEFAULT = 4
 
 
 def _write_if_changed(path: Path, body: str) -> bool:
@@ -88,22 +83,20 @@ class Webpage:
         logo_cache: LogoResolver | None = None,
     ):
         self.return_html: str = ""
+        # Pre-rendered ``<tr>`` fragments, one per position, bucketed
+        # by the group band they render under. The equity / fixed
+        # income split is read off each summary's ``asset_class`` tag
+        # in ``add_holding``; the renderer skips an empty group
+        # silently -- "no title for an empty section" is the
+        # asymmetric-portfolio contract.
         self.current: list[str] = []
         self.historical: list[str] = []
-        # Pre-rendered capsule HTML for the fixed-income sub-sections.
-        # Populated alongside ``current`` / ``historical`` from
-        # ``add_holding`` based on each summary's ``asset_class``
-        # tag (``"fixed_income"`` lands here, anything else lands in
-        # the equity buckets above). The renderer skips the dedicated
-        # sub-section block silently when a list is empty -- "no title
-        # for an empty section" is the asymmetric-portfolio contract.
         self.current_fixed_income: list[str] = []
         self.historical_fixed_income: list[str] = []
         self.allocation_pct: dict[str, float] | None = None
         self.top_10: dict[str, float] | None = None
-        # Pre-rendered HTML for each row in the "Trades"
-        # section, in newest-first order. Populated by
-        # ``add_trades``; an empty list omits the whole section
+        # Pre-rendered HTML for each row in the "Activity" section, in
+        # newest-first order. An empty list omits the whole section
         # (and its nav link) cleanly.
         self.trades: list[str] = []
         # Logo URL resolver. In production this is a
@@ -117,31 +110,24 @@ class Webpage:
         # tests can pass a plain function that resolves against a
         # synthetic source without monkey-patching the class.
         self._logo_resolver: LogoResolver = logo_cache if logo_cache is not None else LogoCache()
-        # ``(anchor_ticker, listings, name, logo_url)`` tuples for
-        # current *equity* holdings, in the order they were added.
-        # Drives the marquee ticker, which is an equity-only surface
-        # -- fixed-income holdings are excluded upstream in
-        # ``add_holding`` so the moving logo strip stays consistent
-        # with the equity-only OG image and sector treemap.
-        #
-        # ``anchor_ticker`` is the identity ticker the ``#href`` slug
-        # is built from; ``listings`` is what the hover tooltip shows,
-        # which for a multi-listing position names every constituent
-        # line rather than just the primary.
-        self._current_logos: list[tuple[str, str, str, str]] = []
-        # Minimal payload for the sector treemap: one entry per
-        # current equity holding, carrying the four fields the
-        # treemap renderer needs (ticker / name / sector / weight).
-        # Populated as a side-effect of ``add_holding`` so the
-        # public API stays small -- the renderer never sees a list
-        # of full ``HoldingSummary`` dicts and the cash / historical
-        # assets never reach this list in the first place, which is
-        # the contract the treemap depends on (equities only).
-        self._current_equity_for_treemap: list[dict] = []
-        # Stashed for OG image generation in ``save()``.
+        # Minimal payload for the sector allocation bar: one entry per
+        # current equity holding, carrying the two fields the bar
+        # needs. Populated as a side-effect of ``add_holding`` so the
+        # public API stays small -- cash and historical positions
+        # never reach this list in the first place, which is the
+        # contract the "share of equities" denominator depends on.
+        self._current_equity_sectors: list[dict] = []
+        # Largest current weight seen, which normalises every weight
+        # bar in the holdings table (see
+        # :func:`investing.webpage.holdings_view._weight_bar`).
+        self._max_weight: float = 0.0
+        self._open_count = 0
+        self._closed_count = 0
+        # Stashed for the hero, the chart and OG image generation.
         self._total_return: TotalReturn | None = None
         self._benchmarks: list[BenchmarkSummary] | None = None
-        # Wall-clock plug used in the footer / sitemap / "Since X"
+        self._yearly_returns: list[YearlyReturn] = []
+        # Wall-clock plug used in the hero / sitemap / "Since X"
         # captions. ``None`` falls through to ``datetime.today`` so
         # the legacy ``freeze_today`` fixture (which monkeypatches
         # this module's bound ``datetime``) keeps working; new code
@@ -159,10 +145,11 @@ class Webpage:
     ) -> None:
         self._total_return = total_return
         self._benchmarks = benchmarks
+        self._yearly_returns = list(yearly_returns or [])
         self.return_html = self._build_return_section(
             total_return,
             benchmarks,
-            yearly_returns=yearly_returns or [],
+            yearly_returns=self._yearly_returns,
         )
 
     def add_holding(self, holding: HoldingSummary) -> None:
@@ -172,63 +159,32 @@ class Webpage:
         # tagged ``"fixed_income"`` route to the dedicated FI lists.
         asset_class = holding.get("asset_class") or "equity"
         is_fixed_income = asset_class == "fixed_income"
-        if holding["is_current"] and not is_fixed_income:
-            # The marquee ticker and the sector treemap are both
-            # equity-only surfaces (matching the equity-only OG image
-            # logo strip fed from ``top_10``): the moving logo strip
-            # at the top of the page and the treemap below it reflect
-            # the equity sleeve, not bond / treasury ETFs. Fixed-income
-            # holdings still render as capsules in their own Current /
-            # Historical Fixed Income sub-sections; they're just kept
-            # out of these two decorative equity views.
-            self._current_logos.append(
-                (
-                    holding["ticker"],
-                    # Same contract as the treemap tooltip: a combined
-                    # position names every listing behind it, joined
-                    # with ``+`` so it reads as one position assembled
-                    # from two lines rather than two entries.
-                    " + ".join(holding.get("tickers") or [holding["ticker"]]),
-                    holding["name"],
-                    self._get_logo_url(holding["ticker"]),
+        if holding["is_current"]:
+            self._open_count += 1
+            weight = holding.get("current_weight%")
+            if weight is not None:
+                self._max_weight = max(self._max_weight, float(weight))
+            if not is_fixed_income:
+                # The sector bar is an equity-only surface: bond and
+                # treasury tickers carry no upstream GICS sector and
+                # would either land in "Other" or break the bar's
+                # "share of equities" denominator outright.
+                self._current_equity_sectors.append(
+                    {
+                        "sector": holding.get("sector") or "",
+                        "current_weight%": weight,
+                    }
                 )
-            )
-            # Stash the four fields the sector treemap needs.
-            # Historical / closed holdings have no current weight
-            # so they would be rejected by the renderer's
-            # ``weight is None or <= 0`` guard anyway; filtering
-            # here keeps the list payload aligned with the chart's
-            # equity-only contract. Fixed-income holdings are
-            # also excluded -- the treemap exists to surface the
-            # equity sleeve's sector composition; bond / treasury
-            # tickers don't carry an upstream GICS sector and
-            # would either land in "Other" or break the chart's
-            # contract entirely.
-            self._current_equity_for_treemap.append(
-                {
-                    "ticker": holding["ticker"],
-                    "name": holding["name"],
-                    "sector": holding.get("sector") or "",
-                    "current_weight%": holding.get("current_weight%"),
-                    # Multi-listing positions (``investing.positions``)
-                    # need both to render: ``short_label`` is the tile
-                    # text, since no single symbol identifies the
-                    # position, and ``tickers`` lets the tooltip spell
-                    # out every constituent listing. Absent on ordinary
-                    # holdings, where the treemap falls back to
-                    # ``ticker``.
-                    "short_label": holding.get("short_label", ""),
-                    "tickers": list(holding.get("tickers") or ()),
-                }
-            )
-        card = self._build_holding_card(holding)
+        else:
+            self._closed_count += 1
+        row = self._build_holding_card(holding)
         if is_fixed_income:
             bucket = (
                 self.current_fixed_income if holding["is_current"] else self.historical_fixed_income
             )
         else:
             bucket = self.current if holding["is_current"] else self.historical
-        bucket.append(card)
+        bucket.append(row)
 
     def add_allocations(
         self,
@@ -262,32 +218,17 @@ class Webpage:
         out_dir = output_dir if output_dir is not None else Path.cwd()
         out_dir.mkdir(parents=True, exist_ok=True)
         now = self._now()
-        # Long-form date here ("Updated on May 31, 2026") rather than
-        # the page-wide DD/MM/YYYY -- the footer line reads as prose,
-        # not as tabular data, so slashes break the sentence the same
-        # way they did under the chart's "Since X" caption above
-        # ``_render_return_chart``. The ISO ``<time datetime="...">``
-        # attribute stays in W3C YYYY-MM-DD form regardless.
         update_date = _fmt_date_long(now)
         update_iso = now.strftime("%Y-%m-%d")
         # Best-effort: generate the OG image first so its filename can
         # be referenced from <head>. If Pillow / fonts aren't available
         # the page still renders, just without a fresh social preview.
         self._render_og_image(out_dir)
-        treemap_payload_json = ""
-        if self._current_equity_for_treemap:
-            aspect_for = getattr(self._logo_resolver, "aspect_ratio", None)
-            coverage_for = getattr(self._logo_resolver, "coverage_ratio", None)
-            treemap_payload_json = _sector_treemap.build_payload_json(
-                self._current_equity_for_treemap,
-                logo_url_for=self._get_logo_url,
-                logo_aspect_for=aspect_for,
-                logo_coverage_for=coverage_for,
-            )
+
         parts: list[str] = []
         parts.append("<!DOCTYPE html>")
         parts.append('<html lang="en">')
-        parts.append(self._head(treemap_payload_json))
+        parts.append(self._head())
         parts.append("<body>")
         # Skip link: visually hidden until focused, lets keyboard users
         # bypass the sticky nav and jump straight to <main>.
@@ -295,123 +236,70 @@ class Webpage:
         parts.append(self._build_site_header())
         parts.append('<main id="main-content" tabindex="-1">')
 
-        ticker = self._build_ticker()
-        if ticker:
-            parts.append(ticker)
+        if self._total_return is not None:
+            parts.append(self._build_hero(update_date, update_iso))
 
-        parts.append('<section id="performance" class="section section--return">')
-        parts.append('<h2 class="section__title">All-time performance</h2>')
-        parts.append(self.return_html or "<p>No data yet.</p>")
-        parts.append("</section>")
-
-        if self.current or self.current_fixed_income:
-            parts.append('<section id="current" class="section section--current">')
-            parts.append('<h2 class="section__title">Current holdings</h2>')
-            if self.allocation_pct:
-                parts.append('<h3 class="section__subtitle">Asset allocation</h3>')
-                # The "Equities" / "Fixed Income" allocation rows are
-                # clickable when the corresponding sub-section is
-                # rendered below: they jump straight to the matching
-                # sub-section heading. The cash row has no dedicated
-                # sub-section to point at and stays a plain bar
-                # regardless. Anchor entries for empty buckets are
-                # silently dropped from the renderer (the row stays
-                # un-linked) so a portfolio that's all-equities-no-FI
-                # doesn't dangle a Fixed Income link onto a missing
-                # heading.
-                allocation_anchors: dict[str, str] = {}
-                if self.current:
-                    allocation_anchors["Equities"] = "equities"
-                if self.current_fixed_income:
-                    allocation_anchors["Fixed Income"] = "fixed-income"
-                parts.append(
-                    self._render_bars(
-                        list(self.allocation_pct.items()),
-                        "allocation",
-                        anchors=allocation_anchors,
-                    )
-                )
-            if self.current:
-                parts.append('<h3 id="equities" class="section__subtitle">Equities</h3>')
-                # Sector treemap: equities only (cash, fixed-income and
-                # historical positions are filtered out by
-                # ``add_holding`` upstream). The renderer returns an
-                # empty string when there are no current equity
-                # holdings, in which case the block is silently
-                # omitted. The treemap subsumes the older
-                # ticker-level horizontal bar chart that used to sit
-                # here: tile area is proportional to weight (same
-                # ordering signal the bars provided) and the sector
-                # grouping adds an axis the bars couldn't show.
-                parts.append(self._render_sector_treemap())
-                # Sort toolbar is gated on >1 capsule: a single-row
-                # list has nothing to sort, so the toolbar would just
-                # be inert chrome. Same gate applies to every other
-                # asset-class / current-vs-historical bucket below so
-                # the rule reads symmetric across the page.
-                self._append_holdings_list(
-                    parts,
-                    scope="current",
-                    cards=self.current,
-                    include_weight=True,
-                )
-            if self.current_fixed_income:
-                parts.append('<h3 id="fixed-income" class="section__subtitle">Fixed Income</h3>')
-                # Fixed income mirrors the equities sub-section's
-                # capsule + sort affordances but skips the sector
-                # treemap -- the chart exists to surface the equity
-                # sleeve's GICS-style sector composition, and bond /
-                # treasury tickers don't carry that signal.
-                self._append_holdings_list(
-                    parts,
-                    scope="current-fixed-income",
-                    cards=self.current_fixed_income,
-                    include_weight=True,
-                )
+        if self.return_html:
+            parts.append('<section id="performance" class="section">')
+            parts.append(self.return_html)
             parts.append("</section>")
 
-        if self.historical or self.historical_fixed_income:
-            parts.append('<section id="historical" class="section section--historical">')
-            parts.append('<h2 class="section__title">Historical holdings</h2>')
-            if self.historical:
-                parts.append('<h3 id="historical-equities" class="section__subtitle">Equities</h3>')
-                self._append_holdings_list(
-                    parts,
-                    scope="historical",
-                    cards=self.historical,
-                    include_weight=False,
+        allocation_html = self._render_allocation()
+        if allocation_html:
+            parts.append('<section id="allocation" class="section">')
+            parts.append('<h2 class="section__title">Allocation</h2>')
+            parts.append(allocation_html)
+            parts.append("</section>")
+
+        holdings_table = self._build_open_holdings_table()
+        if holdings_table:
+            parts.append('<section id="holdings" class="section">')
+            parts.append(
+                self._section_head(
+                    "Holdings",
+                    f"All {self._open_count} shown &middot; click a column to sort",
                 )
-            if self.historical_fixed_income:
-                parts.append(
-                    '<h3 id="historical-fixed-income" class="section__subtitle">Fixed Income</h3>'
+            )
+            parts.append(self._metrics_note())
+            parts.append(holdings_table)
+            parts.append("</section>")
+
+        closed_table = self._build_closed_holdings_table()
+        if closed_table:
+            parts.append('<section id="closed" class="section">')
+            parts.append(
+                self._section_head(
+                    "Closed positions",
+                    "The losses stay on the page &middot; click a column to sort",
                 )
-                self._append_holdings_list(
-                    parts,
-                    scope="historical-fixed-income",
-                    cards=self.historical_fixed_income,
-                    include_weight=False,
-                )
+            )
+            parts.append(closed_table)
             parts.append("</section>")
 
         if self.trades:
-            parts.append('<section id="trades" class="section section--trades">')
-            parts.append('<h2 class="section__title">Trades</h2>')
-            # Subtitle pins the one methodology detail the reader
-            # would otherwise have to infer from the data: what
-            # "combined" rows represent. The section now spans the
-            # full ownership history (the year-back horizon is gone)
-            # so the subtitle no longer mentions a retention window;
-            # the sortable date column lets the reader find recent
-            # activity on their own terms. The "rolling quarter"
-            # wording matches the long-term-investor framing of the
-            # page (a fund-letter cadence rather than a high-frequency
-            # trade log) and is the natural human reading of the
-            # 90-day numerical ``TRADE_WINDOW_DAYS`` constant.
+            parts.append('<section id="activity" class="section">')
+            parts.append(
+                self._section_head(
+                    "Activity",
+                    f"{len(self.trades)} entries since inception",
+                )
+            )
+            # Pins the one methodology detail the reader would
+            # otherwise have to infer from the data: what "combined"
+            # rows represent. The "rolling quarter" wording matches
+            # the long-term-investor framing of the page (a
+            # fund-letter cadence rather than a high-frequency trade
+            # log) and is the natural human reading of the 90-day
+            # numerical ``TRADE_WINDOW_DAYS`` constant. The second
+            # sentence is the privacy contract, stated where a reader
+            # would otherwise wonder why no sizes appear.
             parts.append(
                 '<p class="section__intro">'
                 "Every executed trade since inception. Fills within a "
                 "rolling quarter are combined into a single entry at "
-                "their volume-weighted average per-share price."
+                "their volume-weighted average per-share price. Sizes are "
+                "never published &mdash; only relative changes and "
+                "per-share prices."
                 "</p>"
             )
             parts.append(self._build_trades_table(self.trades))
@@ -444,9 +332,6 @@ class Webpage:
 
     # ----------------------------------------------------------- internals
 
-    # Page title + nav links rendered above ``<main>``. Nav is built
-    # dynamically so we never produce dead anchors when a section is
-    # absent (e.g. an account with no historical positions yet).
     SITE_TITLE = "Jan Grzybek Investment Portfolio"
     # Used in <title>, OG/Twitter title, and JSON-LD. Keep it short so
     # search engines render it without truncation in SERPs (~60 chars).
@@ -469,23 +354,29 @@ class Webpage:
     SOCIAL_IMAGE = _SOCIAL_IMAGE
     # Each entry maps an anchor to a label and a list of attribute
     # names: the link is emitted iff at least one of the named
-    # attributes is truthy. The Current / Historical entries each
-    # collapse the equity-bucket and fixed-income-bucket lists into
-    # a single "either is non-empty" gate so the nav link survives
-    # an asset-class-asymmetric portfolio (e.g. fixed-income only)
-    # without resurrecting a section that has no content.
+    # attributes is truthy. "Method" is unconditional -- the
+    # disclaimer renders on every page, whatever the portfolio holds.
     _NAV_ITEMS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
         ("performance", "Performance", ("return_html",)),
-        ("current", "Current", ("current", "current_fixed_income")),
-        ("historical", "Historical", ("historical", "historical_fixed_income")),
-        ("trades", "Trades", ("trades",)),
+        ("holdings", "Holdings", ("current", "current_fixed_income")),
+        ("activity", "Activity", ("trades",)),
+        ("method", "Method", ()),
     )
 
     def _build_site_header(self) -> str:
+        """Brand lockup plus the section nav.
+
+        The name is set at the same size as the section label beside
+        it rather than at 30px / 800: on the old header the reader's
+        name outranked every piece of evidence on the page, which is
+        the same inversion the OG card had. Identify, then get out of
+        the way.
+        """
         links = []
         for anchor, label, attrs in self._NAV_ITEMS:
-            if any(getattr(self, attr) for attr in attrs):
-                links.append(f'<a href="#{anchor}">{html.escape(label)}</a>')
+            if attrs and not any(getattr(self, attr) for attr in attrs):
+                continue
+            links.append(f'<a href="#{anchor}">{html.escape(label)}</a>')
         nav_html = (
             f'<nav class="site-nav" aria-label="Page sections">{"".join(links)}</nav>'
             if len(links) > 1
@@ -493,55 +384,41 @@ class Webpage:
         )
         return (
             '<header class="site-header">'
-            f'<h1 class="site-title">{html.escape(self.SITE_TITLE)}</h1>'
+            '<p class="site-brand">'
+            f'<img class="site-brand__mark" src="{html.escape(COURAGE_LOGO)}" alt="" '
+            'width="26" height="26" decoding="async">'
+            '<span class="site-brand__name">Jan Grzybek</span>'
+            '<span class="site-brand__sep" aria-hidden="true">/</span>'
+            '<span class="site-brand__section">Investment Portfolio</span>'
+            "</p>"
             f"{nav_html}"
             "</header>"
         )
 
-    def _build_ticker(self) -> str:
-        """Render a slow horizontal marquee of current-equity-holdings logos.
-
-        Each logo carries the ticker + name in its ``title`` attribute
-        for sighted users who hover and is wrapped in an in-page
-        anchor that scrolls down to the matching holding capsule when
-        clicked. The track contains two copies of the logo set so the
-        keyframe can translate by exactly -50% and the loop is
-        seamless. The strip itself is decorative (``aria-hidden=
-        "true"``) and each link carries ``tabindex="-1"`` so the
-        invisible marquee never traps keyboard focus -- but a
-        sighted user pointer-clicking a logo still gets navigated to
-        the capsule. The actual holding details live in the cards
-        below."""
-        if not self._current_logos:
-            return ""
-        items = "".join(
-            # Ticker is above the fold so we don't lazy-load, but we
-            # still set ``decoding="async"`` so the marquee paints as
-            # soon as the first logo is ready. Both ``width`` and
-            # ``height`` are pinned at the desktop cell dimensions
-            # (56x28 -- the landscape 2:1 cell that normalizes wide
-            # and square wordmarks to similar visual prominence; see
-            # the ``.ticker__logo`` CSS for the rationale) so the
-            # browser reserves the exact box up-front and the
-            # marquee paints with zero layout shift even before
-            # individual SVGs decode. CSS ``object-fit: contain``
-            # fits each logo inside that box without distortion;
-            # smaller viewports override the dimensions further down
-            # in ``_PAGE_STYLES`` so the cell scales gracefully on
-            # mobile.
-            f'<a class="ticker__link" '
-            f'href="#{html.escape(self._holding_anchor(ticker))}" '
-            f'tabindex="-1" aria-hidden="true">'
-            f'<img class="ticker__logo" src="{html.escape(url)}" alt="" '
-            f'title="{html.escape(f"{listings} - {name}")}" '
-            f'decoding="async" width="56" height="28">'
-            f"</a>"
-            for ticker, listings, name, url in self._current_logos
-        )
+    @staticmethod
+    def _section_head(title: str, note: str) -> str:
+        """A section title with its right-aligned note on one line."""
         return (
-            '<div class="ticker" aria-hidden="true">'
-            f'<div class="ticker__track">{items}{items}</div>'
+            '<div class="section__head">'
+            f'<h2 class="section__title">{html.escape(title)}</h2>'
+            f'<p class="section__note">{note}</p>'
             "</div>"
+        )
+
+    def _build_hero(self, update_date: str, update_iso: str) -> str:
+        assert self._total_return is not None
+        benchmarks = self._benchmarks or []
+        return _hero.render(
+            total_return=self._total_return,
+            benchmarks=benchmarks,
+            yearly_returns=self._yearly_returns,
+            benchmark_label=(
+                self._benchmark_label(benchmarks[0]) if benchmarks else "the benchmark"
+            ),
+            position_counts=(self._open_count, self._closed_count),
+            now=self._now(),
+            update_date=update_date,
+            update_iso=update_iso,
         )
 
     @classmethod
@@ -563,28 +440,21 @@ class Webpage:
         )
 
     @classmethod
-    def _head(cls, treemap_payload_json: str = "") -> str:
+    def _head(cls) -> str:
         """Delegate to :func:`investing.webpage.head.build_head`."""
-        return build_head(cls._site_meta(), treemap_payload_json=treemap_payload_json)
+        return build_head(cls._site_meta())
 
     @classmethod
     def _jsonld(cls) -> str:
         """Delegate to :func:`investing.webpage.head.build_jsonld`."""
         return build_jsonld(cls._site_meta())
 
-    # The original in-class ``_head`` / ``_jsonld`` implementations
-    # (~130 lines of head meta + CSP assembly + JSON-LD payload)
-    # moved to :mod:`investing.webpage.head`. The classmethods
-    # above are thin delegators so the historical
-    # ``Webpage._head()`` / ``Webpage._jsonld()`` call surface used
-    # by the test suite still works.
-
     # ----------------------------------------------------- OG image
 
-    # The OG image renderer (~300 lines of Pillow plumbing: font
-    # candidate search, SVG rasterisation, halo composition,
-    # top-10 logo strip) lives in :mod:`investing.webpage.og_image`.
-    # The methods below are thin delegators so the historical
+    # The OG image renderer (font candidate search, SVG
+    # rasterisation, the two-column composition, top-10 logo strip)
+    # lives in :mod:`investing.webpage.og_image`. The methods below
+    # are thin delegators so the historical
     # ``Webpage._render_og_image`` / ``Webpage._load_font`` /
     # ``Webpage._load_logo_for_og`` / ``Webpage._top_holdings_for_og`` /
     # ``Webpage._draw_top_holdings_strip`` call surface still works
@@ -660,61 +530,48 @@ class Webpage:
 
     @staticmethod
     def _footer(update_date: str, update_iso: str) -> str:
-        # Two ``<h2>`` headings break the footer into a "Methodology"
-        # block (the bullets covering base currency, tax/cost
-        # assumptions, and the data source) and a "Disclaimer" block
-        # (informational-purposes-only notice plus the
-        # logos/analytics legal note). The headings are intentionally
-        # *not* added to the in-page nav: the nav lists portfolio
-        # sections, and the footer remains a tail-of-page reference
-        # that doesn't need a nav target. Heading level matches
-        # ``.section__title`` (h2) inside ``<main>`` so the document
-        # outline stays linear -- ``<footer>`` is its own landmark
-        # at the same depth as a top-level section.
+        """The Method & disclaimer block.
+
+        Two columns rather than a bullet list, because the two things
+        a reader needs from it are a *pair*: what the portfolio-level
+        number means, and what the per-holding numbers mean. Setting
+        them side by side is the point -- the distinction between
+        time-weighted and money-weighted is the single most
+        misreadable thing on the page, and burying it as bullet three
+        of four made it look like boilerplate.
+
+        The heading is not in the in-page nav's section list by
+        accident: "Method" is the fourth nav link, because a reader
+        who wants to know how a number was computed should not have
+        to scroll to find out.
+        """
         return (
-            "<footer>\n"
-            '<h2 class="footer__title">Methodology</h2>\n'
-            '<ul class="footer__notes">\n'
-            "<li>All performance metrics on this page were calculated using "
-            "<strong>USD</strong> as the <strong>base currency</strong>."
-            "</li>\n"
-            "<li>Per-holding <strong>Return</strong> and "
-            "<strong>IRR</strong> are money-weighted figures: they "
-            "reflect the actual journey of capital in the position, so "
-            "the size and timing of every purchase and sale shape the "
-            "result \u2014 the more dollars committed when the position "
-            "moved, the more weight that move carries. "
-            "<strong>Return</strong> is the cumulative profit per dollar "
-            "invested over the holding period; <strong>IRR</strong> is "
-            "its annualised equivalent. Dividends are treated as cash "
-            "(not reinvested) and reduced by an assumed 15% withholding "
-            "tax; the impact of capital gains taxes is not "
-            "modelled.</li>\n"
-            "<li>The portfolio-level <strong>time-weighted return "
-            "(TWR)</strong> chains sub-period returns across portfolio "
-            "valuation snapshots, neutralising the effect of contributions "
-            "and withdrawals so it reads apples-to-apples against the "
-            "comparison benchmark. It was calculated excluding the impact "
-            "of capital gains taxes, but including the effects of "
-            "withholding taxes and transaction costs.</li>\n"
-            "<li>The latest <strong>stock prices and dividend data</strong> "
-            "used in the calculations were obtained from "
+            '<footer id="method" class="method">\n'
+            '<h2 class="method__title">Method &amp; disclaimer</h2>\n'
+            '<div class="method__grid">\n'
+            '<p class="method__note"><strong>Portfolio TWR</strong> chains '
+            "sub-period returns across valuation snapshots, so contributions "
+            "and withdrawals don't flatter or penalise the number. That is "
+            "what makes it comparable to the benchmark. Calculated in "
+            "<strong>USD</strong>, excluding capital-gains tax and including "
+            "withholding tax and transaction costs.</p>\n"
+            '<p class="method__note"><strong>Per-holding Return and IRR</strong> '
+            "are money-weighted: the size and timing of every fill shape the "
+            "result, so they do not sum to the time-weighted figure above. "
+            "Return is the cumulative profit per dollar invested; IRR is its "
+            "annualised equivalent. Dividends are treated as cash, reduced by "
+            "an assumed 15% withholding tax. Prices and dividends from "
             '<a href="https://finance.yahoo.com/markets/stocks/trending/" '
-            'title="Yahoo Finance" rel="noopener noreferrer">'
-            "Yahoo Finance</a>.</li>\n"
-            "</ul>\n"
-            '<h2 class="footer__title">Disclaimer</h2>\n'
-            '<p class="footer__disclaimer">For <strong>informational '
-            "purposes only</strong>. Nothing contained herein should be "
-            "construed as a recommendation to buy, sell or hold any "
-            "security or pursue any investment strategy.</p>\n"
-            '<p class="footer__legal">Logos are trademarks of their respective '
-            "owners and are used for identification purposes only. This webpage "
-            "uses Cloudflare Web Analytics to measure anonymous traffic "
-            "statistics. <strong>No cookies or tracking identifiers are "
-            "used.</strong></p>\n"
-            f'<p class="footer__updated">Updated on '
-            f'<time datetime="{update_iso}">{update_date}</time></p>\n'
+            'title="Yahoo Finance" rel="noopener noreferrer">Yahoo Finance</a>.'
+            "</p>\n"
+            "</div>\n"
+            '<p class="method__legal">For <strong>informational purposes '
+            "only</strong> &mdash; nothing here is a recommendation to buy, "
+            "sell or hold any security. Logos are trademarks of their "
+            "respective owners, used for identification only. Cloudflare Web "
+            "Analytics measures anonymous traffic; <strong>no cookies or "
+            "tracking identifiers are used.</strong> Updated on "
+            f'<time datetime="{update_iso}">{update_date}</time>.</p>\n'
             "</footer>"
         )
 
@@ -739,244 +596,174 @@ class Webpage:
         yearly_returns: list[YearlyReturn] | None = None,
     ) -> str:
         lines: list[str] = []
-        # Short orientation paragraph so a first-time reader knows
-        # what the chart + comparison capsules below it represent
-        # before they get to the numbers. Phrased so the wording
-        # still reads naturally when the chart is omitted (single-
-        # point histories fall back to the comparison block alone)
-        # and when no benchmark is configured (capsules render the
-        # portfolio column on its own). Acronym expansions live in
-        # the prose itself rather than in a separate legend so the
-        # explanation degrades to plain text when CSS is stripped.
-        lines.append(self._build_return_intro(benchmarks))
-        # Chart leads the section as the headline visual; its caption
-        # carries the start date so the comparison block below can stay
-        # focused on the head-to-head numbers without restating the
-        # period. When there's no chart (single-point history) we move
-        # the "Since {start}" header into the comparison block instead.
+        lines.append(
+            self._section_head(
+                "Cumulative return",
+                self._chart_legend(benchmarks),
+            )
+        )
+        lines.append(
+            '<p class="section__intro">'
+            "Hover the chart to read the return and alpha on any date. "
+            "The shaded band is the running gap between the two."
+            "</p>"
+            if benchmarks
+            else '<p class="section__intro">Hover the chart to read the return on any date.</p>'
+        )
         chart = self._render_return_chart(total_return, benchmarks)
         if chart:
             lines.append(chart)
-        lines.append(
-            self._build_returns_comparison(
-                total_return,
-                benchmarks,
-                include_period=not chart,
-            )
+        yearly_html = _yearly_view.render(
+            yearly_returns or [],
+            benchmarks,
+            benchmark_label=(self._benchmark_label(benchmarks[0]) if benchmarks else "Benchmark"),
         )
-        yearly_html = self._build_yearly_returns(yearly_returns or [], benchmarks)
         if yearly_html:
             lines.append(yearly_html)
         return "\n".join(lines)
 
-    def _build_return_intro(self, benchmarks) -> str:
-        """Render the section__intro paragraph above the chart.
-
-        Adapts to whether a benchmark is configured: the comparison
-        block only renders a benchmark column when one is present, so
-        the intro phrasing follows suit (no dangling "vs the S&P 500"
-        reference when there's nothing to compare against). The
-        per-acronym legend that used to follow is intentionally
-        omitted -- the capsule labels (TWR / TSR / CAGR) are next to
-        their values and the footer "Methodology" block carries the
-        deeper definitions, so a one-liner is enough to orient a
-        first-time reader without restating what the layout already
-        shows."""
-        if benchmarks:
-            bench = html.escape(self._benchmark_label(benchmarks[0]))
-            body = f"Cumulative return of the portfolio tracked against the {bench}."
-        else:
-            body = "Cumulative return of the portfolio."
-        return f'<p class="section__intro">{body}</p>'
-
-    def _build_returns_comparison(
-        self,
-        total_return,
-        benchmarks,
-        *,
-        include_period: bool,
-    ) -> str:
-        """Render JG vs benchmark side-by-side with shared metrics.
-
-        When ``include_period`` is true a "Since {start}" header is
-        prepended to the block; otherwise the chart caption already
-        carries that information so we omit it here to avoid repeating
-        the period (and its length) twice.
-
-        A delta line at the bottom summarises the outperformance (or
-        underperformance) in percentage points so the comparison reads
-        head-to-head over the same measurement window."""
-        period_html = ""
-        if include_period:
-            start_date = total_return["start_date"]
-            duration = _format_duration(relativedelta(self._now(), start_date))
-            # Long-form date here -- the caption reads as prose
-            # ("Since Jan 1, 2024 . 2 years, 1 month"), not as a
-            # tabular slot, so the slash-separated DD/MM/YYYY
-            # format used everywhere else on the page would break
-            # the sentence rhythm.
-            period_html = (
-                '<p class="returns-compare__period">'
-                f'Since <time datetime="{start_date.strftime("%Y-%m-%d")}">'
-                f"{_fmt_date_long(start_date)}</time> &middot; "
-                f"{html.escape(duration)}"
-                "</p>"
-            )
-
-        cols: list[str] = [
-            self._render_compare_col(
-                name="JG",
-                subtitle="Jan Grzybek",
-                logo_url=COURAGE_LOGO,
-                rows=[
-                    ("TWR", total_return["twr%"]),
-                    ("CAGR", total_return["cagr%"]),
-                ],
-            )
+    def _chart_legend(self, benchmarks) -> str:
+        """The chart's key, rendered in the section head's note slot."""
+        chips = [
+            '<span class="legend__item">'
+            '<span class="legend__swatch legend__swatch--jg"></span>Portfolio</span>'
         ]
-        for benchmark in benchmarks or []:
-            cols.append(
-                self._render_compare_col(
-                    name=self._benchmark_label(benchmark),
-                    subtitle=benchmark.get("ticker") or "",
-                    logo_url=self._get_logo_url(benchmark["ticker"]),
-                    rows=[
-                        ("TSR", benchmark["tsr%"]),
-                        ("CAGR", benchmark["cagr%"]),
-                    ],
-                )
-            )
-
-        delta_html = ""
         if benchmarks:
-            b = benchmarks[0]
-            twr_delta = total_return["twr%"] - b["tsr%"]
-            cagr_delta = total_return["cagr%"] - b["cagr%"]
-            # Each piece is its own span with ``white-space: nowrap``
-            # so a narrow viewport never breaks "+6.7 pp Total Return"
-            # or "+1.3 pp CAGR" mid-phrase. The container is a flex
-            # row that wraps under pressure; at <=540px each piece
-            # gets ``flex: 1 0 100%`` and stacks vertically.
-            # The TWR vs benchmark TSR delta is labelled "Total
-            # Return" here -- the capsule columns above already give
-            # the precise per-side metric ("TWR" for JG, "TSR" for
-            # the benchmark), so this summary line just states what's
-            # being compared. Title-cased to sit visually parallel
-            # with the ``CAGR`` token next to it, both reading as
-            # data labels rather than prose.
-            delta_html = (
-                '<p class="returns-compare__delta">'
-                '<span class="returns-compare__delta-prefix">JG vs '
-                f"{html.escape(self._benchmark_label(b))}:</span>"
-                f'<span class="returns-compare__delta-metric '
-                f'{_value_class(twr_delta)}">'
-                f"{_fmt_pct(twr_delta, signed=True)} pp Total Return</span>"
-                '<span class="returns-compare__delta-sep" '
-                'aria-hidden="true">&middot;</span>'
-                f'<span class="returns-compare__delta-metric '
-                f'{_value_class(cagr_delta)}">'
-                f"{_fmt_pct(cagr_delta, signed=True)} pp CAGR</span>"
-                "</p>"
+            label = html.escape(self._benchmark_label(benchmarks[0]))
+            chips.append(
+                '<span class="legend__item">'
+                f'<span class="legend__swatch legend__swatch--bench"></span>{label}</span>'
             )
+            chips.append(
+                '<span class="legend__item">'
+                '<span class="legend__swatch legend__swatch--band"></span>Alpha</span>'
+            )
+        return f'<span class="legend">{"".join(chips)}</span>'
 
+    @staticmethod
+    def _metrics_note() -> str:
+        """The money-weighted caveat, explained where it is used.
+
+        The difference between the time-weighted figure in the hero
+        and the money-weighted figures in this table is real,
+        important, and was previously explained only in a footnote
+        four screens down. It now sits directly above the columns it
+        applies to, with the full explanation one click away rather
+        than one scroll.
+        """
         return (
-            '<section class="returns-compare">'
-            f"{period_html}"
-            f'<div class="returns-compare__grid">{"".join(cols)}</div>'
-            f"{delta_html}"
-            "</section>"
+            '<p class="section__intro">'
+            "<strong>Return</strong> and <strong>IRR</strong> here are "
+            "money-weighted &mdash; they follow the actual dollars, so they "
+            "don't add up to the time-weighted number above. "
+            '<button type="button" class="metrics-note__toggle" '
+            'aria-expanded="false" aria-controls="metrics-note" '
+            'data-label-open="Why?" data-label-close="Hide">Why?</button>'
+            "</p>"
+            '<div class="metrics-note" id="metrics-note" hidden>'
+            '<div class="metrics-note__grid">'
+            "<div>"
+            '<h3 class="metrics-note__title">'
+            '<span class="metrics-note__swatch metrics-note__swatch--jg"></span>'
+            "Time-weighted &mdash; the number up top</h3>"
+            "<p>Chains the return of each sub-period between valuation "
+            "snapshots, then multiplies them together. Adding or withdrawing "
+            "cash changes the size of the portfolio but not the chain, so the "
+            "result measures <strong>the decisions</strong>, not the funding. "
+            "That is why it is the only figure fair to set against an index.</p>"
+            "</div>"
+            "<div>"
+            '<h3 class="metrics-note__title">'
+            '<span class="metrics-note__swatch metrics-note__swatch--bench"></span>'
+            "Money-weighted &mdash; the numbers per holding</h3>"
+            "<p>Solves for the rate that makes every actual cash flow "
+            "balance, so buying more before a run-up counts for more than "
+            "buying after it. It measures <strong>the dollars</strong>. Two "
+            "holdings with the same price chart can post different IRRs "
+            "purely on timing.</p>"
+            "</div>"
+            "</div>"
+            '<p class="metrics-note__foot">Both exclude capital-gains tax and '
+            "both net out an assumed 15% dividend withholding. Neither is "
+            "&ldquo;the real one&rdquo; &mdash; they answer different "
+            "questions, which is why the page shows both.</p>"
+            "</div>"
         )
 
-    def _build_yearly_returns(
-        self,
-        yearly_returns: list[YearlyReturn],
-        benchmarks: list[BenchmarkSummary],
-    ) -> str:
-        """Render a newest-first table of calendar-year total returns.
+    def _group_label(self, name: str, rows: list[str]) -> str:
+        """Band text for a holdings group, with its share of the book.
 
-        JG and the primary benchmark share each row in distinct
-        columns; the current calendar year is labelled ``(YTD)``.
-        When no benchmark is configured the table omits the benchmark
-        and delta columns."""
-        if not yearly_returns:
-            return ""
+        The share comes from the allocation rollup rather than from
+        summing the rows: the rollup is the denominator the allocation
+        bar uses, and two numbers on one page that disagree about what
+        100% means is exactly the defect this redesign set out to fix.
+        """
+        share = (self.allocation_pct or {}).get(name)
+        if share is None:
+            return f"{name} · {len(rows)} position{'s' if len(rows) != 1 else ''}"
+        return f"{name} · {share:.1f}% of portfolio"
 
-        has_benchmark = bool(benchmarks) and any("bench%" in row for row in yearly_returns)
-        bench_label = html.escape(self._benchmark_label(benchmarks[0])) if has_benchmark else ""
-
-        header_cells = ['<th scope="col">Year</th>', '<th scope="col">JG</th>']
-        if has_benchmark:
-            header_cells.extend(
-                [
-                    f'<th scope="col">{bench_label}</th>',
-                    '<th scope="col" class="returns-yearly__col-delta">Δ</th>',
-                ],
-            )
-
-        colgroup = [
-            '<col class="returns-yearly__col-year">',
-            '<col class="returns-yearly__col-metric">',
+    def _build_open_holdings_table(self) -> str:
+        groups = [
+            _holdings_view.build_group(
+                label=self._group_label("Equities", self.current),
+                rows=self.current,
+                columns=len(_holdings_view.OPEN_COLUMNS) + 1,
+            ),
+            _holdings_view.build_group(
+                label=self._fixed_income_label(),
+                rows=self.current_fixed_income,
+                columns=len(_holdings_view.OPEN_COLUMNS) + 1,
+            ),
         ]
-        if has_benchmark:
-            colgroup.extend(
-                [
-                    '<col class="returns-yearly__col-metric">',
-                    '<col class="returns-yearly__col-delta">',
-                ],
-            )
+        return _holdings_view.build_table(
+            scope="open",
+            groups=groups,
+            columns=_holdings_view.OPEN_COLUMNS,
+            caption="Current holdings",
+            weight_scale=self._max_weight,
+        )
 
-        body_rows: list[str] = []
-        for row in yearly_returns:
-            year = row["year"]
-            if row.get("is_ytd"):
-                year_cell = f'{year} <span class="returns-yearly__ytd">(YTD)</span>'
-            else:
-                year_cell = html.escape(str(year))
-            cells = [
-                f'<th scope="row">{year_cell}</th>',
-                f'<td class="{_value_class(row["jg%"])}">{_fmt_pct(row["jg%"])}%</td>',
-            ]
-            if has_benchmark:
-                bench_pct = row.get("bench%")
-                if bench_pct is None:
-                    cells.append('<td class="returns-yearly__empty">&mdash;</td>')
-                    cells.append(
-                        '<td class="returns-yearly__empty returns-yearly__col-delta">&mdash;</td>',
-                    )
-                else:
-                    delta = row["jg%"] - bench_pct
-                    cells.extend(
-                        [
-                            f'<td class="{_value_class(bench_pct)}">{_fmt_pct(bench_pct)}%</td>',
-                            f'<td class="returns-yearly__col-delta {_value_class(delta)}">'
-                            f"{_fmt_pct(delta, signed=True)} pp</td>",
-                        ],
-                    )
-            body_rows.append(
-                f'<tr class="returns-yearly__row">{"".join(cells)}</tr>',
-            )
+    def _fixed_income_label(self) -> str:
+        """Band text for fixed income, carrying the cash line with it.
 
-        toggle_html = ""
-        total = len(body_rows)
-        if total > _YEARLY_VISIBLE_DEFAULT:
-            toggle_html = (
-                '<button type="button" class="returns-yearly__toggle" '
-                f'data-total="{total}" aria-expanded="false">'
-                f"Show all {total} years</button>"
-            )
+        Cash has no rows of its own -- it is a residual, not a
+        position -- so it would otherwise be the one slice of the
+        allocation bar with nowhere in the table to land. Naming it
+        beside fixed income keeps the two denominators reconcilable
+        by eye.
+        """
+        label = self._group_label("Fixed Income", self.current_fixed_income)
+        cash = (self.allocation_pct or {}).get(_allocation.CASH_LABEL)
+        if cash is None:
+            return label
+        return f"{label} · Cash {cash:.1f}%"
 
-        return (
-            '<section class="returns-yearly">'
-            '<h3 class="returns-yearly__heading">Returns by year</h3>'
-            '<div class="returns-yearly__wrap">'
-            '<table class="returns-yearly__table">'
-            f"<colgroup>{''.join(colgroup)}</colgroup>"
-            f"<thead><tr>{''.join(header_cells)}</tr></thead>"
-            f"<tbody>{''.join(body_rows)}</tbody>"
-            "</table>"
-            "</div>"
-            f"{toggle_html}"
-            "</section>"
+    def _build_closed_holdings_table(self) -> str:
+        columns = len(_holdings_view.CLOSED_COLUMNS) + 1
+        groups = [
+            _holdings_view.build_group(
+                label=f"Equities · {len(self.historical)} closed",
+                rows=self.historical,
+                columns=columns,
+            ),
+            _holdings_view.build_group(
+                label=f"Fixed income · {len(self.historical_fixed_income)} closed",
+                rows=self.historical_fixed_income,
+                columns=columns,
+            ),
+        ]
+        return _holdings_view.build_table(
+            scope="closed",
+            groups=groups,
+            columns=_holdings_view.CLOSED_COLUMNS,
+            caption="Closed positions",
+        )
+
+    def _render_allocation(self) -> str:
+        return _allocation.render(
+            self.allocation_pct,
+            _allocation.sector_totals(self._current_equity_sectors),
         )
 
     @staticmethod
@@ -985,37 +772,6 @@ class Webpage:
         ticker = benchmark.get("ticker", "")
         return (
             _BENCHMARK_DISPLAY_NAMES.get(ticker) or benchmark.get("name") or ticker or "Benchmark"
-        )
-
-    @staticmethod
-    def _render_compare_col(*, name, subtitle, logo_url, rows) -> str:
-        stat_html = []
-        for label, value in rows:
-            # ``value`` is the unrounded percentage straight off
-            # ``total_return`` / benchmark dicts; ``_fmt_pct`` decides
-            # at format time whether to render one decimal (<100%)
-            # or whole-number (>=100%, where the decimal is just
-            # noise next to a 3-digit integer part).
-            stat_html.append(
-                f"<dt>{html.escape(label)}</dt>"
-                f'<dd class="{_value_class(value)}">{_fmt_pct(value)}%</dd>'
-            )
-        sub_html = ""
-        if subtitle:
-            sub_html = f'<small class="returns-compare__name-sub">{html.escape(subtitle)}</small>'
-        # ``h3`` keeps the heading tree contiguous: the parent section
-        # is at h2, so jumping to h4 here would skip a level (a WCAG
-        # and SEO smell).
-        return (
-            '<article class="returns-compare__col">'
-            '<h3 class="returns-compare__name">'
-            f'<img class="returns-compare__logo" src="{html.escape(logo_url)}" '
-            'alt="" decoding="async" width="48" height="48">'
-            f'<span class="returns-compare__name-text">'
-            f"{html.escape(name)}{sub_html}</span>"
-            "</h3>"
-            f'<dl class="returns-compare__stats">{"".join(stat_html)}</dl>'
-            "</article>"
         )
 
     # The trades-table renderer (row builder, headers, sort indices,
@@ -1037,109 +793,27 @@ class Webpage:
     def _trade_detail_text(event) -> str:
         return _trades_view._detail_text(event)
 
-    # Sort options surfaced above each holdings list. ``key`` is the
-    # ``data-holdings-sort-key`` consumed by ``_HOLDINGS_SORT_SCRIPT``
-    # and matched against the ``data-sort-<key>`` attribute on each
-    # ``<article class="holding">``; ``label`` is the displayed text;
-    # ``kind`` controls the default direction the JS picks the first
-    # time the user activates a column ("text" -> ascending, "number"
-    # -> descending) so "Ticker" / "Name" jump straight to A->Z while
-    # "TSR" / "CAGR" / "Weight" jump straight to high->low (the same
-    # pattern ``_TRADES_SORT_SCRIPT`` already implements for the
-    # trades table). The "default" key is special-cased: re-pressing
-    # it restores the original DOM order without consuming a sort
-    # direction at all -- that's the most-recent-trade-first
-    # ordering that ``get_holdings`` produces upstream. The Weight
-    # column is current-only (historical rows have no
-    # ``current_weight%``); the historical button group filters
-    # ``"weight"`` out before rendering.
-    # Holdings-card + per-section "Sort by" toolbar live in
+    # Holdings rows + table assembly live in
     # :mod:`investing.webpage.holdings_view`. The class-level
-    # attributes below preserve the historical
-    # ``Webpage._build_holding_card`` / ``Webpage._build_card`` /
-    # ``Webpage._build_holdings_sort_control`` /
-    # ``Webpage._HOLDINGS_SORT_OPTIONS`` call surface.
-    _HOLDINGS_SORT_OPTIONS = _holdings_view.SORT_OPTIONS
-    _HOLDINGS_VISIBLE_DEFAULT = _holdings_view.VISIBLE_DEFAULT
-    _build_card = staticmethod(_holdings_view.build_card)
-    _build_holdings_sort_control = staticmethod(_holdings_view.build_sort_control)
-    _build_holdings_toggle = staticmethod(_holdings_view.build_toggle)
-
-    def _append_holdings_list(
-        self,
-        parts: list[str],
-        *,
-        scope: str,
-        cards: list[str],
-        include_weight: bool,
-    ) -> None:
-        """Append the sort toolbar, list wrapper, and optional collapse toggle."""
-        if len(cards) > 1:
-            parts.append(
-                self._build_holdings_sort_control(
-                    scope=scope,
-                    include_weight=include_weight,
-                )
-            )
-        parts.append(f'<div class="holdings__list" data-holdings-list="{scope}">')
-        parts.append("\n".join(cards))
-        parts.append("</div>")
-        toggle = self._build_holdings_toggle(scope=scope, total=len(cards))
-        if toggle:
-            parts.append(toggle)
+    # attributes below preserve the historical call surface.
+    _OPEN_COLUMNS = _holdings_view.OPEN_COLUMNS
+    _CLOSED_COLUMNS = _holdings_view.CLOSED_COLUMNS
+    _build_holdings_group = staticmethod(_holdings_view.build_group)
+    _build_holdings_table = staticmethod(_holdings_view.build_table)
 
     def _build_holding_card(self, holding) -> str:
-        return _holdings_view.build_holding_card(
-            holding,
-            logo_url_for=self._get_logo_url,
-        )
+        return _holdings_view.build_row(holding, logo_url_for=self._get_logo_url)
 
-    def _render_sector_treemap(self) -> str:
-        """Render the sector-grouped treemap of current equities.
-
-        Delegates to :func:`investing.webpage.sector_treemap.render`
-        with the per-instance logo resolver pre-bound; the rendered
-        block is empty when ``add_holding`` never received a current
-        equity (so the equity sub-section's "By sector" heading is
-        gated on the returned HTML being truthy at the callsite).
-
-        The aspect and coverage resolvers are bound from the same
-        logo cache via ``getattr`` so a plain ``Callable`` injected
-        through ``logo_cache=`` (the test / preview pathway) still
-        works -- the treemap renderer falls back to constant defaults
-        when the resolver doesn't expose ``aspect_ratio`` /
-        ``coverage_ratio``, which collapses the corresponding
-        adjustment to a no-op and matches the pre-equalisation
-        behaviour. ``coverage_ratio`` rasterises the SVG to
-        estimate the visible white silhouette area; binding it
-        through ``getattr`` keeps the contract test-stub friendly
-        (the legacy ``_AspectStubCache`` only implements
-        ``aspect_ratio``).
-        """
-        aspect_for = getattr(self._logo_resolver, "aspect_ratio", None)
-        coverage_for = getattr(self._logo_resolver, "coverage_ratio", None)
-        return _sector_treemap.render(
-            self._current_equity_for_treemap,
-            logo_url_for=self._get_logo_url,
-            logo_aspect_for=aspect_for,
-            logo_coverage_for=coverage_for,
-        )
-
-    # ---- chart / bar primitives (also covered directly by tests) -------
-
-    # Bar-chart renderer lives in :mod:`investing.webpage.bars`.
-    # The classmethod here preserves the historical
-    # ``Webpage._render_bars`` call surface used by the test suite.
-    _render_bars = staticmethod(_bars.render)
+    # ---- chart primitive (also covered directly by tests) --------------
 
     @classmethod
     def _render_return_chart(cls, total_return, benchmarks) -> str:
         """Delegate to :func:`investing.webpage.return_chart.render`.
 
-        The chart's NumPy math (Pchip interpolation, delta-bracket
-        geometry, vectorised SVG projection) lives in the
-        ``return_chart`` module; the classmethod here preserves the
-        historical ``Webpage._render_return_chart`` call surface
+        The chart's NumPy math (Pchip interpolation, axis tick
+        selection, band splitting, vectorised SVG projection) lives in
+        the ``return_chart`` module; the classmethod here preserves
+        the historical ``Webpage._render_return_chart`` call surface
         used by the test suite.
         """
         return _return_chart.render(
@@ -1169,14 +843,9 @@ def generate_webpage(
     portfolio that grows a fixed-income sleeve surfaces it on the
     rendered page without any further changes to the orchestrator;
     ``Webpage.add_holding`` reads the per-summary ``asset_class``
-    tag and routes each capsule into the matching sub-section.
+    tag and routes each row into the matching group band.
     """
     webpage = Webpage(now=now)
-    webpage.add_return(
-        total_return,
-        benchmarks,
-        yearly_returns=yearly_returns,
-    )
     webpage.add_allocations(holdings.get("allocation%"), holdings.get("top_10"))
     for holding in holdings["current"]:
         webpage.add_holding(holding)
@@ -1186,5 +855,12 @@ def generate_webpage(
         webpage.add_holding(holding)
     for holding in holdings.get("historical_fixed_income") or []:
         webpage.add_holding(holding)
+    # After the holdings, so the hero can state how many positions
+    # are open and how many have been closed.
+    webpage.add_return(
+        total_return,
+        benchmarks,
+        yearly_returns=yearly_returns,
+    )
     webpage.add_trades(holdings.get("trades") or [])
     webpage.save(output_dir)

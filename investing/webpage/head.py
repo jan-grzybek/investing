@@ -15,13 +15,11 @@ from dataclasses import dataclass
 from ..assets import (
     _HASH_CLEAR_SCRIPT,
     _HOLDINGS_SORT_SCRIPT,
+    _METRICS_NOTE_SCRIPT,
     _NAV_SCROLL_SCRIPT,
     _PAGE_STYLES,
     _RETURN_CHART_SCRIPT,
-    _TICKER_MARQUEE_SCRIPT,
     _TRADES_SORT_SCRIPT,
-    _TREEMAP_LAYOUT_SCRIPT,
-    _YEARLY_RETURNS_SCRIPT,
 )
 from ..formatting import _sha256_b64
 from ..safehtml import SafeHtml, escape
@@ -96,7 +94,7 @@ def build_jsonld(meta: SiteMeta) -> SafeHtml:
     return SafeHtml(json.dumps(payload, ensure_ascii=False).replace("</", "<\\/"))
 
 
-def build_csp(jsonld: SafeHtml, treemap_payload_json: str = "") -> SafeHtml:
+def build_csp(jsonld: SafeHtml) -> SafeHtml:
     """Construct the page's Content-Security-Policy.
 
     Inline ``<script>`` / ``<style>`` payloads are pinned by their
@@ -122,29 +120,18 @@ def build_csp(jsonld: SafeHtml, treemap_payload_json: str = "") -> SafeHtml:
     forms, auth, or state, so the residual risk is cosmetic framing only.
     """
     style_hash = _sha256_b64(_PAGE_STYLES)
-    jsonld_hash = _sha256_b64(jsonld)
-    hash_clear_hash = _sha256_b64(_HASH_CLEAR_SCRIPT)
-    nav_scroll_hash = _sha256_b64(_NAV_SCROLL_SCRIPT)
-    return_chart_hash = _sha256_b64(_RETURN_CHART_SCRIPT)
-    ticker_marquee_hash = _sha256_b64(_TICKER_MARQUEE_SCRIPT)
-    trades_sort_hash = _sha256_b64(_TRADES_SORT_SCRIPT)
-    yearly_returns_hash = _sha256_b64(_YEARLY_RETURNS_SCRIPT)
-    holdings_sort_hash = _sha256_b64(_HOLDINGS_SORT_SCRIPT)
-    treemap_layout_hash = _sha256_b64(_TREEMAP_LAYOUT_SCRIPT)
-    treemap_payload_hash = _sha256_b64(treemap_payload_json) if treemap_payload_json else None
-    script_hashes = (
-        f"'sha256-{jsonld_hash}' "
-        f"'sha256-{hash_clear_hash}' "
-        f"'sha256-{nav_scroll_hash}' "
-        f"'sha256-{return_chart_hash}' "
-        f"'sha256-{ticker_marquee_hash}' "
-        f"'sha256-{trades_sort_hash}' "
-        f"'sha256-{yearly_returns_hash}' "
-        f"'sha256-{holdings_sort_hash}' "
-        f"'sha256-{treemap_layout_hash}'"
+    script_hashes = " ".join(
+        f"'sha256-{_sha256_b64(payload)}'"
+        for payload in (
+            jsonld,
+            _HASH_CLEAR_SCRIPT,
+            _NAV_SCROLL_SCRIPT,
+            _RETURN_CHART_SCRIPT,
+            _TRADES_SORT_SCRIPT,
+            _METRICS_NOTE_SCRIPT,
+            _HOLDINGS_SORT_SCRIPT,
+        )
     )
-    if treemap_payload_hash is not None:
-        script_hashes += f" 'sha256-{treemap_payload_hash}'"
     return SafeHtml(
         "default-src 'self'; "
         f"script-src 'self' {script_hashes} "
@@ -161,7 +148,7 @@ def build_csp(jsonld: SafeHtml, treemap_payload_json: str = "") -> SafeHtml:
     )
 
 
-def build_head(meta: SiteMeta, treemap_payload_json: str = "") -> SafeHtml:
+def build_head(meta: SiteMeta) -> SafeHtml:
     """Render the page's ``<head>`` block.
 
     Pulls together the SEO / OG / Twitter / canonical / theme-color
@@ -176,7 +163,7 @@ def build_head(meta: SiteMeta, treemap_payload_json: str = "") -> SafeHtml:
     url = escape(meta.url)
     image = escape(meta.social_image)
     jsonld_str = build_jsonld(meta)
-    csp = build_csp(jsonld_str, treemap_payload_json)
+    csp = build_csp(jsonld_str)
     return SafeHtml(
         "<head>\n"
         '<meta charset="UTF-8">\n'
@@ -214,11 +201,9 @@ def build_head(meta: SiteMeta, treemap_payload_json: str = "") -> SafeHtml:
         f"<script>{_HASH_CLEAR_SCRIPT}</script>\n"
         f"<script>{_NAV_SCROLL_SCRIPT}</script>\n"
         f"<script>{_RETURN_CHART_SCRIPT}</script>\n"
-        f"<script>{_TICKER_MARQUEE_SCRIPT}</script>\n"
         f"<script>{_TRADES_SORT_SCRIPT}</script>\n"
-        f"<script>{_YEARLY_RETURNS_SCRIPT}</script>\n"
+        f"<script>{_METRICS_NOTE_SCRIPT}</script>\n"
         f"<script>{_HOLDINGS_SORT_SCRIPT}</script>\n"
-        f"<script>{_TREEMAP_LAYOUT_SCRIPT}</script>\n"
         f"<style>{_PAGE_STYLES}</style>\n"
         "</head>"
     )

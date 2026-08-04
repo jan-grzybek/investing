@@ -1,0 +1,40 @@
+/* Method & disclaimer.
+
+   Two columns rather than a bullet list, because the two things a
+   reader needs from this block are a *pair*: what the
+   portfolio-level number means and what the per-holding numbers
+   mean. Setting them side by side is the point -- the distinction
+   between time-weighted and money-weighted is the single most
+   misreadable thing on the page, and burying it as bullet three of
+   four made it look like boilerplate. */
+.method {
+  margin-top: 40px;
+  padding: 26px 24px 28px;
+  background: var(--card-bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--muted);
+  font-size: 0.84375rem;
+  line-height: 1.6;
+  scroll-margin-top: 72px;
+}
+.method__title {
+  margin: 0 0 12px;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--fg);
+}
+.method__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 32px;
+}
+.method__note { margin: 0; }
+.method strong { color: var(--fg); }
+.method__legal {
+  margin: 16px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid color-mix(in srgb, var(--line) 60%, transparent);
+  font-size: 0.78125rem;
+}

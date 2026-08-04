@@ -1,14 +1,23 @@
 """OG image rendering -- the 1200x630 PNG social cards link
 to whenever the portfolio URL is pasted into a feed.
 
-The composition is tuned for a single-glance share preview: a
-prominent ``Jan Grzybek`` byline, the headline out/underperformance
-vs the S&P 500 on CAGR (the metric that earns its way once the
-track record is long enough -- the caption flips between
-"Outperformance" and "Underperformance" with the sign so the
-share preview never claims a lead it doesn't have), and a strip
-of the top-10 equity holdings' logos so the preview hints at
-*what* sits in the portfolio without needing a click.
+For most readers this image *is* the portfolio: pasted into Slack
+or LinkedIn it is the only surface they will ever see. So it makes
+exactly the same claim the page makes, in the same words. The
+hero is the time-weighted return delta against the benchmark --
+the page's headline number -- captioned "ahead of the S&P 500"
+so the ``pp`` unit never has to carry the meaning on its own in a
+feed. Beside it, both totals sit head to head, because a reader
+scrolling past has no scale for a bare delta but does have one
+for "48.4% against 41.7%".
+
+The rest of the frame is spent on evidence rather than on the
+byline: ``Jan Grzybek`` is an eyebrow with the accent rule inline,
+the top-10 equity logos get a full-width strip of their own, and
+the foot line carries the period, its length and the holdings
+count. Nothing in the composition is drawn below 22px, which is
+roughly 10px once a feed scales the card to the ~552px width it
+actually renders at.
 
 Extracted from :mod:`investing.webpage._page` so the renderer
 class can focus on per-section HTML and the OG-specific Pillow
@@ -33,12 +42,13 @@ import json
 import math
 import os
 from collections.abc import Iterable
+from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 
 from dateutil.relativedelta import relativedelta
 
-from ..formatting import _fmt_date, _fmt_pct, _format_duration
+from ..formatting import _fmt_date_long, _fmt_pct, _format_duration
 from ..log import logger
 from ..logos import _DEFAULT_LOGO_ASPECT, _parse_svg_aspect_ratio
 from ..paths import _REPO_LOGOS_DIR, LOGO_EXTENSIONS, SITE_DISPLAY
@@ -226,13 +236,28 @@ _OG_REFERENCE_ASPECT = 3.0
 #   * ``_OG_POS`` / ``_OG_NEG`` = ``--positive`` / ``--negative`` (Sea
 #     Green / Rose Red). The same pair the BOUGHT / SOLD pills and
 #     every up / down TSR readout on the page resolve to.
+#   * ``_OG_BENCH`` = ``--accent-bench`` (Deep Space Blue). The
+#     benchmark's swatch, matching the benchmark curve on the chart.
+#   * ``_OG_RULE`` = ``--line``. The divider between the claim and
+#     the two totals beside it.
 _OG_BG: tuple[int, int, int] = (248, 250, 252)
 _OG_CARD: tuple[int, int, int] = (255, 255, 255)
 _OG_FG: tuple[int, int, int] = (15, 36, 48)
 _OG_MUTED: tuple[int, int, int] = (107, 130, 145)
 _OG_ACCENT: tuple[int, int, int] = (251, 133, 0)
+_OG_BENCH: tuple[int, int, int] = (2, 48, 71)
+_OG_RULE: tuple[int, int, int] = (217, 226, 234)
 _OG_POS: tuple[int, int, int] = (42, 157, 143)
 _OG_NEG: tuple[int, int, int] = (230, 57, 112)
+
+# Logo-strip pill geometry. ``draw_top_holdings_strip`` receives the
+# inner logo box and inflates it by these paddings, so a 38px-tall
+# logo row renders inside a 74px pill -- enough air that a tall
+# near-square mark and a thin wordmark both sit comfortably on the
+# same midline.
+_STRIP_PAD_X = 18
+_STRIP_PAD_Y = 18
+_STRIP_RADIUS = 18
 
 
 def draw_top_holdings_strip(
@@ -285,6 +310,13 @@ def draw_top_holdings_strip(
     soft outer fringe that competed visually with the captions
     above/below it. The strip is a no-op when ``tickers`` is
     empty.
+
+    ``(x, y, w, h)`` describes the *logo* box; the pill is
+    :data:`_STRIP_PAD_X` / :data:`_STRIP_PAD_Y` larger on each
+    axis. The strip now owns a full-width line of the card
+    rather than sharing a row with the hero, so the ten marks
+    divide the whole 1088px content width between them instead
+    of the ~640px column the old composition left them.
     """
     from PIL import ImageDraw
 
@@ -315,10 +347,13 @@ def draw_top_holdings_strip(
     # ``--card-bg`` pill backdrop -- opaque, sharp edges. Sits on the
     # opaque ``--bg`` page surface the way card surfaces lift above
     # ``--bg`` on the webpage itself.
-    pad_x = 24
-    pad_y = 18
-    card_rect = (x - pad_x, y - pad_y, x + w + pad_x, y + h + pad_y)
-    ImageDraw.Draw(canvas).rounded_rectangle(card_rect, radius=24, fill=_OG_CARD)
+    card_rect = (
+        x - _STRIP_PAD_X,
+        y - _STRIP_PAD_Y,
+        x + w + _STRIP_PAD_X,
+        y + h + _STRIP_PAD_Y,
+    )
+    ImageDraw.Draw(canvas).rounded_rectangle(card_rect, radius=_STRIP_RADIUS, fill=_OG_CARD)
 
     cur_x = float(x)
     for ticker, wf, hf in zip(tickers, w_factors, h_factors, strict=True):
@@ -345,31 +380,64 @@ def _benchmark_label(
     return display_names.get(ticker) or benchmark.get("name") or ticker or "Benchmark"
 
 
-def _hero_caption(cagr_delta: float | None, bench_label: str | None) -> tuple[str, str, str]:
-    """Return the three caption pieces (``prefix``, ``emph``, ``tail``)
-    rendered under the hero number.
+@dataclass(frozen=True)
+class HeroCopy:
+    """Every string the card's left-hand column renders, plus its sign.
 
     Split out of :func:`_render_unsafe` so the directional copy is
-    unit-testable without rasterising a PNG and OCR'ing it back. The
-    contract:
+    unit-testable without rasterising a PNG and OCR'ing it back.
+    """
 
-    * with a benchmark and a non-negative delta -> "Outperformance of
-      {bench} on CAGR" (the canonical share-preview claim);
-    * with a benchmark and a negative delta -> "Underperformance of
-      {bench} on CAGR" (mirrors the symmetric "outperformance (or
-      underperformance)" framing the in-page returns-compare block
-      uses, so the OG card never claims a lead the page itself
-      doesn't show);
-    * without a benchmark -> "Annualized return (CAGR)" so the hero
-      reads as a standalone metric rather than a comparison.
+    eyebrow: str  # Names the metric being claimed, above the number.
+    number: str  # The hero figure itself, already signed and rounded.
+    unit: str  # "pp" or "%", set beside ``number`` at a smaller size.
+    claim: str  # The sentence that gives ``unit`` its meaning.
+    positive: bool  # Drives the hero colour (Sea Green / Rose Red).
+
+
+def _hero_copy(
+    twr: float,
+    twr_delta: float | None,
+    bench_label: str | None,
+) -> HeroCopy:
+    """Return the hero's copy for a given headline pair.
+
+    The contract:
+
+    * with a benchmark -> the hero is the **time-weighted return
+      delta** in percentage points, captioned "ahead of {bench}" or
+      "behind {bench}" with the sign. This is the same claim, in the
+      same unit, that the page leads with. The previous card led with
+      the *CAGR* delta instead, so the two assets argued for different
+      numbers (+1.3 pp on the card against +6.7 pp on the page) and
+      the smaller of the two was the one that travelled.
+    * without a benchmark -> the hero falls back to the portfolio's
+      own total return, captioned "total return since inception", so
+      it reads as a standalone metric rather than a comparison with
+      nothing on the other side.
 
     ``bench_label`` falls back to "S&P 500" when present-but-empty so
-    the caption never collapses to "Outperformance of  on CAGR".
+    the claim never collapses to "ahead of the ".
     """
-    if cagr_delta is None:
-        return ("Annualized return (", "CAGR", ")")
-    word = "Outperformance" if cagr_delta >= 0 else "Underperformance"
-    return (f"{word} of ", bench_label or "S&P 500", " on CAGR")
+    if twr_delta is None:
+        return HeroCopy(
+            eyebrow="Time-weighted return",
+            number=_fmt_pct(twr),
+            unit="%",
+            claim="total return since inception",
+            positive=twr >= 0,
+        )
+    bench = bench_label or "S&P 500"
+    return HeroCopy(
+        eyebrow=f"Time-weighted return vs {bench}",
+        number=_fmt_pct(twr_delta, signed=True),
+        unit="pp",
+        # "ahead of" / "behind" rather than "outperformance of":
+        # in a feed the reader gets no scale for "pp", so the
+        # sentence has to do the work the abbreviation cannot.
+        claim=f"{'ahead of' if twr_delta >= 0 else 'behind'} the {bench}",
+        positive=twr_delta >= 0,
+    )
 
 
 OUTPUT_FILENAME = "og-image.png"
@@ -400,13 +468,19 @@ def _input_digest(
     """Return a stable SHA-256 over the OG image's pixel inputs.
 
     Only the quantities that the composition actually reads should
-    feed the hash: the headline CAGR (JG + benchmark), the benchmark
-    display label, the top-10 ticker list (drives the logo strip),
-    and the ``start_date`` / ``now`` pair (drives the "Since X" foot
-    caption + duration). The full ``history`` list is deliberately
-    excluded -- it doesn't reach the canvas, so a daily TWR re-fix
-    that doesn't change anything in the headline shouldn't force a
-    rerender.
+    feed the hash: the headline total returns (JG's TWR + the
+    benchmark's TSR, which drive both the hero delta and the two
+    figures set beside it), the benchmark display label, the top-10
+    ticker list (drives the logo strip *and* the "N equities" count
+    in the foot line), and the ``start_date`` / ``now`` pair (drives
+    the "Since X" foot caption + duration). The full ``history`` list
+    is deliberately excluded -- it doesn't reach the canvas, so a
+    daily TWR re-fix that doesn't change anything in the headline
+    shouldn't force a rerender.
+
+    ``cagr%`` left the payload along with the CAGR hero: the card no
+    longer draws an annualised figure anywhere, so hashing one would
+    invalidate the cache on a quantity that cannot change a pixel.
 
     ``now`` is rounded to the calendar day: the foot caption renders
     a date-precision duration ("3 years, 4 months"), so two runs on
@@ -417,8 +491,8 @@ def _input_digest(
     history = total_return.get("history") or []
     start_from_history = history[0][0] if history else None
     payload = {
-        "cagr": _round(total_return.get("cagr%")),
-        "bench_cagr": _round(bench.get("cagr%") if bench else None),
+        "twr": _round(total_return.get("twr%")),
+        "bench_tsr": _round(bench.get("tsr%") if bench else None),
         "bench_label": _benchmark_label(bench, benchmark_display_names),
         "tickers": top_holdings_for_og(top_10, limit=10),
         "start_date": _iso_day(total_return.get("start_date") or start_from_history),
@@ -542,6 +616,108 @@ def render(
     _write_sidecar(out_dir, digest)
 
 
+# Canvas + frame. 1200x630 is the Open Graph contract; the padding
+# is asymmetric because the foot line sits on its own baseline and
+# needs less air beneath it than the byline needs above.
+_W, _H = 1200, 630
+_PAD_X = 56
+_PAD_T = 40
+_PAD_B = 34
+
+
+def _tracked_width(draw, text: str, font, tracking: float) -> float:
+    """Width of ``text`` drawn with ``tracking`` px between glyphs."""
+    if not text:
+        return 0.0
+    return draw.textlength(text, font=font) + tracking * (len(text) - 1)
+
+
+def _draw_tracked(draw, xy: tuple[float, float], text: str, font, fill, tracking: float) -> None:
+    """Draw ``text`` glyph-by-glyph with extra letter-spacing.
+
+    Pillow has no letter-spacing knob, and the card's two uppercase
+    labels (the byline and the metric eyebrow) are set in caps at
+    small sizes, where tracking is what keeps them from reading as a
+    solid block. Drawing per-glyph costs a handful of extra calls on
+    a path that runs at most a few times a day.
+    """
+    x, y = xy
+    for char in text:
+        draw.text((x, y), char, font=font, fill=fill)
+        x += draw.textlength(char, font=font) + tracking
+
+
+def _fit_font(draw, text: str, weight: str, size: int, max_w: float, *, tracking: float = 0.0):
+    """Return the largest font <= ``size`` at which ``text`` fits ``max_w``.
+
+    The card's copy grows with the benchmark's display name, and the
+    fonts themselves are whatever the runner happens to have
+    installed, so a fixed size cannot promise a fit. Stepping down
+    2px at a time keeps a long label on one line rather than letting
+    it run off the frame; the floor is 22px, which is the card's
+    "nothing smaller than this survives feed scaling" rule.
+    """
+    for candidate in range(size, 20, -2):
+        font = load_font(weight, candidate)
+        if _tracked_width(draw, text, font, tracking) <= max_w:
+            return font
+    return load_font(weight, 22)
+
+
+def _text_height(draw, text: str, font) -> float:
+    """Ink height of ``text`` in ``font`` (0 for an empty string)."""
+    if not text:
+        return 0.0
+    top, bottom = draw.textbbox((0, 0), text, font=font)[1::2]
+    return bottom - top
+
+
+def _draw_total(
+    draw,
+    *,
+    x: float,
+    y: float,
+    swatch: tuple[int, int, int],
+    label: str,
+    value: str,
+    label_font,
+    value_font,
+    value_fill: tuple[int, int, int],
+) -> float:
+    """Draw one "swatch + LABEL / big number" block; return its bottom.
+
+    Used for the two totals set head to head on the right of the
+    card. The swatch colours match the chart's two curves, so a
+    reader who has seen the page recognises which line is which
+    before reading either label.
+    """
+    swatch_w, swatch_h = 20, 7
+    label_top = draw.textbbox((0, 0), label, font=label_font)[1]
+    label_h = _text_height(draw, label, label_font)
+    draw.rectangle(
+        (x, y + label_h / 2 - swatch_h / 2, x + swatch_w, y + label_h / 2 + swatch_h / 2),
+        fill=swatch,
+    )
+    _draw_tracked(
+        draw,
+        (x + swatch_w + 10, y - label_top),
+        label,
+        label_font,
+        _OG_MUTED,
+        _OG_LABEL_TRACKING,
+    )
+    value_y = y + label_h + 8
+    value_top = draw.textbbox((0, 0), value, font=value_font)[1]
+    draw.text((x, value_y - value_top), value, font=value_font, fill=value_fill)
+    return value_y + _text_height(draw, value, value_font)
+
+
+# Letter-spacing for the card's two uppercase labels, in px at their
+# rendered sizes (~0.1em on the byline, ~0.07em on the total labels).
+_OG_BYLINE_TRACKING = 2.7
+_OG_LABEL_TRACKING = 1.5
+
+
 def _render_unsafe(
     *,
     total_return: TotalReturn,
@@ -553,95 +729,198 @@ def _render_unsafe(
 ) -> None:
     from PIL import Image, ImageDraw
 
-    W, H = 1200, 630
-    # The palette tokens live at module scope so the strip renderer
-    # below can paint its card-coloured pill from the same deck.
-    BG = _OG_BG
-    FG = _OG_FG
-    MUTED = _OG_MUTED
-    ACCENT = _OG_ACCENT
-    POS = _OG_POS
-    NEG = _OG_NEG
-
     bench = benchmarks[0] if benchmarks else None
-    cagr = float(total_return.get("cagr%", 0.0))
-    bench_cagr = float(bench["cagr%"]) if bench else None
-    cagr_delta = (cagr - bench_cagr) if bench_cagr is not None else None
+    twr = float(total_return.get("twr%", 0.0))
+    bench_tsr = float(bench["tsr%"]) if bench else None
+    twr_delta = (twr - bench_tsr) if bench_tsr is not None else None
     bench_label = _benchmark_label(bench, benchmark_display_names)
+    hero = _hero_copy(twr, twr_delta, bench_label)
     history = list(total_return.get("history") or [])
     start_date = total_return.get("start_date") or (history[0][0] if history else now)
     duration = _format_duration(relativedelta(now, start_date))
+    tickers = top_holdings_for_og(top_10, limit=10)
 
-    f_name = load_font("bold", 96)
-    f_hero = load_font("bold", 140)
-    f_caption = load_font("regular", 32)
-    f_caption_b = load_font("bold", 32)
-    f_foot = load_font("regular", 22)
-
-    img = Image.new("RGBA", (W, H), (*BG, 255))
+    img = Image.new("RGBA", (_W, _H), (*_OG_BG, 255))
     draw = ImageDraw.Draw(img)
 
-    pad_l = 60
+    content_l = _PAD_X
+    content_r = _W - _PAD_X
 
-    # ``Jan Grzybek`` is the byline header -- promoted from a
-    # small eyebrow to the dominant identity element so the
-    # share preview is recognisable from the name first. With
-    # the opaque ``BG`` surface the dark ``FG`` slate reads at
-    # full contrast everywhere; no stroke halo is needed.
-    draw.text((pad_l, 36), "Jan Grzybek", font=f_name, fill=FG)
-    # Accent rule under the name doubles as a visual anchor for
-    # the rest of the layout.
-    draw.rectangle((pad_l, 168, pad_l + 96, 176), fill=ACCENT)
-
-    # Hero: out/underperformance vs the benchmark on CAGR. The
-    # leading caption word flips with the sign of ``cagr_delta``
-    # (see :func:`_hero_caption`) so the share preview tells the
-    # truth even when JG trails the benchmark -- the prior static
-    # "Outperformance of ..." copy contradicted the red hero
-    # number on underperforming windows.
-    if cagr_delta is not None:
-        hero_text = f"{_fmt_pct(cagr_delta, signed=True)} pp"
-        hero_color = POS if cagr_delta >= 0 else NEG
-    else:
-        hero_text = f"{_fmt_pct(cagr, signed=True)}%"
-        hero_color = POS if cagr >= 0 else NEG
-    label, label_emph, label_tail = _hero_caption(cagr_delta, bench_label)
-
-    draw.text((pad_l, 210), hero_text, font=f_hero, fill=hero_color)
-
-    # Caption sits above the logo card. ``FG`` body slate on the
-    # opaque ``BG`` page surface gives full WCAG-AAA contrast
-    # (15.4 : 1) so the label reads cleanly without a halo
-    # outline. The bold middle word ("S&P 500" / "CAGR") carries
-    # the hierarchical weight via font weight, not colour.
-    cap_y = 388
-    draw.text((pad_l, cap_y), label, font=f_caption, fill=FG)
-    label_w = int(draw.textlength(label, font=f_caption))
-    draw.text((pad_l + label_w, cap_y), label_emph, font=f_caption_b, fill=FG)
-    emph_w = int(draw.textlength(label_emph, font=f_caption_b))
+    # ---- header: byline eyebrow + section label ----------------------
+    #
+    # The name is an eyebrow now, not the hero. At 96px it competed
+    # with the claim; the page has the same inversion in its header
+    # and the fix is the same one -- identify, then get out of the
+    # way. The accent rule moves inline beside it, where it reads as
+    # a brand mark rather than as a divider under a headline.
+    f_byline = load_font("bold", 27)
+    f_section = load_font("regular", 24)
+    byline = "JAN GRZYBEK"
+    byline_h = _text_height(draw, byline, f_byline)
+    header_top = _PAD_T
+    rule_w, rule_h = 26, 8
+    draw.rectangle(
+        (
+            content_l,
+            header_top + byline_h / 2 - rule_h / 2,
+            content_l + rule_w,
+            header_top + byline_h / 2 + rule_h / 2,
+        ),
+        fill=_OG_ACCENT,
+    )
+    _draw_tracked(
+        draw,
+        (content_l + rule_w + 14, header_top - draw.textbbox((0, 0), byline, font=f_byline)[1]),
+        byline,
+        f_byline,
+        _OG_FG,
+        _OG_BYLINE_TRACKING,
+    )
     draw.text(
-        (pad_l + label_w + emph_w, cap_y),
-        label_tail,
-        font=f_caption,
-        fill=FG,
+        (content_r, header_top + byline_h / 2),
+        "Investment Portfolio",
+        font=f_section,
+        fill=_OG_MUTED,
+        anchor="rm",
+    )
+    header_bottom = header_top + byline_h
+
+    # ---- foot + logo strip, measured up from the bottom edge ---------
+    f_foot = load_font("regular", 22)
+    equities = f"{len(tickers)} equit{'y' if len(tickers) == 1 else 'ies'}"
+    foot_left = f"Since {_fmt_date_long(start_date)}  \u00b7  {duration}"
+    if tickers:
+        foot_left += f"  \u00b7  {equities}"
+    foot_h = _text_height(draw, foot_left, f_foot)
+    foot_top = _H - _PAD_B - foot_h
+    # ``MUTED`` on the opaque ``BG`` page surface lands at WCAG-AA
+    # contrast (4.3 : 1), readable without any stroke outline. At
+    # 22px it survives the ~0.46x scale a feed renders the card at,
+    # which is the whole point of the "nothing below 22px" rule --
+    # this line is the credibility line and it has to arrive intact.
+    draw.text((content_l, foot_top), foot_left, font=f_foot, fill=_OG_MUTED)
+    draw.text((content_r, foot_top), SITE_DISPLAY, font=f_foot, fill=_OG_MUTED, anchor="ra")
+
+    strip_h = 38
+    strip_bottom = foot_top - 20 - _STRIP_PAD_Y
+    strip_top = round(strip_bottom - strip_h)
+    if tickers:
+        draw_top_holdings_strip(
+            img,
+            tickers,
+            x=content_l + _STRIP_PAD_X,
+            y=strip_top,
+            w=content_r - content_l - 2 * _STRIP_PAD_X,
+            h=strip_h,
+        )
+
+    # ---- the two totals, head to head on the right -------------------
+    #
+    # This half of the frame used to be empty. Absolute numbers are
+    # what a reader can actually judge -- a delta alone asks them to
+    # supply a scale they do not have while scrolling a feed.
+    mid_top = header_bottom + 34
+    mid_bottom = (strip_top - _STRIP_PAD_Y if tickers else foot_top) - 30
+    f_total_label = load_font("bold", 22)
+    f_total_value = load_font("bold", 72)
+    totals: list[tuple[tuple[int, int, int], str, str, tuple[int, int, int]]] = [
+        (_OG_ACCENT, "PORTFOLIO", f"{_fmt_pct(twr)}%", _OG_FG),
+    ]
+    if bench_tsr is not None:
+        totals.append(
+            (
+                _OG_BENCH,
+                (bench_label or "BENCHMARK").upper(),
+                f"{_fmt_pct(bench_tsr)}%",
+                _OG_MUTED,
+            )
+        )
+    totals_w = max(
+        max(
+            20 + 10 + _tracked_width(draw, label, f_total_label, _OG_LABEL_TRACKING),
+            draw.textlength(value, font=f_total_value),
+        )
+        for _, label, value, _ in totals
+    )
+    totals_x = content_r - totals_w
+    block_h = (
+        _text_height(draw, "PORTFOLIO", f_total_label) + 8 + _text_height(draw, "0%", f_total_value)
+    )
+    totals_h = block_h * len(totals) + 40 * (len(totals) - 1)
+    totals_top = mid_top + (mid_bottom - mid_top - totals_h) / 2
+
+    # The divider is the right column's leading edge, so it spans that
+    # column and not the whole band -- run to the full band height it
+    # reads as a page rule rather than as the frame around the two
+    # figures it belongs to.
+    divider_x = totals_x - 56
+    draw.rectangle(
+        (divider_x, totals_top, divider_x + 2, totals_top + totals_h),
+        fill=_OG_RULE,
     )
 
-    # Logo strip: top-10 current holdings by weight.
-    draw_top_holdings_strip(
-        img,
-        top_holdings_for_og(top_10, limit=10),
-        x=pad_l,
-        y=470,
-        w=W - 2 * pad_l,
-        h=90,
-    )
+    y = totals_top
+    for index, (swatch, label, value, fill) in enumerate(totals):
+        if index:
+            rule_y = y - 20
+            draw.rectangle((totals_x, rule_y, content_r, rule_y + 2), fill=_OG_RULE)
+        y = (
+            _draw_total(
+                draw,
+                x=totals_x,
+                y=y,
+                swatch=swatch,
+                label=label,
+                value=value,
+                label_font=f_total_label,
+                value_font=f_total_value,
+                value_fill=fill,
+            )
+            + 40
+        )
 
-    # Foot metadata gets the ``MUTED`` slate so it reads as
-    # supporting context rather than competing with the hero
-    # caption. ``MUTED`` on the opaque ``BG`` page surface
-    # lands at WCAG-AA contrast (4.3 : 1) -- readable without
-    # any stroke outline.
-    foot = f"Since {_fmt_date(start_date)}  \u00b7  {duration}  \u00b7  {SITE_DISPLAY}"
-    draw.text((pad_l, H - 40), foot, font=f_foot, fill=MUTED)
+    # ---- the claim, on the left --------------------------------------
+    claim_w = divider_x - 60 - content_l
+
+    f_eyebrow = _fit_font(draw, hero.eyebrow.upper(), "bold", 24, claim_w, tracking=2.4)
+    f_hero_num = load_font("bold", 150)
+    f_hero_unit = load_font("bold", 64)
+    f_claim = _fit_font(draw, hero.claim, "bold", 50, claim_w)
+    hero_fill = _OG_POS if hero.positive else _OG_NEG
+
+    eyebrow = hero.eyebrow.upper()
+    eyebrow_h = _text_height(draw, eyebrow, f_eyebrow)
+    num_h = _text_height(draw, hero.number, f_hero_num)
+    claim_h = _text_height(draw, hero.claim, f_claim)
+    stack_h = eyebrow_h + 16 + num_h + 20 + claim_h
+    y = mid_top + (mid_bottom - mid_top - stack_h) / 2
+
+    _draw_tracked(
+        draw,
+        (content_l, y - draw.textbbox((0, 0), eyebrow, font=f_eyebrow)[1]),
+        eyebrow,
+        f_eyebrow,
+        _OG_MUTED,
+        2.4,
+    )
+    y += eyebrow_h + 16
+    num_top = draw.textbbox((0, 0), hero.number, font=f_hero_num)[1]
+    draw.text((content_l, y - num_top), hero.number, font=f_hero_num, fill=hero_fill)
+    # The unit sits on the number's baseline rather than on its own
+    # box, so "+6.7" and "pp" read as one lockup at two sizes.
+    draw.text(
+        (content_l + draw.textlength(hero.number, font=f_hero_num) + 16, y + num_h),
+        hero.unit,
+        font=f_hero_unit,
+        fill=hero_fill,
+        anchor="ls",
+    )
+    y += num_h + 20
+    draw.text(
+        (content_l, y - draw.textbbox((0, 0), hero.claim, font=f_claim)[1]),
+        hero.claim,
+        font=f_claim,
+        fill=_OG_FG,
+    )
 
     img.save(_resolve_output_dir(output_dir) / OUTPUT_FILENAME, optimize=True)

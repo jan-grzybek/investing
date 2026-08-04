@@ -65,9 +65,8 @@ CSP hash contract tests are in [`tests/test_csp_contract.py`](tests/test_csp_con
 Per-section renderer tests are split across
 [`tests/test_webpage_return.py`](tests/test_webpage_return.py),
 [`tests/test_webpage_holdings.py`](tests/test_webpage_holdings.py),
-[`tests/test_webpage_ticker.py`](tests/test_webpage_ticker.py),
 [`tests/test_webpage_trades.py`](tests/test_webpage_trades.py), and
-[`tests/test_webpage_treemap.py`](tests/test_webpage_treemap.py).
+[`tests/test_webpage_render.py`](tests/test_webpage_render.py).
 Install Chromium once
 with `playwright install chromium`; CI runs
 `playwright install --with-deps chromium` before pytest.
@@ -118,8 +117,8 @@ holding, so the page shows two half-sized stakes in one company.
 
 [`position_groups.toml`](position_groups.toml) declares that several
 listings are one position; its header documents the schema. The
-Holdings capsule, the sector treemap tile, and the top-10 weights then
-show a single entry.
+Holdings row and the top-10 weights then show a single entry, with
+every constituent listing named under the company name.
 
 Two things are worth knowing before editing it:
 
@@ -174,7 +173,7 @@ benefit from manual follow-up:
   listed equities, but a handful of exotic instruments (some ADRs,
   fresh listings, certain ETFs / closed-end funds) come back with a
   blank value. Tickers without a sector are bucketed into the
-  treemap's neutral `Other` tile.
+  allocation bar's neutral `Other` segment.
 * **Missing logo.** `LogoCache` probes the repo's `logos/` mirror
   and (in the offline path) GitHub Pages for a hand-curated SVG /
   PNG / JPG per ticker. When none is on file the renderer falls

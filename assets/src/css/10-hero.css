@@ -1,0 +1,129 @@
+/* The claim, above the fold.
+
+   Everything here exists so a reader who never scrolls still leaves
+   with the page's one sentence. The figure is the largest thing on
+   the page by a wide margin -- larger than the site title, which is
+   the inversion this redesign is built around. */
+.hero {
+  padding: 40px 0 32px;
+  border-bottom: 1px solid var(--line);
+}
+.hero__eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 0 0 18px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.hero__eyebrow-sep {
+  width: 1px;
+  height: 12px;
+  background: var(--line);
+  flex: 0 0 auto;
+}
+/* The freshness date rides in the eyebrow, not the footer. For a
+   page built on live market data it is part of the claim. The
+   ``title`` on the element says what the date does and does not
+   promise: the page is rebuilt a few times a day and does not tick
+   during market hours. */
+.hero__updated {
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  cursor: help;
+}
+.hero__claim {
+  display: flex;
+  align-items: flex-end;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+.hero__figure {
+  margin: 0;
+  font-size: 5.5rem;
+  line-height: 0.88;
+  font-weight: 800;
+  letter-spacing: -0.045em;
+  font-variant-numeric: tabular-nums;
+}
+.hero__unit {
+  font-size: 2.5rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin-left: 6px;
+}
+.hero__gloss {
+  padding-bottom: 8px;
+  max-width: 34ch;
+}
+.hero__headline {
+  margin: 0;
+  font-size: 1.3125rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+}
+.hero__period {
+  margin: 4px 0 0;
+  font-size: 0.9375rem;
+  color: var(--muted);
+  line-height: 1.4;
+}
+/* Four-up strip of the supporting figures. Hairline gaps over a
+   shared background give the cells their dividers, so the strip
+   reads as one object rather than as four boxed cards -- the same
+   reason the holdings list became a table. */
+.hero__stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  margin: 32px 0 0;
+  background: var(--line);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.hero__stat {
+  background: var(--card-bg);
+  padding: 14px 16px;
+  min-width: 0;
+}
+.hero__stat-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+/* Ties a figure to its curve on the chart below, so the reader
+   never has to guess which line "Portfolio TWR" refers to. */
+.hero__swatch {
+  width: 9px;
+  height: 3px;
+  border-radius: 2px;
+  flex: 0 0 auto;
+}
+.hero__swatch--jg { background: var(--accent); }
+.hero__swatch--bench { background: var(--accent-bench); }
+.hero__stat-value {
+  margin: 6px 0 0;
+  font-size: 1.625rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.hero__stat-bench { color: color-mix(in srgb, var(--fg) 70%, var(--muted) 30%); }
+.hero__stat-note {
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: var(--muted);
+  margin-left: 6px;
+}

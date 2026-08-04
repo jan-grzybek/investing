@@ -1,6 +1,6 @@
 """Manual sector overrides for tickers without a yfinance sector.
 
-The equities treemap (see :mod:`investing.webpage.sector_treemap`)
+The equity-sleeve allocation bar (see :mod:`investing.webpage.allocation`)
 groups holdings by ``info["sector"]`` -- the GICS-style label
 yfinance returns for most listed equities. A handful of exotic
 instruments (some ADRs, recently listed names whose Yahoo profile
@@ -11,9 +11,9 @@ neutral "Other" bucket.
 This module exposes a small fallback so a maintainer can pin those
 tickers to a real sector without patching code:
 
-  * :data:`KNOWN_SECTORS` -- canonical sectors the treemap palette
+  * :data:`KNOWN_SECTORS` -- canonical sectors the allocation palette
     recognises. Kept in sync with the swatch table in
-    :mod:`investing.webpage.sector_treemap`; an override using any
+    :mod:`investing.webpage.allocation`; an override using any
     other value is rejected (with a maintenance hint logged) and the
     ticker falls back to "Other".
   * :func:`resolve_sector` -- ``(ticker, yfinance_sector) -> str``.
@@ -43,13 +43,13 @@ from .log import logger
 from .paths import _SECTOR_OVERRIDES_PATH
 
 # Canonical yfinance / GICS-style sector labels recognised by the
-# treemap palette. Kept as a ``frozenset`` so callers can do
+# allocation palette. Kept as a ``frozenset`` so callers can do
 # ``sector in KNOWN_SECTORS`` cheaply without an inadvertent mutation
 # changing the validation surface for the rest of the build. The
 # values intentionally duplicate the keys in
-# :data:`investing.webpage.sector_treemap._SECTOR_VARS` (minus the
+# :data:`investing.webpage.allocation._SECTOR_VARS` (minus the
 # ``"Other"`` sentinel which is the fallback, not a real sector);
-# importing from there would create a cycle (the treemap renderer
+# importing from there would create a cycle (the allocation renderer
 # imports from this module via the holdings pipeline) so the list is
 # repeated here. A new sector would need to be added in both places
 # at once, which is fine -- the alternative pulls a renderer-side
@@ -332,7 +332,8 @@ def record_missing_sector(ticker: str) -> None:
     logger.warning(
         "no sector for ticker %s; yfinance returned a blank value and "
         "no override is present in ``sector_overrides.toml``. The "
-        "treemap will group this ticker under the neutral ``Other`` "
+        "allocation bar will group this ticker under the neutral "
+        "``Other`` "
         "tile -- add an entry under ``[sectors]`` to pin a real sector.",
         ticker,
     )

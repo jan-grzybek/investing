@@ -97,7 +97,7 @@ HoldingSummary = TypedDict(
         "periods": list[HoldingPeriod],
         "latest_buy": datetime,
         "latest_sell": datetime | None,
-        # Click target wired onto the capsule's logo wrapper:
+        # Click target wired onto the row's logo cell:
         # ``Holding.resolve_company_url`` fills it from the
         # upstream yfinance ``website`` / ``irWebsite`` fields with a
         # Google-search-on-name fallback so the rendered ``href`` is
@@ -106,7 +106,7 @@ HoldingSummary = TypedDict(
         # Industry sector the issuer belongs to. Populated from
         # yfinance's ``info["sector"]`` (the GICS-style high-level
         # bucket: "Technology", "Healthcare", "Financial Services",
-        # ...). Used by the equities sector treemap to group ticker
+        # ...). Used by the equity allocation bar to group ticker
         # tiles -- holdings without an upstream sector (rare; mostly
         # exotic instruments) are bucketed under "Other" by the
         # renderer so the chart stays self-consistent.
@@ -116,18 +116,18 @@ HoldingSummary = TypedDict(
         # ``"fixed_income"`` for bonds / treasuries / fixed-income
         # ETFs. Drives the renderer's bucketing into the per-class
         # Current / Historical sections and keeps the equity-only
-        # sector treemap from picking up fixed-income tickers.
+        # sector bar from picking up fixed-income tickers.
         "asset_class": str,
         # Every listing backing this position, canonical
         # ``EXCHANGE:SYMBOL`` form, primary first. Present only on
         # combined positions (see :mod:`investing.positions`); a
         # single-listing holding leaves it unset and consumers fall
-        # back to ``ticker``. The treemap tooltip reads it so a
+        # back to ``ticker``. The holdings row reads it so a
         # combined tile still names both listings even though the
-        # tile text and the capsule show neither.
+        # compact label and the row show neither.
         "tickers": list[str],
         # Compact label for space-constrained surfaces -- currently
-        # the treemap tile text, where a 4-character symbol fits and
+        # compact surfaces, where a 4-character symbol fits and
         # a company name does not. Unset on ordinary holdings, where
         # consumers strip the exchange off ``ticker`` instead.
         "short_label": str,
@@ -170,7 +170,7 @@ HoldingsRollup = TypedDict(
     "HoldingsRollup",
     {
         # Equity buckets (the historical default; the renderer keeps
-        # these key names so the existing JS / sort-control / treemap
+        # these key names so the existing JS / sort-header / allocation
         # callsites don't have to migrate).
         "current": list[HoldingSummary],
         "historical": list[HoldingSummary],

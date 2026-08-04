@@ -245,13 +245,17 @@ class TestGenerateWebpage:
         generate_webpage(total_return, [], holdings, now=at_datetime(when))
 
         html = (chdir_tmp / "index.html").read_text()
-        assert 'id="equities"' in html
-        assert 'id="fixed-income"' in html
-        # Capsules are titled by company name, not ticker. The equity
-        # ticker still reaches the page via the marquee and the
-        # treemap payload, but a fixed-income holding appears in
-        # neither of those equity-only surfaces -- so its *name* is
-        # the only thing that evidences the sub-section rendered.
+        # Both asset classes render as group bands inside the one
+        # holdings table, each quoting its share of the portfolio from
+        # the same rollup the allocation bar uses.
+        assert "Equities · 60.0% of portfolio" in html
+        assert "Fixed Income · 40.0% of portfolio" in html
+        # Cash is a residual with no rows of its own, so it rides along
+        # with the fixed-income band rather than being the one
+        # allocation slice with nowhere in the table to land.
+        assert "Cash 0.0%" in html
         assert "AAA Inc." in html
         assert "BBB Inc." in html
-        assert 'href="#fixed-income"' in html
+        # A bond ETF is not the equity sleeve, so its weight bar takes
+        # the neutral fill rather than the JG accent.
+        assert "holdings__bar-fill--muted" in html

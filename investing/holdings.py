@@ -192,7 +192,7 @@ def _merge_periods(periods: list[HoldingPeriod]) -> list[HoldingPeriod]:
     """Coalesce ownership spans into their union, newest first.
 
     Two listings of the same company are typically held over
-    overlapping (often identical) spans, and the combined capsule
+    overlapping (often identical) spans, and the combined row
     should read as one continuous period rather than repeating the
     same date range once per leg. Touching or overlapping spans are
     merged; genuinely disjoint ones stay separate so a position that
@@ -217,7 +217,7 @@ def _merge_periods(periods: list[HoldingPeriod]) -> list[HoldingPeriod]:
             last["end"] = None if period["end"] is None else max(last["end"], period["end"])
         else:
             merged.append({"start": period["start"], "end": period["end"]})
-    # Newest-first, matching the single-ticker ordering the capsule
+    # Newest-first, matching the single-ticker ordering the row
     # renderer receives (it re-sorts defensively, but the contract is
     # worth keeping uniform across combined and plain positions).
     return list(reversed(merged))
@@ -233,7 +233,7 @@ def merge_ledgers(ledgers: list[PositionLedger]) -> PositionLedger:
 
     Raises :class:`InvariantError` on an empty list: a group with no
     legs is a configuration fault, and returning a zero-valued ledger
-    would silently render a phantom capsule.
+    would silently render a phantom row.
     """
     if not ledgers:
         raise InvariantError("cannot merge an empty list of position ledgers")
@@ -954,7 +954,7 @@ class Holding:
             # summary time so the renderer doesn't have to reach back
             # into the live ``info`` cache.
             "website": resolve_company_url(self._info),
-            # GICS-style sector tag for the equities treemap. yfinance
+            # GICS-style sector tag for the equity allocation bar. yfinance
             # returns this on most listed equities ("Technology",
             # "Healthcare", "Financial Services", ...). When yfinance
             # has no value (rare; mostly exotic instruments / fresh
@@ -970,7 +970,7 @@ class Holding:
             # Fixed-income holdings (bonds, treasuries, fixed-income
             # ETFs) skip the resolver entirely: yfinance reliably
             # returns no sector for these instruments, the renderer
-            # never feeds them into the equity treemap, and recording
+            # never feeds them into the equity sector bar, and recording
             # a "missing sector" maintenance hint for every bond
             # holding would just spam the build summary with entries
             # the maintainer cannot meaningfully act on (no GICS-style
@@ -988,7 +988,7 @@ class Holding:
             # Asset class tag: ``"equity"`` (default) or
             # ``"fixed_income"``. Drives the renderer's bucketing
             # into the per-class Current / Historical sub-sections
-            # and keeps the equity-only sector treemap from picking
+            # and keeps the equity-only sector bar from picking
             # up bond / treasury tickers.
             "asset_class": self._asset_class,
         }

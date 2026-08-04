@@ -51,7 +51,17 @@ SORTABLE_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("action", "Action", "trades__col--action"),
     ("detail", "Details", "trades__col--detail"),
     ("date", "Date", "trades__col--date"),
+    ("price", "Price", "trades__col--price"),
 )
+
+# Tooltip on the Price header. Price used to be the one unsortable
+# column, on the reasoning that a numeric sort across USD / EUR / GBp
+# implies an ordering that doesn't exist without an FX conversion.
+# That reasoning is right about the ordering and wrong about the
+# remedy: the column sorts by currency first and by amount within
+# each currency, which is a real ordering, and the tooltip says so
+# rather than leaving the reader to discover it.
+PRICE_SORT_HINT = "Sorts by currency first — a EUR price is not comparable to a USD one"
 
 
 # How many rows the trades table shows by default before the
@@ -144,7 +154,9 @@ def build_row(event: TradeEvent) -> str:
         f' data-sort-ticker="{html.escape(sort_ticker)}"'
         f' data-sort-name="{html.escape(sort_name)}"'
         f' data-sort-action="{sort_action}"'
-        f' data-sort-detail="{sort_detail}">'
+        f' data-sort-detail="{sort_detail}"'
+        f' data-sort-currency="{html.escape(event["currency"])}"'
+        f' data-sort-price="{event["price"]:.6f}">'
         f'<td class="trades__cell trades__cell--ticker">{html.escape(symbol)}</td>'
         f'<td class="trades__cell trades__cell--name">{html.escape(name)}</td>'
         '<td class="trades__cell trades__cell--action">'
@@ -167,27 +179,22 @@ def build_table(rows: list[str]) -> str:
     ``<table>`` and add the "Show all" toggle when the log is
     longer than the default visible window.
 
-    The header row exposes click-to-sort buttons on the ticker,
-    company, action, details, and date columns. The default
+    Every column exposes a click-to-sort button. The default
     sort (the order the rows are emitted in) is by date
     descending so the most recent activity sits at the top
     before the user touches anything.
     """
     headers: list[str] = []
     for key, label, modifier in SORTABLE_COLUMNS:
+        hint = f' title="{html.escape(PRICE_SORT_HINT)}"' if key == "price" else ""
         headers.append(
             f'<th class="trades__col {modifier}" scope="col" '
             f'data-sort-key="{key}" aria-sort="none">'
-            f'<button type="button" class="trades__sort">'
+            f'<button type="button" class="trades__sort"{hint}>'
             f"{html.escape(label)}"
             '<span class="trades__sort-indicator" aria-hidden="true"></span>'
             "</button></th>"
         )
-    # Price column is not sortable -- mixing currencies in a
-    # numeric sort would imply a meaningful ordering across
-    # USD / EUR / GBp etc. that doesn't exist without an FX
-    # conversion.
-    headers.append('<th class="trades__col trades__col--price" scope="col">Price</th>')
     thead = f"<thead><tr>{''.join(headers)}</tr></thead>"
     tbody = f"<tbody>{''.join(rows)}</tbody>"
     table_html = (

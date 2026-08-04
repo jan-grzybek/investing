@@ -74,7 +74,7 @@ SITE_URL = _resolve_site_url()
 # hand-curated originals stay under ``logos/`` as the design source
 # of truth. Cropping removes the SVG-author-introduced padding around
 # each mark, which is the single biggest driver of perceived size
-# disparity in the sector treemap (a centred icon in a square viewBox
+# disparity in the holdings logo cell (a centred icon in a square viewBox
 # was reading much smaller than an edge-to-edge wordmark at the same
 # bounding box). See the ``regenerate-logos`` workflow and the
 # matching pre-commit hook for the contract that keeps the tight

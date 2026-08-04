@@ -1,0 +1,102 @@
+/* Calendar-year returns: the whole track record, always visible.
+
+   Three of seven years used to sit behind a "Show all" toggle --
+   most of the evidence for the page's central claim was one click
+   away by default. Nothing here collapses. */
+.yearly {
+  margin-top: 26px;
+  padding: 22px 24px 20px;
+  background: var(--card-bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.yearly__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.yearly__heading {
+  margin: 0;
+  font-size: 1.0625rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.yearly__caption {
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+.yearly__summary {
+  margin: 2px 0 16px;
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+.yearly__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+.yearly__table thead th {
+  padding-bottom: 8px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-align: left;
+}
+.yearly__table thead th.yearly__num { text-align: right; }
+.yearly__row td,
+.yearly__row th {
+  padding: 9px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 45%, transparent);
+  vertical-align: middle;
+}
+.yearly__row:last-child td,
+.yearly__row:last-child th { border-bottom: 0; }
+.yearly__year {
+  width: 56px;
+  text-align: left;
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+.yearly__ytd {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+/* Paired bars make the shape of the record scannable before any
+   number is read: two rows per year, portfolio above benchmark,
+   both normalised to the largest magnitude in the table so the best
+   year fills its track and every other reads as a fraction of it. */
+.yearly__bars {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-right: 14px;
+  padding-left: 14px;
+  min-width: 0;
+}
+.yearly__bar {
+  display: block;
+  height: 9px;
+  border-radius: 2px;
+  min-width: 2px;
+}
+.yearly__bar--jg { background: var(--accent); }
+.yearly__bar--bench { background: var(--accent-bench); }
+/* A losing year is the one case where the series colour would lie
+   about direction, so the loss colour wins over the series colour. */
+.yearly__bar--neg { background: var(--negative); }
+.yearly__num {
+  width: 62px;
+  text-align: right;
+  font-size: 0.875rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.yearly__bench { font-weight: 500; color: color-mix(in srgb, var(--fg) 70%, var(--muted) 30%); }
+.yearly__alpha { font-weight: 700; }
+.yearly__empty { color: var(--muted); font-weight: 400; }

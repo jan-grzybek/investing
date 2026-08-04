@@ -7,7 +7,7 @@ Electronics is the worked example -- it can be held as ``DUS:SSU.DU``
 (Düsseldorf) and as ``LSE:SMSN.IL`` (the London GDR) at the same time.
 
 Left alone, the pipeline reports those as two independent holdings:
-two capsules, two treemap tiles, two rows in the top-10 weights. The
+two holdings rows, two rows in the top-10 weights. The
 reader sees two half-sized stakes in the same company rather than one
 whole one. This module lets a maintainer declare that the legs are one
 position, without touching code:
@@ -31,7 +31,7 @@ yfinance ``longName`` is used, which is often the *listing's* name
 rather than the company's ("... GDR", "... SPONSORED ADR").
 
 ``label`` is the compact form used where space is tight -- currently
-the sector treemap's tile text. It defaults to the primary's symbol
+compact surfaces such as the OG card. It defaults to the primary's symbol
 with the exchange stripped, which is the right answer whenever one leg
 is the recognisable one (holding ``NMS:GOOGL`` alongside ``NMS:GOOG``
 should just read ``GOOGL``). Samsung is the case that needs the

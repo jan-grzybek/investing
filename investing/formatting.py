@@ -46,10 +46,10 @@ def _ts_to_datetime(ts: _DateLike | str) -> datetime:
 
 def _fmt_date(dt: date | datetime) -> str:
     # ``DD/MM/YYYY`` is the canonical human-readable format across
-    # the whole page (holding capsules, trade rows, footer "Updated
+    # the whole page (holdings rows, trade rows, hero "Updated
     # on" line). The zero-padded day / month gives every date the
     # exact same character width, which keeps columns of dates
-    # (the trades table, the holding capsules' period lists)
+    # (the trades table, the closed positions' period lists)
     # vertically aligned without monospaced glyphs. The ISO
     # ``<time datetime="...">`` attributes wrapping each rendered
     # date stay in W3C ``YYYY-MM-DD`` form -- machine-format is a
@@ -98,7 +98,7 @@ def _fmt_quarter_range(start: date | datetime, end: date | datetime) -> str:
     * **Cross-year span** (a burst that ends in the next calendar
       year, typically Q4 -> Q1): ``Q4 2026 - Q1 2027``. Wrapped
       in two ``<time>`` elements separated by the same
-      ``.trades__date-sep`` span the equity capsules use for
+      ``.trades__date-sep`` span the closed-position rows use for
       multi-period dates, so the column reads with one mental
       model across both surfaces.
 
@@ -177,7 +177,7 @@ def _fmt_pct(value: float, *, signed: bool = False) -> str:
     A trailing ``.x`` next to a 3-digit integer part is visually
     noisy and adds no real precision to the reader -- ``100.3%``
     reads tidier as ``100%`` and ``672.9%`` as ``673%``. We apply
-    the same rule to ``pp`` deltas (capsule + chart overlay + OG
+    the same rule to ``pp`` deltas (hero + year table + OG
     image) so the page is uniform: any quantity expressed in
     percent or percentage points drops its decimal once it hits
     triple digits.

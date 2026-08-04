@@ -73,15 +73,16 @@ class _StubLogoCache:
     candidate extension and falls back to ``courage.png`` when none
     match. We do the same shape of lookup against the repo's local
     ``logos/`` directory (which is what GitHub Pages serves anyway)
-    so the preview render never has to leave the workstation. The
-    class shape mirrors ``LogoCache``'s public surface --
-    ``__call__`` for the URL, ``aspect_ratio`` for the equal-area
-    sizing math, and ``coverage_ratio`` for the equal-VISUAL-area
-    density correction the sector treemap layers on top -- so the
-    ``Webpage`` callsite's ``getattr(..., "aspect_ratio", None)`` /
-    ``getattr(..., "coverage_ratio", None)`` probes both find the
-    methods and the preview's treemap renders with per-logo factors
-    that match production.
+    so the preview render never has to leave the workstation.
+
+    The class still mirrors ``LogoCache``'s full public surface --
+    ``__call__`` for the URL, plus ``aspect_ratio`` and
+    ``coverage_ratio`` -- even though the renderer now only calls the
+    first of the three: the sector treemap that consumed the other
+    two was replaced by a stacked allocation bar, and the OG card's
+    equal-area strip reads aspects straight off disk. Keeping the
+    stub shaped like the real cache means the preview keeps
+    substituting cleanly if either method finds a caller again.
     """
 
     def __init__(self, extension_map: dict[str, str], logos_dir: Path):

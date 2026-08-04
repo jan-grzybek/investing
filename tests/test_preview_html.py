@@ -42,10 +42,9 @@ def test_preview_has_required_document_skeleton(preview_html: str):
 
 def test_preview_sections_are_structurally_wired(preview_html: str):
     soup = parse_html(preview_html)
-    for section_id in ("performance", "current", "trades"):
+    for section_id in ("performance", "allocation", "holdings", "closed", "activity", "method"):
         assert soup.find(id=section_id) is not None, f"missing #{section_id}"
     nav = soup.find("nav", class_="site-nav")
     assert nav is not None
     hrefs = {a.get("href") for a in nav.find_all("a")}
-    assert "#performance" in hrefs
-    assert "#current" in hrefs
+    assert {"#performance", "#holdings", "#activity", "#method"} <= hrefs

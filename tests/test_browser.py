@@ -41,49 +41,82 @@ def preview_page(page: Page, preview_index: Path) -> Page:
     return page
 
 
-def test_yearly_returns_toggle_expands_and_collapses(preview_page: Page):
-    toggle = preview_page.locator(".returns-yearly__toggle")
-    table = preview_page.locator("table.returns-yearly__table")
-    expect(toggle).to_be_visible()
-    expect(toggle).to_have_attribute("aria-expanded", "false")
-
-    toggle.click()
-    expect(table).to_have_attribute("data-expanded", "true")
-    expect(toggle).to_have_attribute("aria-expanded", "true")
-    expect(toggle).to_contain_text("Show fewer years")
-
-    toggle.click()
-    expect(table).not_to_have_attribute("data-expanded", "true")
-    expect(toggle).to_have_attribute("aria-expanded", "false")
+def test_every_year_renders_without_a_toggle(preview_page: Page):
+    # Three of seven years used to start collapsed, which hid most of
+    # the evidence for the page's central claim behind a click.
+    expect(preview_page.locator(".returns-yearly__toggle")).to_have_count(0)
+    rows = preview_page.locator(".yearly__row")
+    assert rows.count() >= 5
+    for index in range(rows.count()):
+        expect(rows.nth(index)).to_be_visible()
 
 
-def test_holdings_sort_reorders_current_list(preview_page: Page):
-    # Name is the alphabetical sort on this toolbar. There is no
-    # Ticker button: capsules are titled by company name, so sorting
-    # by symbol would reorder the list against data the reader cannot
-    # see (and a position backed by several listings has no single
-    # symbol to sort by). The Trades table keeps its own ticker sort.
-    list_el = preview_page.locator('[data-holdings-list="current"]')
-    name_btn = preview_page.locator(
-        '[data-holdings-sort="current"] .holdings__sort-btn[data-holdings-sort-key="name"]'
-    )
-    expect(list_el).to_be_visible()
-    expect(
-        preview_page.locator(
-            '[data-holdings-sort="current"] .holdings__sort-btn[data-holdings-sort-key="ticker"]'
+def test_holdings_sort_reorders_rows_within_their_group(preview_page: Page):
+    # Sorting is per-``<tbody>``: rows reorder inside their own group,
+    # so a sort can never shuffle a bond into the equity sleeve.
+    table = preview_page.locator('table[data-holdings-table="open"]')
+    expect(table).to_be_visible()
+    equities = table.locator("tbody.holdings__section").first
+
+    def names():
+        return equities.locator(".holdings__row").evaluate_all(
+            "els => els.map(el => el.getAttribute('data-sort-name'))"
         )
-    ).to_have_count(0)
-    before = list_el.locator(".holding").evaluate_all(
-        "els => els.map(el => el.getAttribute('data-sort-name'))"
+
+    groups_before = table.locator("tbody.holdings__section").evaluate_all(
+        "els => els.map(el => el.querySelectorAll('.holdings__row').length)"
     )
+    before = names()
     assert len(before) >= 2
 
-    name_btn.click()
-    after = list_el.locator(".holding").evaluate_all(
-        "els => els.map(el => el.getAttribute('data-sort-name'))"
-    )
+    header = table.locator('th[data-sort-key="name"]')
+    header.locator(".holdings__sort").click()
+    after = names()
     assert after != before
     assert after == sorted(before)
+    # aria-sort is the single source of truth for the sorted state.
+    expect(header).to_have_attribute("aria-sort", "ascending")
+    # No row crossed a group boundary.
+    assert (
+        table.locator("tbody.holdings__section").evaluate_all(
+            "els => els.map(el => el.querySelectorAll('.holdings__row').length)"
+        )
+        == groups_before
+    )
+
+    header.locator(".holdings__sort").click()
+    expect(header).to_have_attribute("aria-sort", "descending")
+    assert names() == sorted(before, reverse=True)
+
+
+def test_holdings_numeric_sort_starts_high_to_low(preview_page: Page):
+    table = preview_page.locator('table[data-holdings-table="open"]')
+    header = table.locator('th[data-sort-key="tsr"]')
+    header.locator(".holdings__sort").click()
+    expect(header).to_have_attribute("aria-sort", "descending")
+    equities = table.locator("tbody.holdings__section").first
+    values = equities.locator(".holdings__row").evaluate_all(
+        "els => els.map(el => parseFloat(el.getAttribute('data-sort-tsr')))"
+    )
+    assert values == sorted(values, reverse=True)
+
+
+def test_metrics_note_discloses_the_long_explanation(preview_page: Page):
+    toggle = preview_page.locator(".metrics-note__toggle")
+    panel = preview_page.locator("#metrics-note")
+    expect(toggle).to_be_visible()
+    expect(toggle).to_have_attribute("aria-expanded", "false")
+    expect(panel).to_be_hidden()
+
+    toggle.click()
+    expect(toggle).to_have_attribute("aria-expanded", "true")
+    expect(panel).to_be_visible()
+    expect(toggle).to_have_text("Hide")
+
+    toggle.click()
+    expect(toggle).to_have_attribute("aria-expanded", "false")
+    expect(panel).to_be_hidden()
+    expect(toggle).to_have_text("Why?")
 
 
 def test_trades_sort_toggles_date_direction(preview_page: Page):
@@ -99,93 +132,33 @@ def test_trades_sort_toggles_date_direction(preview_page: Page):
     expect(date_header).to_have_attribute("aria-sort", "descending")
 
 
-def test_treemap_combined_position_tile_labels_and_tooltip(preview_page: Page):
-    # The production treemap is laid out entirely by
-    # ``assets/treemap_layout.js``; the Python ``_ticker_tile`` is a
-    # parity helper used only by tests. So a multi-listing tile has to
-    # be asserted through a real browser or the shipped renderer goes
-    # unverified. The preview carries Samsung as a combined position
-    # (``DUS:SSU.DU`` + ``IOB:SMSN.IL``) for exactly this.
-    tile = preview_page.locator('.treemap a[href="#holding-DUS-SSU-DU"]')
-    expect(tile).to_have_count(1)
-
-    # Tile text is the compact group label, not either raw symbol --
-    # neither of Samsung's listing codes reads as the company, and
-    # tile space is the binding constraint.
-    expect(tile.locator(".treemap__tile-ticker")).to_have_text("Samsung")
-
-    # The tooltip is not space-constrained, so it names every listing.
-    tooltip = tile.get_attribute("title")
-    assert tooltip is not None
-    assert tooltip.startswith("DUS:SSU.DU + IOB:SMSN.IL - Samsung Electronics")
-    # ``aria-label`` mirrors it so screen readers get the same context.
-    assert tile.get_attribute("aria-label") == tooltip
-
-
-def test_treemap_single_listing_tile_still_shows_its_symbol(preview_page: Page):
-    # The fallback path: an ordinary holding carries neither
-    # ``short_label`` nor ``tickers``, and the client renderer strips
-    # the exchange off its ticker exactly as before.
-    tile = preview_page.locator('.treemap a[href="#holding-NMS-NVDA"]')
-    expect(tile).to_have_count(1)
-    expect(tile.locator(".treemap__tile-ticker")).to_have_text("NVDA")
-    tooltip = tile.get_attribute("title")
-    assert tooltip is not None
-    assert tooltip.startswith("NMS:NVDA - ")
-
-
-def test_treemap_link_expands_collapsed_holdings_and_scrolls(preview_page: Page):
-    list_el = preview_page.locator('[data-holdings-list="current"]')
-    toggle = preview_page.locator('[data-holdings-toggle="current"]')
-    expect(toggle).to_be_visible()
-    expect(list_el).not_to_have_attribute("data-expanded", "true")
-
-    target = preview_page.evaluate(
-        """() => {
-            const list = document.querySelector('[data-holdings-list="current"]');
-            if (!list) return null;
-            const holdings = list.querySelectorAll('.holding');
-            for (let i = 0; i < holdings.length; i++) {
-                const holding = holdings[i];
-                if (getComputedStyle(holding).display === 'none') {
-                    const link = document.querySelector(
-                        '.treemap a[href="#' + holding.id + '"]'
-                    );
-                    if (link) return holding.id;
-                }
-            }
-            return null;
-        }"""
+def test_trades_price_sorts_by_currency_first(preview_page: Page):
+    # A bare numeric sort across USD / EUR / GBp implies an ordering
+    # that does not exist without an FX conversion. Currency first is
+    # a real ordering, and the header's tooltip says so.
+    header = preview_page.locator('th[data-sort-key="price"]')
+    expect(header.locator(".trades__sort")).to_have_attribute(
+        "title", re.compile(r"currency first")
     )
-    assert target, "preview needs a treemap tile for a collapsed holding"
-
-    link = preview_page.locator(f'.treemap a[href="#{target}"]')
-    expect(link).to_be_visible()
-    link.click()
-
-    expect(list_el).to_have_attribute("data-expanded", "true")
-    expect(toggle).to_have_attribute("aria-expanded", "true")
-    expect(toggle).to_contain_text("Show fewer holdings")
-    preview_page.wait_for_function(
-        """(id) => {
-            const el = document.getElementById(id);
-            if (!el) return false;
-            const r = el.getBoundingClientRect();
-            return r.top >= 0 && r.top < window.innerHeight * 0.75;
-        }""",
-        arg=target,
-        timeout=3000,
+    header.locator(".trades__sort").click()
+    expect(header).to_have_attribute("aria-sort", "ascending")
+    pairs = preview_page.locator(".trades__row").evaluate_all(
+        """els => els.map(el => [
+            el.getAttribute('data-sort-currency'),
+            parseFloat(el.getAttribute('data-sort-price')),
+        ])"""
     )
+    assert pairs == sorted(pairs, key=lambda p: (p[0], p[1]))
 
 
 def test_nav_scroll_sets_hash_on_section_link(preview_page: Page):
-    link = preview_page.locator('nav.site-nav a[href="#current"]')
+    link = preview_page.locator('nav.site-nav a[href="#holdings"]')
     expect(link).to_be_visible()
     link.click()
-    expect(preview_page).to_have_url(re.compile(r"#current$"))
+    expect(preview_page).to_have_url(re.compile(r"#holdings$"))
     preview_page.wait_for_function(
         """() => {
-            const el = document.getElementById('current');
+            const el = document.getElementById('holdings');
             if (!el) return false;
             const r = el.getBoundingClientRect();
             return r.top >= 0 && r.top < window.innerHeight * 0.75;
@@ -213,15 +186,24 @@ def test_return_chart_shows_hover_on_pointer_move(preview_page: Page):
     expect(hover).to_have_class(re.compile(r"\bis-active\b"))
 
 
-def test_ticker_marquee_duplicates_logos_and_animates(preview_page: Page):
-    track = preview_page.locator(".ticker__track")
-    expect(track).to_be_visible()
-    logo_count = track.locator(".ticker__logo").count()
-    assert logo_count >= 4
-    before = track.evaluate("el => getComputedStyle(el).transform")
-    preview_page.wait_for_timeout(400)
-    after = track.evaluate("el => getComputedStyle(el).transform")
-    assert before != after
+def test_marquee_and_treemap_are_gone(preview_page: Page):
+    # Both surfaces were removed, along with the scripts that drove
+    # them. A stale element would mean a script hash is still pinned
+    # in CSP for code nothing runs.
+    expect(preview_page.locator(".ticker")).to_have_count(0)
+    expect(preview_page.locator(".treemap")).to_have_count(0)
+
+
+def test_chart_axes_are_readable_without_a_pointer(preview_page: Page):
+    # The whole point of the redesigned chart: every value on it can
+    # be read without hovering, which is also what makes it readable
+    # on a phone and in print.
+    plot = preview_page.locator(".return-chart__plot").first
+    expect(plot).to_be_visible()
+    assert plot.locator(".return-chart__tick").count() >= 4
+    expect(plot.locator(".return-chart__base")).to_have_count(1)
+    expect(plot.locator(".return-chart__end-value--jg")).to_have_count(1)
+    expect(plot.locator(".return-chart__band--pos").first).to_be_visible()
 
 
 # Baseline violations tracked as design debt (nav muted-link contrast).

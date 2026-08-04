@@ -17,13 +17,11 @@ from .paths import _read_asset
 __all__ = [
     "_HASH_CLEAR_SCRIPT",
     "_HOLDINGS_SORT_SCRIPT",
+    "_METRICS_NOTE_SCRIPT",
     "_NAV_SCROLL_SCRIPT",
     "_PAGE_STYLES",
     "_RETURN_CHART_SCRIPT",
-    "_TICKER_MARQUEE_SCRIPT",
     "_TRADES_SORT_SCRIPT",
-    "_TREEMAP_LAYOUT_SCRIPT",
-    "_YEARLY_RETURNS_SCRIPT",
 ]
 
 # ---------------------------------------------------------------------------
@@ -87,12 +85,10 @@ _HASH_CLEAR_SCRIPT = _read_asset("hash_clear.js")
 #     ``history.pushState`` so the link is shareable, matching
 #     pre-existing behaviour.
 #
-# The selector covers every same-page anchor on the page -- nav
-# links, marquee logos (``.ticker__link``), and clickable bar rows
-# (``.bars__row--link``) -- except for the visually-hidden
-# ``.skip-link``, which assistive-tech users expect to jump
-# instantly. Honours ``prefers-reduced-motion`` by jumping directly
-# to the target.
+# The selector covers every same-page anchor on the page -- the
+# four nav links -- except for the visually-hidden ``.skip-link``,
+# which assistive-tech users expect to jump instantly. Honours
+# ``prefers-reduced-motion`` by jumping directly to the target.
 #
 # Kept as a tight ES5-flavoured IIFE so the inline payload stays
 # small and gets a single stable SHA-256 hash (pinned in CSP).
@@ -232,137 +228,46 @@ _RETURN_CHART_SCRIPT = _read_asset("return_chart.js")
 _TRADES_SORT_SCRIPT = _read_asset("trades_sort.js")
 
 
-# Collapse / expand for the calendar-year returns table when the
-# history spans more than the default visible window.
-_YEARLY_RETURNS_SCRIPT = _read_asset("yearly_returns.js")
+# Disclosure toggle for the time-weighted vs money-weighted
+# explainer above the holdings table. The short caveat is always
+# rendered; only the long form is behind the button, which the
+# script un-hides so a reader without JS never sees a dead control.
+_METRICS_NOTE_SCRIPT = _read_asset("metrics_note.js")
 
 
-# Click-to-sort behaviour for the "Current holdings" / "Historical
-# holdings" lists.
+# Click-to-sort behaviour for the "Holdings" and "Closed
+# positions" tables.
 #
-# Both sections share a markup contract:
+# Both share a markup contract:
 #
-#   * ``<div class="holdings__sort" data-holdings-sort="<scope>">``
-#     is the toolbar, hosting one ``<button>`` per sort option.
-#     Each button carries ``data-holdings-sort-key`` (the field to
-#     order by: ``ticker`` / ``name`` / ``tsr`` / ``cagr`` /
-#     ``weight``, plus the ``default`` reset button) and
-#     ``data-holdings-sort-kind`` (``text`` / ``number`` /
-#     ``default``). The ``kind`` value drives the initial sort
-#     direction the JS picks the first time the user activates a
-#     button -- ``text`` ascends (A->Z) and ``number`` descends
-#     (high->low), matching the natural reading direction for
-#     each datatype. Re-clicks on the active button toggle
-#     ascending <-> descending.
-#   * ``<div class="holdings__list" data-holdings-list="<scope>">``
-#     is the immediate sibling that holds the ``<article
-#     class="holding">`` cards. The script pairs each toolbar
-#     with its list by walking forward from the toolbar's
-#     ``data-holdings-sort`` to the matching list's
-#     ``data-holdings-list``; that lets the two lists on the
-#     page (``current`` and ``historical``) be sorted
-#     independently of each other.
-#   * Each ``<article class="holding">`` carries the per-row keys
-#     on ``data-sort-ticker`` / ``data-sort-name`` /
-#     ``data-sort-tsr`` / ``data-sort-cagr`` /
-#     ``data-sort-weight`` (the last one is current-only;
-#     historical rows omit it and the historical toolbar omits
-#     the corresponding "Weight" button).
-#   * ``<button class="holdings__toggle" data-holdings-toggle="<scope>">``
-#     sits below a list when it carries more than one position.
-#     The button's scope matches the list's ``data-holdings-list``
-#     value so each sub-section (current equities, current fixed
-#     income, historical equities, historical fixed income) can
-#     collapse / expand independently. CSS hides overflow capsules
-#     via ``:nth-of-type(n+4)`` until the user sets
-#     ``data-expanded="true"`` on the list.
+#   * ``<table data-holdings-table="<scope>">`` is the sort root.
+#     Each sortable ``<th>`` carries ``data-sort-key`` (the field to
+#     order by: ``name`` / ``since`` / ``weight`` / ``tsr`` /
+#     ``cagr`` for the open table, ``name`` / ``held`` / ``tsr`` /
+#     ``cagr`` for the closed one) and ``data-sort-kind``
+#     (``text`` / ``number``). The ``kind`` value drives the initial
+#     direction the script picks the first time a column is
+#     activated -- ``text`` ascends (A->Z), ``number`` descends
+#     (high->low) -- matching the natural reading direction for each
+#     datatype. Re-clicks toggle.
+#   * One ``<tbody class="holdings__section">`` per group (equities,
+#     fixed income). Rows are reordered inside their own section, so
+#     a sort can never move a bond into the equity sleeve, and the
+#     band row naming each group stays pinned above its rows.
+#   * Each ``<tr class="holdings__row">`` carries the per-row keys on
+#     ``data-sort-<key>``.
 #
-# When an in-page anchor targets a holding capsule that is currently
-# hidden by that collapse rule (treemap tile, marquee logo, etc.),
-# a capture-phase click listener expands the matching list before
-# ``_NAV_SCROLL_SCRIPT`` scrolls, so ``getBoundingClientRect`` sees
-# the real layout instead of a ``display: none`` row.
+# ``aria-sort`` on the active ``<th>`` drives both the screen-reader
+# announcement and the visible indicator triangle (CSS), so there is
+# one source of truth for which column is sorted and which way. The
+# upstream row order is captured at boot and used as the tie-break,
+# so equal-key rows never visibly shuffle between sorts.
 #
-# The "Default" button is special-cased: it never carries a
-# direction, and pressing it restores the upstream DOM order
-# (most recent buy first for the current list, most recent sell
-# first for the historical list -- the order ``get_holdings``
-# already produces). The original sequence is captured at boot
-# into a per-list array so re-pressing "Default" after any
-# number of sorts always lands on the same starting state.
+# There is no collapse toggle and no anchor-expand handshake any
+# more: every holding is rendered visible, which is what removed the
+# need for a script to force-expand a list before an in-page anchor
+# could scroll to a ``display: none`` row.
 #
-# ``aria-pressed`` on the active button drives the screen-reader
-# announcement; ``data-sort-dir`` on the active directional button
-# drives the visible sort-indicator triangle (CSS) without placing
-# ``aria-sort`` on ``<button>`` elements, which axe flags as invalid.
-#
-# Kept as a tight ES5-flavoured IIFE so the inline payload stays
-# small and gets a single stable SHA-256 hash (pinned in CSP).
+# Kept as a small IIFE so the inline payload gets a single stable
+# SHA-256 hash (pinned in CSP).
 _HOLDINGS_SORT_SCRIPT = _read_asset("holdings_sort.js")
-
-# Client-side squarify + fold-into-Other for the equities treemap.
-# Reads holdings from the ``<script class="treemap__payload">`` JSON
-# island in each ``<figure class="treemap">``, measures the canvas,
-# merges holdings whose tile would be unlabeled at the current pixel
-# size, and repaints tiles + legend on load and ``ResizeObserver``
-# resize. Kept as a tight ES5-flavoured IIFE for a stable CSP hash.
-_TREEMAP_LAYOUT_SCRIPT = _read_asset("treemap_layout.js")
-
-
-# Drives the decorative current-holdings marquee at the top of the
-# page. The track is a flex row of one ``<a class="ticker__link">``
-# per current holding, doubled (two identical copies of the logo
-# set) so a wrap-by-half-width strategy produces a seamless loop:
-# each ``requestAnimationFrame`` tick decrements an in-memory
-# ``offset`` variable and writes ``transform: translate3d(<offset>
-# px, 0, 0)`` to the track; once ``offset`` crosses ``-halfWidth``
-# (the natural width of one copy of the logo set), the script adds
-# ``halfWidth`` back so the second copy is now exactly where the
-# first one was. The visual is identical, but the offset variable
-# has just been rebased into the loop's valid range.
-#
-# The animation was previously a CSS ``@keyframes`` rule driving a
-# ``transform: translate3d(0, 0, 0) -> translate3d(-50%, 0, 0)``
-# cycle, with ``animation-duration`` switched at viewport
-# breakpoints and ``animation-play-state: paused`` on
-# ``.ticker:hover``. That implementation accumulated three distinct
-# failure modes that all surfaced as the user-reported "the bar
-# sometimes jams / blinks / resets position", and each new CSS-only
-# patch only addressed a subset:
-#
-#   * Tab-visibility resume: CSS animations are wall-clock timed
-#     and on some browsers the transform jumps to "where the
-#     animation would be now" when the tab becomes visible again,
-#     rather than continuing from the paused offset. The rAF loop
-#     stops on ``visibilitychange`` and resumes from the same
-#     offset variable, so the jump is structurally impossible.
-#   * Compositor layer demotion: the GPU layer carrying the
-#     animated transform can be evicted under memory pressure, by
-#     neighbouring repaints (sticky-header ``backdrop-filter``
-#     rebuild on iOS Safari while the URL bar collapses), or when
-#     ``animation-play-state`` flips on hover. The rebuild snaps
-#     the interpolated transform to a fresh raster, which the eye
-#     reads as a shift. Writing a single ``translate3d`` value per
-#     frame from the main thread leaves no keyframe interpolation
-#     for the compositor to lose.
-#   * Mid-flight ``animation-duration`` changes: crossing a
-#     breakpoint (or the iOS URL bar collapsing across one) instant-
-#     ly re-evaluates the keyframe position against the new
-#     duration, which jumps the transform. JS computes ``pxPerMs``
-#     from the current viewport and re-reads it on debounced
-#     ``resize``, so the offset variable stays continuous across
-#     breakpoints.
-#
-# Pause-on-hover is reimplemented in JS (only on real pointer
-# devices, gated on ``matchMedia('(hover: hover)')`` the same way
-# the previous CSS rule was) by flipping a ``paused`` flag that
-# skips the offset decrement -- ``offset`` is preserved verbatim,
-# so resume is byte-for-byte continuous with pause. ``prefers-
-# reduced-motion`` short-circuits boot entirely; the matching
-# CSS block collapses the ``width: max-content`` track into a
-# wrapping centred row so all logos remain visible at once
-# without any motion.
-#
-# Kept as a tight ES5-flavoured IIFE so the inline payload stays
-# small and gets a single stable SHA-256 hash (pinned in CSP).
-_TICKER_MARQUEE_SCRIPT = _read_asset("ticker_marquee.js")
