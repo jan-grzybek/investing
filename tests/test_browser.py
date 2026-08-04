@@ -231,6 +231,87 @@ def test_mobile_cards_place_every_item_on_the_right_grid_line(page: Page, previe
     assert ticker["right"] < since["left"], (ticker, since)
 
 
+def test_mobile_activity_rows_are_two_lines(page: Page, preview_index: Path):
+    """The design's mobile trade row, asserted as geometry.
+
+        TICKER  Company name          921.40 USD
+        BOUGHT  +32%                     Q2 2026
+
+    Two properties are easy to lose and invisible in the CSS. The
+    ticker and its company name have to sit together -- a shared grid
+    column sized itself to the BOUGHT pill and left every name 50px
+    adrift of its own ticker. And a long company name must not break
+    the line: flex breaks on an item's *hypothetical* size, so a
+    ``flex-basis: auto`` name went to a line of its own before
+    shrinking was considered, taking the price with it to a third.
+    """
+    page.set_viewport_size({"width": 390, "height": 844})
+    page.goto(preview_index.as_uri())
+    # Expand so the long-name rows behind the collapse are checked too.
+    page.locator(".trades__toggle").click()
+
+    result = page.evaluate(
+        """() => {
+            const bad = [];
+            let checked = 0;
+            document.querySelectorAll('.trades__row').forEach((r, i) => {
+                if (r.getBoundingClientRect().height === 0) return;
+                checked++;
+                const box = c => r.querySelector('.trades__cell--' + c).getBoundingClientRect();
+                const t = box('ticker'), n = box('name'), p = box('price');
+                const a = box('action'), d = box('detail'), dt = box('date');
+                const gap = Math.round(n.left - t.right);
+                const sameLine = (x, y) => Math.abs(x.top - y.top) < 6;
+                if (!sameLine(t, n) || !sameLine(t, p)) bad.push({i, why: 'line 1 broke', gap});
+                else if (!sameLine(a, d) || !sameLine(a, dt)) bad.push({i, why: 'line 2 broke'});
+                else if (gap < 4 || gap > 12) bad.push({i, why: 'ticker/name adrift', gap});
+                else if (Math.abs(p.right - dt.right) > 2) bad.push({i, why: 'right edge ragged'});
+                else if (a.top <= t.top) bad.push({i, why: 'not two lines'});
+            });
+            return {checked, bad};
+        }"""
+    )
+    assert result["checked"] >= 10, result
+    assert not result["bad"], result["bad"]
+
+
+def test_mobile_sort_chips_follow_the_designs_order(page: Page, preview_index: Path):
+    """Chips lead with what a reader sorts each table by, not with
+    column order: Weight for the open book, Dates for the closed one,
+    Date for the log."""
+    page.set_viewport_size({"width": 390, "height": 844})
+    page.goto(preview_index.as_uri())
+    order = page.evaluate(
+        """(sel) => [...document.querySelectorAll(sel)]
+            .filter(t => getComputedStyle(t).display !== 'none')
+            .map(t => ({t: t.textContent.trim(), x: t.getBoundingClientRect().left}))
+            .sort((a, b) => a.x - b.x)
+            .map(o => o.t)""",
+        "#holdings thead th",
+    )
+    assert order[1:] == ["Weight", "Return", "IRR", "Holding", "Held since"], order
+    order = page.evaluate(
+        """(sel) => [...document.querySelectorAll(sel)]
+            .filter(t => getComputedStyle(t).display !== 'none')
+            .map(t => ({t: t.textContent.trim(), x: t.getBoundingClientRect().left}))
+            .sort((a, b) => a.x - b.x)
+            .map(o => o.t)""",
+        "#closed thead th",
+    )
+    assert order[1:] == ["Dates held", "Return", "IRR", "Holding"], order
+    order = page.evaluate(
+        """(sel) => [...document.querySelectorAll(sel)]
+            .filter(t => getComputedStyle(t).display !== 'none')
+            .map(t => ({t: t.textContent.trim(), x: t.getBoundingClientRect().left}))
+            .sort((a, b) => a.x - b.x)
+            .map(o => o.t)""",
+        "#activity thead th",
+    )
+    # The design's five, in its order; Company follows, since this
+    # table offers a sort the mock's chip set does not list.
+    assert order[:5] == ["Date", "Ticker", "Action", "Details", "Price"], order
+
+
 def test_metrics_note_discloses_the_long_explanation(preview_page: Page):
     toggle = preview_page.locator(".metrics-note__toggle")
     panel = preview_page.locator("#metrics-note")

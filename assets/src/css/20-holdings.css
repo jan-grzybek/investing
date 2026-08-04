@@ -298,14 +298,16 @@
     flex: 0 0 auto;
   }
   .holdings__col-logo { display: none; }
-  /* The design leads the chips with the metric a reader sorts by
-     most, not with the column order. */
-  .holdings__col--weight { order: 1; }
-  .holdings__col--num { order: 2; }
-  .holdings__col--num:last-child { order: 3; }
-  .holdings__col--name { order: 4; }
-  .holdings__col--since,
-  .holdings__col--periods { order: 5; }
+  /* Chip order is the design's, not the column order: the open book
+     leads with Weight (Weight / Return / IRR / Holding / Held since)
+     and the closed one leads with Dates (Dates / Return / IRR /
+     Holding), because that is what a reader reaches for in each. */
+  .holdings__col--periods { order: 1; }
+  .holdings__col--weight { order: 2; }
+  .holdings__col--num { order: 3; }
+  .holdings__col--num:last-child { order: 4; }
+  .holdings__col--name { order: 5; }
+  .holdings__col--since { order: 6; }
   .holdings__sort {
     width: auto;
     justify-content: center;

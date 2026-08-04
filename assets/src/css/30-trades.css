@@ -366,13 +366,34 @@
   .trades th[aria-sort="ascending"] .trades__sort,
   .trades th[aria-sort="descending"] .trades__sort { border-color: var(--accent); }
 
+  /* Flex, not grid.
+     A three-column grid shares its column widths between both rows,
+     so column one sized itself to the BOUGHT pill and every company
+     name started 50px clear of its own ticker -- the two read as
+     unrelated instead of as one label. The design puts ticker and
+     name adjacent on a flex line and gives the pill its own 74px
+     only on the second line, which a shared grid column cannot
+     express. Flex with an explicit break does.
+
+     The break is ``::after`` on the row: a pseudo-element on a flex
+     container is a flex item, so a 100%-basis one ends the first
+     line exactly where the design ends it, whatever the content
+     widths. ``row-gap`` stays 0 because that empty line would
+     otherwise be charged a gap on both sides; the second line's
+     items carry their own margin instead. */
   .trades__row {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    display: flex;
+    flex-wrap: wrap;
     align-items: baseline;
-    column-gap: 8px;
-    row-gap: 3px;
+    column-gap: 7px;
+    row-gap: 0;
     padding: 9px 14px;
+  }
+  .trades__row::after {
+    content: "";
+    order: 4;
+    flex: 0 0 100%;
+    height: 0;
   }
   .trades tbody td {
     display: block;
@@ -381,20 +402,53 @@
     background: none;
   }
   .trades tbody tr:nth-child(even) td { background: none; }
-  .trades__cell--ticker { grid-column: 1; grid-row: 1; font-size: 0.78125rem; }
+  .trades__cell--ticker {
+    order: 1;
+    flex: 0 0 auto;
+    font-size: 0.78125rem;
+  }
+  /* ``flex: 1 1 0``, not ``1 1 auto``.
+     Flex breaks lines on an item's *hypothetical* main size, which
+     for ``auto`` is its max-content width -- so a long company name
+     was sent to a line of its own before shrinking was ever
+     considered, taking the price with it to a third. ``min-width: 0``
+     does not help: it governs how far an item may shrink, not where
+     the line breaks. A zero basis means the name never forces a
+     break and simply absorbs whatever the line has left, which is
+     also what pushes the price to the right edge. */
   .trades__cell--name {
-    grid-column: 2;
-    grid-row: 1;
+    order: 2;
+    flex: 1 1 0;
+    min-width: 0;
     color: var(--muted);
     font-size: 0.71875rem;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .trades__cell--price { grid-column: 3; grid-row: 1; font-size: 0.78125rem; }
-  .trades__cell--action { grid-column: 1; grid-row: 2; }
-  .trades__cell--detail { grid-column: 2; grid-row: 2; font-size: 0.71875rem; }
-  .trades__cell--date { grid-column: 3; grid-row: 2; font-size: 0.6875rem; text-align: right; }
+  .trades__cell--price { order: 3; flex: 0 0 auto; font-size: 0.78125rem; }
+  .trades__cell--action { order: 5; flex: 0 0 74px; margin-top: 3px; }
+  .trades__cell--detail {
+    order: 6;
+    flex: 1 1 0;
+    min-width: 0;
+    margin-top: 3px;
+    font-size: 0.71875rem;
+  }
+  .trades__cell--date {
+    order: 7;
+    flex: 0 0 auto;
+    margin-top: 3px;
+    font-size: 0.6875rem;
+  }
+  /* The design's chip order for the log: what a reader sorts a trade
+     history by is when it happened, then what it was. */
+  .trades__col--date { order: 1; }
+  .trades__col--ticker { order: 2; }
+  .trades__col--action { order: 3; }
+  .trades__col--detail { order: 4; }
+  .trades__col--price { order: 5; }
+  .trades__col--name { order: 6; }
   /* The pill's fixed 7em was sized for a table column; on two lines
      it only has to fit its own label. */
   .trade__badge { width: auto; padding: 2px 8px; font-size: 0.625rem; }
