@@ -131,6 +131,12 @@ def _bar(value: float, scale: float, kind: str) -> str:
 
 
 def _short(label: str) -> str:
-    """Trim a benchmark name to a column-header-sized token."""
-    compact = label.replace(" 500", "").replace(" Index", "")
-    return compact if len(compact) <= 8 else compact[:8]
+    """Trim a benchmark name to a column-header-sized token.
+
+    The index number stays, for the same reason it stays on the chart:
+    S&P Global is a *holding* on this page, named in the tables below,
+    so a column headed "S&P" invites the reader to match it against
+    the wrong thing. Only the redundant " Index" suffix is dropped.
+    """
+    compact = label.replace(" Index", "").strip()
+    return compact if len(compact) <= 12 else compact[:12]

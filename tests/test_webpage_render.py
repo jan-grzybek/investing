@@ -11,6 +11,7 @@ import pytest
 from investing.assets import _NAV_SCROLL_SCRIPT, _RETURN_CHART_SCRIPT
 from investing.formatting import _sha256_b64
 from investing.webpage import Webpage
+from investing.webpage.return_chart import render as _render_chart
 from tests._webpage_support import (
     _benchmark,
     _holding,
@@ -132,11 +133,25 @@ class TestRenderReturnChart:
         }
         out = Webpage._render_return_chart({"history": history}, [benchmark])
         assert "return-chart__line--bench" in out
-        # The benchmark's name is trimmed of the parts a reader
-        # supplies for free -- "S&P 500" and "S&P" name the same thing
-        # beside a curve, and the right inset is 114 units wide.
-        assert ">S&amp;P<" in out
+        # The benchmark keeps its index number. "S&P" alone is not a
+        # shorter way of writing "S&P 500" on this page: S&P Global is
+        # a *holding*, named in the tables below, so the bare
+        # abbreviation reads as the company that compiles the index
+        # rather than the index itself.
+        assert ">S&amp;P 500<" in out
+        assert ">S&amp;P<" not in out
         assert ">JG<" in out
+
+    def test_only_the_redundant_index_suffix_is_dropped(self):
+        history = [(datetime(2024, 1, 1), 1.0), (datetime(2024, 6, 1), 1.1)]
+        benchmark = {
+            "ticker": "LSE:VUAA.L",
+            "name": "S&P 500 Index",
+            "history": [(datetime(2024, 1, 1), 1.0), (datetime(2024, 6, 1), 1.05)],
+        }
+        out = _render_chart({"history": history}, [benchmark], benchmark_label=lambda b: b["name"])
+        assert ">S&amp;P 500<" in out
+        assert "Index<" not in out
 
     def test_end_values_read_the_series_endpoints(self):
         history = [

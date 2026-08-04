@@ -476,18 +476,24 @@ def _end_label_svg(
 
 
 def _short_label(kind: str, label: str) -> str:
-    """A series token short enough for the 98-unit right inset.
+    """A series token for the right inset.
 
-    The portfolio's own curve is initialled rather than abbreviated:
-    "Portfolio" has no shorter form that is still a word, and the
-    inset is not wide enough for the whole of it. The benchmark is
-    trimmed of the parts a reader supplies for free -- "S&P 500
-    Index" and "S&P" name the same thing beside a curve.
+    The portfolio's own curve is initialled: "Portfolio" has no
+    shorter form that is still a word, and the inset cannot hold the
+    whole of it.
+
+    The benchmark keeps its index number. "S&P" alone is not a
+    shorter way of writing "S&P 500" on this page -- S&P Global is a
+    *holding*, named three times in the tables below, so the bare
+    abbreviation reads as the company that compiles the index rather
+    than the index itself. Only the redundant " Index" suffix is
+    dropped, and the cap is generous enough that "S&P 500" survives
+    it intact.
     """
     if kind == "jg":
         return "JG"
-    compact = label.replace(" 500", "").replace(" Index", "").strip()
-    return compact if len(compact) <= 6 else compact[:6]
+    compact = label.replace(" Index", "").strip()
+    return compact if len(compact) <= 12 else compact[:12]
 
 
 def _build_hover_html(*, has_delta: bool) -> str:

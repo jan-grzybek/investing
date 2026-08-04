@@ -75,8 +75,12 @@
      trade, and it is what the design mock does too. */
   .return-chart__tick { font-size: 28px; }
   .return-chart__tick--minor { display: none; }
+  /* "S&P 500" is a wider token than the "S&P" the design abbreviates
+     to, and the end labels sit in a 114-unit inset. At 20 / 24 the
+     longer name and its figure both clear the viewBox edge with room
+     to spare; at 26 the figure came within 3 units of it. */
   .return-chart__end-name { font-size: 20px; }
-  .return-chart__end-value { font-size: 26px; }
+  .return-chart__end-value { font-size: 24px; }
   .return-chart__tooltip { min-width: 148px; padding: 8px 10px; }
 }
 

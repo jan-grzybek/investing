@@ -46,6 +46,10 @@
   text-transform: uppercase;
   color: var(--muted);
   text-align: left;
+  /* The benchmark header carries its index number, which is a wider
+     token than the design's abbreviation; letting it wrap would put
+     a two-line header over one-line data rows. */
+  white-space: nowrap;
 }
 .yearly__table thead th.yearly__num { text-align: right; }
 .yearly__row td,
