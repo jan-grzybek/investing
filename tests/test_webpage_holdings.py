@@ -210,8 +210,38 @@ class TestRowContract:
         assert 'decoding="async"' in row
         # A landscape cell, not a square one: most holding marks are
         # wordmarks and a square box letterboxes them into invisibility.
-        assert 'width="48"' in row
-        assert 'height="30"' in row
+        # The attributes have to state the box the stylesheet actually
+        # draws -- their whole job is to reserve it before the image
+        # arrives, so a stale pair reserves the wrong space and
+        # reintroduces the layout shift they exist to prevent.
+        assert 'width="34"' in row
+        assert 'height="22"' in row
+
+    def test_fallback_logo_opts_out_of_the_dark_mode_inversion(self, stub_logo_lookup):
+        # The placeholder is a coloured illustration, not a single-hue
+        # wordmark, so negating its luminance destroys it. The opt-out
+        # is a class rather than a match on the URL's suffix, which
+        # stops matching the moment the URL changes shape.
+        from investing.paths import COURAGE_LOGO
+        from investing.webpage.holdings_view import _logo_cell
+
+        fallback = _logo_cell(logo_url=COURAGE_LOGO, website_url="#", company_name="X")
+        assert "holdings__logo--literal" in fallback
+
+        real = _logo_cell(
+            logo_url="https://example.test/logos/tight/NMS%3AAAA.svg",
+            website_url="#",
+            company_name="X",
+        )
+        assert "holdings__logo--literal" not in real
+
+    def test_weight_grid_is_inside_the_cell_not_on_it(self, stub_logo_lookup):
+        # A ``display: grid`` table cell leaves the table's formatting
+        # context, so ``vertical-align`` stops applying and the weight
+        # drifts off the baseline its row-mates sit on.
+        w = Webpage()
+        w.add_holding(_holding(weight=10.0))
+        assert '<td class="holdings__weight"><span class="holdings__weight-grid">' in w.current[0]
 
     def test_logo_links_to_the_issuer_in_a_new_tab(self, stub_logo_lookup):
         w = Webpage()

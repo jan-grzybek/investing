@@ -89,7 +89,10 @@ def render(
             bars.append(_bar(bench_pct, scale, "bench"))
         cells = [
             f'<th scope="row" class="yearly__year">{year_cell}</th>',
-            f'<td class="yearly__bars">{"".join(bars)}</td>',
+            # Same reason as the holdings weight cell: a flex ``<td>``
+            # drops out of the table's formatting context, so the
+            # column stops aligning with the figures beside it.
+            f'<td class="yearly__bars"><span>{"".join(bars)}</span></td>',
             f'<td class="yearly__num {_value_class(row["jg%"])}">{_fmt_pct(row["jg%"])}%</td>',
         ]
         if has_benchmark:

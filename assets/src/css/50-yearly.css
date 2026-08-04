@@ -75,12 +75,18 @@
    number is read: two rows per year, portfolio above benchmark,
    both normalised to the largest magnitude in the table so the best
    year fills its track and every other reads as a fraction of it. */
+/* The flex column is on an inner span, not the ``<td>``: a flex
+   table cell drops out of the table's formatting context and stops
+   aligning with the figures beside it. */
 .yearly__bars {
+  padding-right: 14px;
+  padding-left: 14px;
+  min-width: 0;
+}
+.yearly__bars > span {
   display: flex;
   flex-direction: column;
   gap: 3px;
-  padding-right: 14px;
-  padding-left: 14px;
   min-width: 0;
 }
 .yearly__bar {

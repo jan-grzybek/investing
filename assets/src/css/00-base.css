@@ -140,20 +140,15 @@
          backgrounds in the SVGs we ship, not on opaque white
          plates, so this degenerate case doesn't arise.
 
-     Two assets are explicitly opted out via attribute-``:not()``
-     because they are not single-hue wordmarks:
-
-       * ``LSE:VUAA.L`` (the S&P 500 ETF benchmark) ships as the US
-         flag; inverting it turns the red stripes cyan and the blue
-         canton orange, which reads as "some other country's flag".
-       * ``courage.png`` is the per-ticker fallback and the site
-         brand mark; it's a coloured illustration whose meaning
-         would be similarly destroyed by a luminance flip.
-
-     The exclusion matches the URL's basename (``$=`` suffix match)
-     rather than the full path so the rule stays robust against
-     ``LOGOS_ADDRESS`` changes. */
-  :where(.holdings__logo):not([src$="courage.png"], [src$="VUAA.L.svg"]) {
+     The fallback placeholder opts out: it is a coloured
+     illustration rather than a single-hue wordmark, and a luminance
+     flip destroys it. The opt-out is a class the renderer puts on
+     the element, not an ``[src$="courage.png"]`` attribute match --
+     a URL-shaped condition silently stops matching the moment the
+     URL gains a cache-busting query, changes host, or is inlined as
+     a data URI, and its failure mode is a mangled image rather than
+     an error. */
+  :where(.holdings__logo):not(.holdings__logo--literal) {
     filter: invert(1) hue-rotate(180deg);
   }
 }
@@ -235,10 +230,20 @@ main:focus-visible { outline: none; }
   gap: 8px 24px;
   margin: 0 -24px 0;
   padding: 12px 24px;
-  background: color-mix(in srgb, var(--bg) 85%, transparent);
+  /* Nearly opaque, and casting a shadow.
+     At 85% the page showed through the bar, so a scroll that left it
+     sitting directly above a table made the nav labels read as that
+     table's column headers -- the bar looked like part of the
+     document rather than chrome floating over it. Transparency was
+     the wrong cue: what separates chrome from content is depth, so
+     the fix is a depth cue. 96% stops the bleed-through while
+     keeping the blur's soft edge, and the shadow puts the bar
+     unambiguously on a plane above whatever it covers. */
+  background: color-mix(in srgb, var(--bg) 96%, transparent);
   backdrop-filter: saturate(180%) blur(14px);
   -webkit-backdrop-filter: saturate(180%) blur(14px);
   border-bottom: 1px solid var(--line);
+  box-shadow: 0 6px 16px -8px color-mix(in srgb, var(--fg) 26%, transparent);
   /* Force a dedicated GPU compositing layer so the sticky header
      does not flicker on iOS Safari while the page scrolls. Without
      this hint Safari briefly drops the header's backdrop-filter on

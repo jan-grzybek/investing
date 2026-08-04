@@ -170,7 +170,12 @@
 }
 /* Weight: a bar and its number in one cell, so the shape of the
    book is legible before a single figure is read. */
-.holdings__weight {
+/* The grid lives on an inner span rather than on the ``<td>``. A
+   ``display: grid`` table cell leaves the table's formatting context
+   -- the browser wraps it in an anonymous cell and stops applying
+   ``vertical-align`` -- which floated the weight clear of the Return
+   and IRR figures it lines up against. */
+.holdings__weight-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 40px;
   align-items: center;
@@ -253,7 +258,7 @@
 }
 @container holdings (max-width: 460px) {
   .holdings__bar { display: none; }
-  .holdings__weight { grid-template-columns: minmax(0, 1fr); }
+  .holdings__weight-grid { grid-template-columns: minmax(0, 1fr); }
   .holdings__col--weight { width: auto; }
   /* With the bar gone, the 12px gutters are what tips the table
      into a horizontal scroll on a 390px phone. Halving them buys

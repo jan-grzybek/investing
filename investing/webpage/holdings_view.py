@@ -35,6 +35,7 @@ from datetime import date
 from ..errors import InvariantError
 from ..formatting import _fmt_date, _fmt_pct, _format_sort_number, _value_class
 from ..holdings import CAGR_TBA_THRESHOLD, google_search_url
+from ..paths import COURAGE_LOGO
 from .anchors import holding_anchor
 
 # Column spec: ``(key, label, kind, css_modifier)``.
@@ -108,13 +109,25 @@ def _logo_cell(*, logo_url: str, website_url: str, company_name: str) -> str:
     decodes, so a table of 12 logos settles at zero layout shift.
     """
     label = f"Open {company_name or 'company'} website"
+    # Dark mode negates each wordmark's luminance so brand artwork
+    # authored for a white page stays legible on the dark one. The
+    # fallback placeholder is a coloured illustration, not a wordmark,
+    # so that transform destroys it -- it opts out by class. The
+    # opt-out used to be an ``[src$="courage.png"]`` attribute match,
+    # which quietly stops matching the moment the URL gains a
+    # cache-busting query, changes host, or is inlined as a data URI.
+    # What the renderer knows is *which image this is*, so that is
+    # what it says.
+    classes = "holdings__logo"
+    if logo_url == COURAGE_LOGO:
+        classes += " holdings__logo--literal"
     return (
         '<td class="holdings__logo-cell">'
         f'<a class="holdings__logo-link" href="{html.escape(website_url)}" '
         'target="_blank" rel="noopener noreferrer" '
         f'aria-label="{html.escape(label)}" title="{html.escape(label)}">'
-        f'<img class="holdings__logo" src="{html.escape(logo_url)}" alt="" '
-        'loading="lazy" decoding="async" width="48" height="30">'
+        f'<img class="{classes}" src="{html.escape(logo_url)}" alt="" '
+        'loading="lazy" decoding="async" width="34" height="22">'
         "</a>"
         "</td>"
     )
@@ -234,7 +247,18 @@ def build_row(holding: dict, *, logo_url_for: Callable[[str], str]) -> str:
             "</td>"
         )
         muted = holding.get("asset_class") == "fixed_income"
-        cells.append(f'<td class="holdings__weight">{_weight_bar(weight, muted=muted)}</td>')
+        # The grid goes on an inner span, not on the ``<td>``. A
+        # ``display: grid`` cell leaves the table's formatting context
+        # entirely: the browser wraps it in an anonymous cell and
+        # ``vertical-align: middle`` stops applying, which floated the
+        # weight a couple of pixels clear of the Return and IRR
+        # figures it is supposed to line up with. The design puts the
+        # grid on a span for exactly this reason.
+        cells.append(
+            '<td class="holdings__weight">'
+            f'<span class="holdings__weight-grid">{_weight_bar(weight, muted=muted)}</span>'
+            "</td>"
+        )
     else:
         # Closed rows sort by their most recent exit, which is the
         # date a reader scanning "when did this end" is looking for.

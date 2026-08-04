@@ -252,8 +252,14 @@
    / IRR readouts so the whole page speaks one colour-coding
    language. ``--pct`` rows additionally get a heavier weight so
    the signed percentage stands out as a numeric readout. */
+/* No weight distinction between the two kinds of detail. "+32%" and
+   "Initiated" answer the same question about the same trade, so
+   bolding one ranked it above the other for no reason the data
+   supports. Both keep the direction colour, which the Action badge
+   also carries -- and which becomes the *only* direction cue once
+   that badge drops out on narrow containers. */
 .trades__detail--pct {
-  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 /* Plain-hyphen separator between the two ends of a multi-day
    burst's date range. Wrapping the glyph in a ``<span>`` rather
