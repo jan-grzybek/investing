@@ -124,11 +124,11 @@ def _year_ticks(start: date | datetime, total_days: int) -> list[tuple[int, floa
     start = start.date() if isinstance(start, datetime) else start
     end = start + timedelta(days=total_days)
     ticks: list[tuple[int, float]] = [(start.year, 0.0)]
+    # No end guard is needed: the loop stops at ``end.year``, and Jan 1
+    # of that year is by definition on or before ``end``, so every
+    # boundary the range produces is inside the window.
     for year in range(start.year + 1, end.year + 1):
-        boundary = date(year, 1, 1)
-        if boundary > end:
-            break
-        ticks.append((year, float((boundary - start).days)))
+        ticks.append((year, float((date(year, 1, 1) - start).days)))
     stride = max(1, math.ceil(len(ticks) / 8))
     return ticks[::stride]
 

@@ -52,9 +52,15 @@ class SafeHtml(str):
             return SafeHtml(str.__add__(self, other))
         return str.__add__(self, str(other) if other is not None else "")
 
-    def __radd__(self, other: object) -> SafeHtml | str:
-        if isinstance(other, SafeHtml):
-            return SafeHtml(str.__add__(other, self))
+    def __radd__(self, other: object) -> str:
+        # ``other`` is never a ``SafeHtml`` here. Python only reaches
+        # ``b.__radd__(a)`` when ``a.__add__(b)`` declines, and
+        # ``SafeHtml.__add__`` handles a ``SafeHtml`` right-hand side
+        # itself, so a same-type sum never gets this far. The case that
+        # does arrive is ``str + SafeHtml``, which the subclass-priority
+        # rule routes here with a plain ``str`` on the left. It yields a
+        # plain ``str``, which is the point: an unescaped fragment must
+        # not inherit the safe mark.
         return str.__add__(str(other) if other is not None else "", self)
 
 

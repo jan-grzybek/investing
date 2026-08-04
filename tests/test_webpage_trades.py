@@ -516,7 +516,7 @@ class TestAddTrades:
         assert 'class="trades__toggle"' in table_html
         assert f'data-total="{total}"' in table_html
         assert 'aria-expanded="false"' in table_html
-        assert f">Show all {total} trades<" in table_html
+        assert f">Show all {total} entries<" in table_html
         # The button sits after the table but *inside* the wrap, which
         # is where the design draws it: a full-width strip along the
         # card's bottom edge, reading as the last row of the table it
@@ -568,7 +568,7 @@ class TestAddTrades:
             ".trades__toggle",
             "data-expanded",
             "aria-expanded",
-            "Show fewer trades",
+            "Show fewer entries",
             "Show all ",
         ):
             assert needle in _TRADES_SORT_SCRIPT

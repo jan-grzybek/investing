@@ -27,6 +27,24 @@ If `.venv/` is missing: `python3 -m venv .venv && .venv/bin/pip install -e '.[de
 
 Cursor runs [`.cursor/hooks/post-edit-verify.sh`](.cursor/hooks/post-edit-verify.sh) after each agent file edit and [`.cursor/hooks/post-agent-verify.sh`](.cursor/hooks/post-agent-verify.sh) when a session completes. Both mirror the **Tests** workflow (`ruff`, `mypy`, `scripts/build_assets.py --check`, full `pytest` with coverage). If a hook reports failures, fix them before pushing — the same gates run on GitHub (`test.yml`).
 
+## Coverage is a one-way ratchet
+
+`fail_under` in `pyproject.toml` is a floor that only ever moves **up**. When a
+change lifts real coverage, raise it to match. Never lower it to turn a red
+build green — if a change drops coverage, the missing tests are part of that
+change, not a follow-up.
+
+New code arrives with its branches covered. "Covered" means a test that would
+fail if the branch were wrong, not one that merely executes it: write the test
+so it pins the behaviour the branch exists for.
+
+When a branch turns out to be unreachable, delete it rather than contorting a
+test to reach it. Several already were — a `SafeHtml.__radd__` arm that
+Python's binary-op protocol can never dispatch to, a year-tick `break` whose
+guard is false by construction, an `if cached is None` inside a block that only
+runs when it isn't, and seven one-line delegators kept "for any external caller"
+that nothing called. Unreachable code is a finding, not a coverage problem.
+
 ## Secrets and private data
 
 Pay **special attention** to not leaking secrets or private portfolio data — especially **raw spreadsheet source data**. The public site shows derived percentages (plus per-share transaction prices, see below); **absolute nominal values** from the Google Sheet — anything that reveals net worth at a point in time — must never appear in the repo, logs, tests, or agent output.

@@ -46,7 +46,7 @@ from . import return_chart as _return_chart
 from . import trades_view as _trades_view
 from . import yearly_view as _yearly_view
 from .anchors import holding_anchor, strip_exchange
-from .head import SiteMeta, build_analytics_tag, build_head, build_jsonld
+from .head import SiteMeta, build_analytics_tag, build_head
 from .sitemap import write_robots_txt, write_sitemap
 
 
@@ -474,52 +474,22 @@ class Webpage:
         """Delegate to :func:`investing.webpage.head.build_head`."""
         return build_head(cls._site_meta())
 
-    @classmethod
-    def _jsonld(cls) -> str:
-        """Delegate to :func:`investing.webpage.head.build_jsonld`."""
-        return build_jsonld(cls._site_meta())
-
     # ----------------------------------------------------- OG image
 
-    # The OG image renderer (font candidate search, SVG
-    # rasterisation, the two-column composition, top-10 logo strip)
-    # lives in :mod:`investing.webpage.og_image`. The methods below
-    # are thin delegators so the historical
-    # ``Webpage._render_og_image`` / ``Webpage._load_font`` /
-    # ``Webpage._load_logo_for_og`` / ``Webpage._top_holdings_for_og`` /
-    # ``Webpage._draw_top_holdings_strip`` call surface still works
-    # for any test or external caller that reached for it.
-    _FONT_FILES = _og_image._FONT_FILES
-    _NON_TICKER_TOP10_KEYS = _og_image.NON_TICKER_TOP10_KEYS
-
-    @staticmethod
-    def _load_font(weight: str, size: int):
-        return _og_image.load_font(weight, size)
-
-    @staticmethod
-    def _load_logo_for_og(ticker: str, max_w: int, max_h: int):
-        return _og_image.load_logo_for_og(ticker, max_w, max_h)
-
-    def _top_holdings_for_og(self, limit: int = 10) -> list[str]:
-        return _og_image.top_holdings_for_og(self.top_10, limit=limit)
-
-    def _draw_top_holdings_strip(
-        self,
-        canvas,
-        *,
-        x: int,
-        y: int,
-        w: int,
-        h: int,
-    ) -> None:
-        _og_image.draw_top_holdings_strip(
-            canvas,
-            _og_image.top_holdings_for_og(self.top_10, limit=10),
-            x=x,
-            y=y,
-            w=w,
-            h=h,
-        )
+    # The OG image renderer -- font search, SVG rasterisation, the
+    # two-column composition, the top-10 logo strip -- lives in
+    # :mod:`investing.webpage.og_image`. This class keeps one entry
+    # point into it, below.
+    #
+    # It used to keep seven more: ``_jsonld``, ``_load_font``,
+    # ``_load_logo_for_og``, ``_top_holdings_for_og``,
+    # ``_draw_top_holdings_strip``, ``_render_og_image_unsafe`` and
+    # ``_trade_detail_text``, each a one-line forward "so any test or
+    # external caller that reached for it still works". Nothing
+    # reached for any of them -- not the package, not the scripts, not
+    # the suite -- and ``_jsonld`` was doubly redundant, since
+    # ``build_head`` emits the JSON-LD block itself. A compatibility
+    # shim with no client is not compatibility, it is surface.
 
     def _render_og_image(self, output_dir: Path | None = None) -> None:
         if self._total_return is None:
@@ -527,24 +497,6 @@ class Webpage:
         _og_image.render(
             total_return=self._total_return,
             benchmarks=self._benchmarks or [],
-            top_10=self.top_10,
-            benchmark_display_names=_BENCHMARK_DISPLAY_NAMES,
-            now=self._now(),
-            output_dir=output_dir,
-        )
-
-    def _render_og_image_unsafe(self, total_return, benchmarks, output_dir=None) -> None:
-        """Backwards-compatible thin wrapper around :func:`og_image.render`.
-
-        The historical signature took ``(total_return, benchmarks)``;
-        external callers (and earlier test snapshots) bind to that
-        method directly, so we keep it as a delegator and forward
-        the renderer's other dependencies through ``self``. ``output_dir``
-        defaults to ``None`` so the legacy CWD-based path keeps working.
-        """
-        _og_image._render_unsafe(
-            total_return=total_return,
-            benchmarks=benchmarks,
             top_10=self.top_10,
             benchmark_display_names=_BENCHMARK_DISPLAY_NAMES,
             now=self._now(),
@@ -789,7 +741,7 @@ class Webpage:
                 columns=columns,
             ),
             _holdings_view.build_group(
-                label=f"Fixed income · {len(self.historical_fixed_income)} closed",
+                label=f"Fixed Income · {len(self.historical_fixed_income)} closed",
                 rows=self.historical_fixed_income,
                 columns=columns,
             ),
@@ -834,10 +786,6 @@ class Webpage:
     _TRADE_DETAIL_SORT_INDEX = _trades_view.TRADE_DETAIL_SORT_INDEX
     _TRADE_ACTION_SORT_INDEX = _trades_view.TRADE_ACTION_SORT_INDEX
     _TRADE_DETAIL_LABELS_REF = _TRADE_DETAIL_LABELS
-
-    @staticmethod
-    def _trade_detail_text(event) -> str:
-        return _trades_view._detail_text(event)
 
     # Holdings rows + table assembly live in
     # :mod:`investing.webpage.holdings_view`. The class-level

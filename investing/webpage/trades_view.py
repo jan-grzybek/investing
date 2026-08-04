@@ -216,7 +216,7 @@ def build_table(rows: list[str]) -> str:
         toggle_html = (
             '<button type="button" class="trades__toggle" '
             f'data-total="{total}" aria-expanded="false">'
-            f"Show all {total} trades</button>"
+            f"Show all {total} entries</button>"
         )
     # The toggle sits *inside* the card, as the design draws it: a
     # full-width strip along the bottom edge under a hairline, reading

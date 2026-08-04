@@ -381,21 +381,10 @@ def build_table(
     )
 
 
-def build_holding_card(holding: dict, *, logo_url_for: Callable[[str], str]) -> str:
-    """Backwards-compatible alias for :func:`build_row`.
-
-    The historical name is kept because ``Webpage._build_holding_card``
-    delegates to it and external snapshots bind to that call surface;
-    the capsule it used to build is gone.
-    """
-    return build_row(holding, logo_url_for=logo_url_for)
-
-
 __all__ = [
     "CLOSED_COLUMNS",
     "OPEN_COLUMNS",
     "build_group",
-    "build_holding_card",
     "build_row",
     "build_table",
 ]

@@ -181,7 +181,7 @@ _RETURN_CHART_SCRIPT = _read_asset("return_chart.js")
 # to pin each ``<th>`` to the width it would naturally take with
 # every row exposed. The default ``table-layout: auto`` recomputes
 # column widths from whichever rows are currently visible, and the
-# "Show fewer trades" cap (CSS hides ``tr:nth-of-type(n+11)``) means
+# "Show fewer entries" cap (CSS hides ``tr:nth-of-type(n+11)``) means
 # sorting can rotate a long name -- "UnitedHealth Group Inc.", "Lam
 # Research Corporation" -- in or out of the top-10 window, which
 # visibly squashes or widens the Company column. By measuring once
