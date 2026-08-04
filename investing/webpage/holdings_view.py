@@ -51,19 +51,29 @@ from .anchors import holding_anchor
 # DOM-order tests already pin. Only the visible labels read "Return"
 # and "IRR", because the underlying figures are MoIC- and IRR-based
 # rather than TWR/CAGR -- see the Method block for the rationale.
-OPEN_COLUMNS: tuple[tuple[str, str, str, str], ...] = (
-    ("name", "Holding", "text", "name"),
-    ("since", "Held since", "text", "since"),
-    ("weight", "Weight", "number", "weight"),
-    ("tsr", "Return", "number", "num"),
-    ("cagr", "IRR", "number", "num"),
+# ``(sort key, wide label, narrow label, sort kind, BEM modifier)``.
+#
+# Two labels, because the header is two different things in the two
+# frames. Wide, it captions a column and has the room to say what the
+# column holds: "Held since", "Dates held". Narrow, the same element
+# is a sort chip in a row of five that has to fit 358px -- and there
+# "Held since" and "Dates held" are what pushed the row into a
+# horizontal scroll it should never have needed. The design writes the
+# short forms on its phone frame for exactly that reason. An empty
+# narrow label means the wide one serves both.
+OPEN_COLUMNS: tuple[tuple[str, str, str, str, str], ...] = (
+    ("name", "Holding", "Name", "text", "name"),
+    ("since", "Held since", "Held", "text", "since"),
+    ("weight", "Weight", "", "number", "weight"),
+    ("tsr", "Return", "", "number", "num"),
+    ("cagr", "IRR", "", "number", "num"),
 )
 
-CLOSED_COLUMNS: tuple[tuple[str, str, str, str], ...] = (
-    ("name", "Holding", "text", "name"),
-    ("held", "Dates held", "text", "periods"),
-    ("tsr", "Return", "number", "num"),
-    ("cagr", "IRR", "number", "num"),
+CLOSED_COLUMNS: tuple[tuple[str, str, str, str, str], ...] = (
+    ("name", "Holding", "Name", "text", "name"),
+    ("held", "Dates held", "Dates", "text", "periods"),
+    ("tsr", "Return", "", "number", "num"),
+    ("cagr", "IRR", "", "number", "num"),
 )
 
 
@@ -303,7 +313,7 @@ def build_table(
     *,
     scope: str,
     groups: Iterable[str],
-    columns: tuple[tuple[str, str, str, str], ...] = OPEN_COLUMNS,
+    columns: tuple[tuple[str, str, str, str, str], ...] = OPEN_COLUMNS,
     caption: str,
     weight_scale: float = 0.0,
 ) -> str:
@@ -329,12 +339,19 @@ def build_table(
         '<th class="holdings__col-logo" role="columnheader">'
         '<span class="visually-hidden">Logo</span></th>'
     ]
-    for key, label, kind, modifier in columns:
+    for key, label, short, kind, modifier in columns:
+        if short:
+            caption_html = (
+                f'<span class="holdings__col-wide">{html.escape(label)}</span>'
+                f'<span class="holdings__col-narrow">{html.escape(short)}</span>'
+            )
+        else:
+            caption_html = html.escape(label)
         header_cells.append(
             f'<th class="holdings__col holdings__col--{modifier}" role="columnheader" '
             f'data-sort-key="{key}" data-sort-kind="{kind}" aria-sort="none">'
             '<button type="button" class="holdings__sort">'
-            f"{html.escape(label)}"
+            f"{caption_html}"
             '<span class="holdings__indicator" aria-hidden="true"></span>'
             "</button>"
             "</th>"

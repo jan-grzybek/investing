@@ -405,6 +405,23 @@ main:focus-visible { outline: none; }
 /* Two spellings of the sort affordance; the stylesheet shows the one
    that matches the layout on screen. See ``_page._CLICK_TO_SORT``. */
 .section__note-narrow { display: none; }
+
+/* Scroll affordance for the sort-chip strips.
+   The design puts its chip row *outside* the card, where it gets the
+   full width and fits without scrolling. A ``<thead>`` cannot be
+   lifted out of its ``<table>``, so here the strip lives inside the
+   card and loses its padding to the card -- and the Activity strip
+   carries a sixth chip the design's does not. Some of them scroll, so
+   they have to say so.
+
+   Four background layers, no JS. The two ``local`` layers scroll with
+   the content and are painted over the two ``scroll`` layers, which
+   stay put. At the far left the local cover sits exactly on the
+   shadow and hides it; scroll right and the cover travels away,
+   uncovering it. The shadow is therefore visible on precisely the
+   side that has more content -- both sides mid-scroll, neither when
+   everything already fits. The two strips carry the layers directly;
+   this note is the single explanation for both. */
 .section__intro {
   margin: 0 0 10px;
   font-size: 0.8125rem;

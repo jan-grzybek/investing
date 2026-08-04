@@ -51,6 +51,9 @@
    24px of cell padding that stands in for the gutter -- which lands
    the flexible name column within a few pixels of the design's 288. */
 .holdings__col-logo { width: 58px; }
+/* Column headers carry both captions; each frame shows one. See
+   ``holdings_view.OPEN_COLUMNS``. */
+.holdings__col-narrow { display: none; }
 /* Return 78 and IRR 68 in the design; IRR is the last column in both
    tables, which is the only thing distinguishing the two here. */
 .holdings__col--num { width: 102px; text-align: right; }
@@ -291,9 +294,32 @@
     border-bottom: 1px solid var(--line);
     overflow-x: auto;
     scrollbar-width: none;
+    /* Painted by ``.scroll-hint``; see 00-base.css. */
+    background:
+      linear-gradient(to right, var(--card-bg) 40%, transparent) left center / 28px 100% no-repeat
+        local,
+      linear-gradient(to left, var(--card-bg) 40%, transparent) right center / 28px 100% no-repeat
+        local,
+      linear-gradient(
+          to right,
+          color-mix(in srgb, var(--fg) 22%, transparent),
+          transparent
+        )
+        left center / 20px 100% no-repeat scroll,
+      linear-gradient(to left, color-mix(in srgb, var(--fg) 22%, transparent), transparent) right
+        center / 20px 100% no-repeat scroll;
   }
   .holdings thead tr::-webkit-scrollbar { display: none; }
-  .holdings thead th {
+  /* Two classes, not one. The desktop column widths are set on
+     ``.holdings__col--num:last-child`` and friends -- (0,2,0) -- and
+     a ``.holdings thead th`` reset is only (0,1,2), so it lost. The
+     IRR chip's cell therefore kept its 92px table width while its
+     button measured 53px, leaving 39px of dead cell between IRR and
+     the chip after it. That is the uneven gap in the strip: not the
+     ``gap`` property, which was an even 6px throughout, but a column
+     width from the other layout still holding its space open. */
+  .holdings thead th,
+  .holdings thead .holdings__col {
     display: block;
     width: auto;
     padding: 0;
@@ -301,7 +327,15 @@
     border: 0;
     flex: 0 0 auto;
   }
-  .holdings__col-logo { display: none; }
+  /* Scoped, so it outranks the ``display: block`` reset above. Left
+     at one class it lost, and the logo header stayed in the strip as
+     a zero-width flex item -- invisible, but still charged a 6px gap
+     before the first real chip. */
+  .holdings thead .holdings__col-logo { display: none; }
+  /* The chips take the short caption so five of them fit 358px
+     without a scroll, which is how the design's phone frame reads. */
+  .holdings__col-wide { display: none; }
+  .holdings__col-narrow { display: inline; }
   /* Chip order is the design's, not the column order: the open book
      leads with Weight (Weight / Return / IRR / Holding / Held since)
      and the closed one leads with Dates (Dates / Return / IRR /
@@ -331,10 +365,38 @@
     color: var(--fg);
   }
 
+  /* Four columns, because the second line carries three things, not
+     two: the listing, the date it was bought, and the IRR. The design
+     writes the first two as one span -- "NMS:NVDA - 14/08/2024" --
+     directly under the holding's name. A three-column grid had no
+     cell for the date, so it was pinned to the far end of the row and
+     read as a caption on the IRR beside it rather than on the ticker
+     it belongs to.
+     Column 2 sizes to the listing and column 3 takes the slack, with
+     the date pinned to its left edge -- that ordering is what keeps
+     the pair together. Reversed, the listing sat at the left of a
+     flexible column and the date began only where that column ended,
+     which put 107px of nothing between them and left the date reading
+     as a caption on the IRR at the far end of the row.
+     The cap goes on the listing itself, not on its track: a track
+     with a percentage maximum grows to that percentage, so a short
+     ticker would sit at the left of a fixed-width column and the date
+     would start where the column ended -- the very gap this is trying
+     to close. ``max-width`` in container units caps the *element*, and
+     the ``auto`` track then sizes to it, giving the shrink-to-fit the
+     track alone cannot express. It exists so the listing can never be
+     the reason the date runs out of room: a dual-listed holding
+     ("DUS:SSU.DU + IOB:SMSN.IL") is half again as wide as a plain
+     ticker and at 320px it pushed the date under the IRR. Past the
+     cap the listing ellipses, which is the right thing to lose --
+     the exchange prefixes are recoverable, a truncated date is not.
+     Gaps are set per item rather than by ``column-gap``, since the
+     listing and its date want to sit tight against their separator
+     while the logo and the figures want the design's 10px. */
   .holdings__row {
     display: grid;
-    grid-template-columns: 30px minmax(0, 1fr) auto;
-    column-gap: 10px;
+    grid-template-columns: 30px minmax(0, auto) minmax(0, 1fr) auto;
+    column-gap: 0;
     row-gap: 5px;
     align-items: center;
     padding: 9px 14px;
@@ -349,6 +411,7 @@
     grid-column: 1;
     grid-row: 1 / span 2;
     width: auto;
+    margin-right: 10px;
   }
   .holdings__logo { width: 28px; height: 18px; }
   /* ``contents`` so the name and its listing become row items in
@@ -360,7 +423,7 @@
      Same collision that flattened the Return column earlier. */
   .holdings__row .holdings__name-cell { display: contents; }
   .holdings__name {
-    grid-column: 2;
+    grid-column: 2 / 4;
     grid-row: 1;
     font-size: 0.8125rem;
     white-space: nowrap;
@@ -371,35 +434,43 @@
     grid-column: 2;
     grid-row: 2;
     justify-self: start;
-    max-width: 60%;
+    min-width: 0;
+    max-width: 32cqi;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     font-size: 0.65625rem;
   }
-  /* Shares the listing's line, pinned to the other end of it -- the
-     design joins the two with a middot; a table cell cannot be
-     inlined into a sibling cell without duplicating the date, so it
-     takes the far end of the same line instead. */
+  /* Immediately after the listing, joined by the design's middot.
+     The two are separate cells in the table and cannot be merged into
+     one span without duplicating the date, so the separator is drawn
+     by the date's own ``::before`` instead. */
   .holdings__since {
-    grid-column: 2;
+    grid-column: 3;
     grid-row: 2;
-    justify-self: end;
+    justify-self: start;
+    white-space: nowrap;
     font-size: 0.65625rem;
   }
+  .holdings__since::before {
+    content: "\00b7";
+    margin: 0 4px;
+  }
   .holdings__periods {
-    grid-column: 2;
+    grid-column: 2 / -1;
     grid-row: 3;
     font-size: 0.65625rem;
     white-space: normal;
   }
   .holdings__num {
-    grid-column: 3;
+    grid-column: 4;
     grid-row: 1;
+    margin-left: 10px;
     font-size: 0.8125rem;
   }
   .holdings__num--soft,
   .holdings__num--tba {
+    grid-column: 4;
     grid-row: 2;
     font-size: 0.65625rem;
     color: var(--muted);

@@ -49,7 +49,8 @@ SORTABLE_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("ticker", "Ticker", "trades__col--ticker"),
     ("name", "Company", "trades__col--name"),
     ("action", "Action", "trades__col--action"),
-    ("detail", "Details", "trades__col--detail"),
+    # Singular, as the design's chip has it: one trade, one detail.
+    ("detail", "Detail", "trades__col--detail"),
     ("date", "Date", "trades__col--date"),
     ("price", "Price", "trades__col--price"),
 )

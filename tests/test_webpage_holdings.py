@@ -495,12 +495,18 @@ class TestHoldingsStyles:
         assert contains_at_rule(_PAGE_STYLES, "@container holdings (max-width:620px)")
         body = at_rule_body(_PAGE_STYLES, "@container holdings (max-width:620px)")
         assert body
-        # The row becomes a grid, and no cell is dropped outright --
-        # the old layout shed Held since, then the weight bar, then
-        # the logo, one threshold at a time.
-        assert "grid-template-columns:30px minmax(0,1fr)auto" in normalize(body).replace(
-            " auto", "auto"
-        )
+        # The row becomes a four-column grid, and no cell is dropped
+        # outright -- the old layout shed Held since, then the weight
+        # bar, then the logo, one threshold at a time.
+        #
+        # Four, not three: the second line carries the listing, the
+        # date it was bought and the IRR. With three columns there was
+        # no cell for the date, so it was pinned to the far end of the
+        # row and read as a caption on the IRR rather than on the
+        # ticker it belongs to.
+        assert "grid-template-columns:30px minmax(0,auto)minmax(0,1fr)auto" in normalize(
+            body
+        ).replace(" auto", "auto").replace("auto ", "auto")
         assert "display:none" not in normalize(body).split(".holdings__row")[1][:400]
 
     def test_table_semantics_survive_the_layout_change(self, stub_logo_lookup):

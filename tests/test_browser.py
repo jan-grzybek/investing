@@ -195,13 +195,17 @@ def test_mobile_cards_place_every_item_on_the_right_grid_line(page: Page, previe
         assert hit, f"no cell matching {needle}"
         return hit[0]
 
+    # Four columns: logo, listing, date, figures. The date has a cell
+    # of its own so it can sit immediately after the listing -- with
+    # three columns there was nowhere to put it but the far end of the
+    # row, where it read as a caption on the IRR instead.
     for scope, expected in (
         (
             "open",
             {
                 "holdings__name": ("1", "2"),
                 "holdings__ticker": ("2", "2"),
-                "holdings__since": ("2", "2"),
+                "holdings__since": ("2", "3"),
                 "holdings__weight": ("3", "2"),
             },
         ),
@@ -218,17 +222,21 @@ def test_mobile_cards_place_every_item_on_the_right_grid_line(page: Page, previe
         for cls, (row, col) in expected.items():
             cell = find(items, cls)
             assert (cell["row"], cell["col"]) == (row, col), f"{scope}/{cls}: {cell}"
-        # The two metrics stack in the third column.
+        # The two metrics stack in the last column.
         nums = [i for i in items if "holdings__num" in i["cls"]]
         assert len(nums) == 2, nums
-        assert {n["col"] for n in nums} == {"3"}, nums
+        assert {n["col"] for n in nums} == {"4"}, nums
         assert {n["row"] for n in nums} == {"1", "2"}, nums
 
-    # Listing and date share row 2 without running into each other --
-    # the whole reason they take opposite ends of it.
+    # The date follows its listing directly, and is nearer to it than
+    # to the IRR at the other end of the line -- which is the whole
+    # point of giving it a column instead of pinning it right.
     open_items = placement["open"]
-    ticker, since = find(open_items, "holdings__ticker"), find(open_items, "holdings__since")
-    assert ticker["right"] < since["left"], (ticker, since)
+    ticker = find(open_items, "holdings__ticker")
+    since = find(open_items, "holdings__since")
+    irr = next(i for i in open_items if "holdings__num--soft" in i["cls"])
+    assert ticker["right"] <= since["left"], (ticker, since)
+    assert since["left"] - ticker["right"] < irr["left"] - since["right"], (ticker, since, irr)
 
 
 def test_mobile_activity_rows_are_two_lines(page: Page, preview_index: Path):
@@ -284,32 +292,35 @@ def test_mobile_sort_chips_follow_the_designs_order(page: Page, preview_index: P
     order = page.evaluate(
         """(sel) => [...document.querySelectorAll(sel)]
             .filter(t => getComputedStyle(t).display !== 'none')
-            .map(t => ({t: t.textContent.trim(), x: t.getBoundingClientRect().left}))
+            .map(t => ({t: t.innerText.trim(), x: t.getBoundingClientRect().left}))
             .sort((a, b) => a.x - b.x)
             .map(o => o.t)""",
         "#holdings thead th",
     )
-    assert order[1:] == ["Weight", "Return", "IRR", "Holding", "Held since"], order
+    # The chips take the design's short captions -- "Name", "Held" --
+    # which is what lets five of them fit a 358px row. The wide frame
+    # keeps "Holding" and "Held since" on the same elements.
+    assert order == ["Weight", "Return", "IRR", "Name", "Held"], order
     order = page.evaluate(
         """(sel) => [...document.querySelectorAll(sel)]
             .filter(t => getComputedStyle(t).display !== 'none')
-            .map(t => ({t: t.textContent.trim(), x: t.getBoundingClientRect().left}))
+            .map(t => ({t: t.innerText.trim(), x: t.getBoundingClientRect().left}))
             .sort((a, b) => a.x - b.x)
             .map(o => o.t)""",
         "#closed thead th",
     )
-    assert order[1:] == ["Dates held", "Return", "IRR", "Holding"], order
+    assert order == ["Dates", "Return", "IRR", "Name"], order
     order = page.evaluate(
         """(sel) => [...document.querySelectorAll(sel)]
             .filter(t => getComputedStyle(t).display !== 'none')
-            .map(t => ({t: t.textContent.trim(), x: t.getBoundingClientRect().left}))
+            .map(t => ({t: t.innerText.trim(), x: t.getBoundingClientRect().left}))
             .sort((a, b) => a.x - b.x)
             .map(o => o.t)""",
         "#activity thead th",
     )
     # The design's five, in its order; Company follows, since this
     # table offers a sort the mock's chip set does not list.
-    assert order[:5] == ["Date", "Ticker", "Action", "Details", "Price"], order
+    assert order[:5] == ["Date", "Ticker", "Action", "Detail", "Price"], order
 
 
 # The baseline probe: an empty inline-block's baseline is its bottom
@@ -596,6 +607,67 @@ def test_chart_legend_sits_under_the_caption_on_a_phone(page: Page, preview_inde
     assert abs(wide["legend"] - wide["heading"]) < 24, wide
     assert phone["legend"] > phone["caption"], phone
     assert wide["copies"] == 1 and phone["copies"] == 1, placements
+
+
+def test_sort_chips_are_evenly_spaced_and_hint_when_they_scroll(page: Page, preview_index: Path):
+    """Every chip's cell must be exactly as wide as the chip in it,
+    and a strip that scrolls must say so.
+
+    The desktop column widths live on selectors like
+    ``.holdings__col--num:last-child`` -- (0,2,0) -- and the card-mode
+    reset was ``.holdings thead th``, only (0,1,2). The reset lost, so
+    the IRR chip's cell kept its 92px table width while the button
+    inside measured 53px: 39px of dead cell masquerading as a gap
+    between two chips whose ``gap`` was an even 6px throughout. The
+    logo header lost the same way and stayed in the strip as a
+    zero-width item, charging a further gap before the first chip.
+    """
+    page.set_viewport_size({"width": 390, "height": 844})
+    page.goto(preview_index.as_uri())
+
+    result = page.evaluate(
+        """() => {
+            const out = {};
+            ['open', 'closed'].forEach(id => {
+                const tr = document.querySelector(
+                    'table[data-holdings-table="' + id + '"] thead tr');
+                const cells = [...tr.children]
+                    .filter(th => getComputedStyle(th).display !== 'none')
+                    .sort((a, b) => a.getBoundingClientRect().left
+                                  - b.getBoundingClientRect().left);
+                const gaps = [];
+                for (let i = 1; i < cells.length; i++) {
+                    gaps.push(Math.round(cells[i].getBoundingClientRect().left
+                                       - cells[i - 1].getBoundingClientRect().right));
+                }
+                out[id] = {
+                    labels: cells.map(c => c.innerText.trim()),
+                    gaps,
+                    // Cell wider than the chip inside it == dead space.
+                    dead: cells.map(c => {
+                        const btn = c.querySelector('.holdings__sort');
+                        return Math.round(c.getBoundingClientRect().width
+                            - (btn ? btn.getBoundingClientRect().width : 0));
+                    }),
+                    scrolls: tr.scrollWidth > tr.clientWidth + 1,
+                    layers: getComputedStyle(tr).backgroundImage.split('gradient').length - 1,
+                };
+            });
+            return out;
+        }"""
+    )
+
+    for scope, data in result.items():
+        assert data["labels"], scope
+        # Every chip carries a caption -- the logo header is gone, not
+        # lingering as an empty item.
+        assert all(data["labels"]), (scope, data["labels"])
+        assert set(data["gaps"]) == {6}, (scope, data["gaps"])
+        assert max(data["dead"]) <= 1, (scope, data["dead"])
+        # Four gradient layers: two that scroll with the content and
+        # two that stay put, so the shadow shows only on the side that
+        # still has chips to reach. See 00-base.css.
+        assert data["layers"] == 4, (scope, data["layers"])
 
 
 def test_metrics_note_discloses_the_long_explanation(preview_page: Page):
