@@ -455,12 +455,13 @@
     color: var(--muted-soft);
     font-size: 0.6875rem;
   }
-  /* The design's chip order for the log: what a reader sorts a trade
-     history by is when it happened, then what it was. */
-  .trades__col--date { order: 1; }
-  .trades__col--ticker { order: 2; }
+  /* Same principle as the holdings chips: the strip runs in the order
+     the card under it reads -- ticker and name on the first line, then
+     the badge, its detail, the price, and the date. */
+  .trades__col--ticker { order: 1; }
+  .trades__col--name { order: 2; }
   .trades__col--action { order: 3; }
   .trades__col--detail { order: 4; }
   .trades__col--price { order: 5; }
-  .trades__col--name { order: 6; }
+  .trades__col--date { order: 6; }
 }

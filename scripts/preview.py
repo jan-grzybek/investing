@@ -36,6 +36,7 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+from investing.holdings import DAYS_YEAR  # noqa: E402
 from investing.paths import COURAGE_LOGO, LOGOS_ADDRESS  # noqa: E402
 from investing.performance import calc_yearly_returns  # noqa: E402
 from investing.webpage import Webpage  # noqa: E402
@@ -182,18 +183,37 @@ def _build_dataset() -> dict:
     start = datetime(2019, 1, 1)
     end = datetime.today()
 
+    # Both figures are derived from the growth multiplier, with the
+    # same formula ``performance.calc_total_return`` uses, rather than
+    # written down beside it.
+    #
+    # They used to be hard-coded, and they disagreed: "48.4% total,
+    # 10.5% annualised" over seven and a half years is arithmetically
+    # impossible -- 48.4% compounds to 5.3% a year, and 10.5% a year
+    # compounds to 113%. The yearly table underneath was right, because
+    # it is computed from ``history``, so the page contradicted itself
+    # in the one place a reader is most likely to check the numbers.
+    # A demo whose figures do not survive a reader's arithmetic is
+    # worse than no demo.
+    def _from_multiplier(multiplier: float) -> tuple[float, float]:
+        days = max((end - start).days, 1)
+        return (multiplier - 1.0) * 100.0, (multiplier ** (DAYS_YEAR / days) - 1.0) * 100.0
+
+    jg_total, jg_cagr = _from_multiplier(1.484)
+    bench_total, bench_cagr = _from_multiplier(1.417)
+
     total_return = {
         "start_date": start,
         "history": _ease_history(start, end, 1.484),
-        "twr%": 48.4,
-        "cagr%": 10.5,
+        "twr%": jg_total,
+        "cagr%": jg_cagr,
     }
     benchmarks = [
         {
             "ticker": "LSE:VUAA.L",
             "name": "Vanguard S&P 500 UCITS ETF",
-            "tsr%": 41.7,
-            "cagr%": 9.2,
+            "tsr%": bench_total,
+            "cagr%": bench_cagr,
             "periods": [{"start": start, "end": None}],
             "history": _ease_history(start, end, 1.417),
         }

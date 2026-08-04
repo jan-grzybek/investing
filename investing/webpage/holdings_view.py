@@ -63,7 +63,7 @@ from .anchors import holding_anchor
 # narrow label means the wide one serves both.
 OPEN_COLUMNS: tuple[tuple[str, str, str, str, str], ...] = (
     ("name", "Holding", "Name", "text", "name"),
-    ("since", "Held since", "Held", "text", "since"),
+    ("since", "Held since", "", "text", "since"),
     ("weight", "Weight", "", "number", "weight"),
     ("tsr", "Return", "", "number", "num"),
     ("cagr", "IRR", "", "number", "num"),

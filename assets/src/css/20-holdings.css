@@ -336,16 +336,22 @@
      without a scroll, which is how the design's phone frame reads. */
   .holdings__col-wide { display: none; }
   .holdings__col-narrow { display: inline; }
-  /* Chip order is the design's, not the column order: the open book
-     leads with Weight (Weight / Return / IRR / Holding / Held since)
-     and the closed one leads with Dates (Dates / Return / IRR /
-     Holding), because that is what a reader reaches for in each. */
-  .holdings__col--periods { order: 1; }
-  .holdings__col--weight { order: 2; }
+  /* The chips run in the order the card reads, top-left to
+     bottom-right: name, then the line under it, then the two figures
+     on the right, then the bar across the bottom. A reader scanning
+     the chips is looking at the same row of cards either way, and a
+     control strip whose order contradicts the thing it controls costs
+     a moment of translation on every single use.
+       open:   Name / Held since / Return / IRR / Weight
+       closed: Name / Dates / Return / IRR
+     One rule set serves both -- the closed table has no weight bar
+     and its date column is ``--periods`` rather than ``--since``. */
+  .holdings__col--name { order: 1; }
+  .holdings__col--since,
+  .holdings__col--periods { order: 2; }
   .holdings__col--num { order: 3; }
   .holdings__col--num:last-child { order: 4; }
-  .holdings__col--name { order: 5; }
-  .holdings__col--since { order: 6; }
+  .holdings__col--weight { order: 5; }
   .holdings__sort {
     width: auto;
     justify-content: center;

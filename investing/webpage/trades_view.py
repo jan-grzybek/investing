@@ -45,14 +45,26 @@ TRADE_ACTION_SORT_INDEX: dict[str, int] = {
 # and matched against the per-row ``data-sort-*`` attributes;
 # ``label`` is the displayed text; ``modifier`` is the BEM
 # modifier added to the ``<th>``.
-SORTABLE_COLUMNS: tuple[tuple[str, str, str], ...] = (
-    ("ticker", "Ticker", "trades__col--ticker"),
-    ("name", "Company", "trades__col--name"),
-    ("action", "Action", "trades__col--action"),
+# ``(sort key, label, sort kind, BEM modifier)``.
+#
+# ``kind`` decides which way a column opens on its first click, by the
+# same rule the holdings tables use: a number reads high-to-low first,
+# everything else A-Z. Without it this table opened *every* column
+# ascending except date, so the first click on Price offered the
+# cheapest fill in the log -- the opposite of what the same click does
+# two sections up. ``ordinal`` is text's behaviour under a different
+# name: Action and Details sort on a lifecycle index, and ascending is
+# what walks it forwards (Bought before Sold, opened before closed).
+#
+# "Name", not "Company": half these rows are funds.
+SORTABLE_COLUMNS: tuple[tuple[str, str, str, str], ...] = (
+    ("ticker", "Ticker", "text", "trades__col--ticker"),
+    ("name", "Name", "text", "trades__col--name"),
+    ("action", "Action", "ordinal", "trades__col--action"),
     # Singular, as the design's chip has it: one trade, one detail.
-    ("detail", "Detail", "trades__col--detail"),
-    ("date", "Date", "trades__col--date"),
-    ("price", "Price", "trades__col--price"),
+    ("detail", "Detail", "ordinal", "trades__col--detail"),
+    ("date", "Date", "number", "trades__col--date"),
+    ("price", "Price", "number", "trades__col--price"),
 )
 
 # Tooltip on the Price header. Price used to be the one unsortable
@@ -186,11 +198,11 @@ def build_table(rows: list[str]) -> str:
     before the user touches anything.
     """
     headers: list[str] = []
-    for key, label, modifier in SORTABLE_COLUMNS:
+    for key, label, kind, modifier in SORTABLE_COLUMNS:
         hint = f' title="{html.escape(PRICE_SORT_HINT)}"' if key == "price" else ""
         headers.append(
             f'<th class="trades__col {modifier}" scope="col" role="columnheader" '
-            f'data-sort-key="{key}" aria-sort="none">'
+            f'data-sort-key="{key}" data-sort-kind="{kind}" aria-sort="none">'
             f'<button type="button" class="trades__sort"{hint}>'
             f"{html.escape(label)}"
             '<span class="trades__sort-indicator" aria-hidden="true"></span>'

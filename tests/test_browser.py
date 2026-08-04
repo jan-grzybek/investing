@@ -297,10 +297,11 @@ def test_mobile_sort_chips_follow_the_designs_order(page: Page, preview_index: P
             .map(o => o.t)""",
         "#holdings thead th",
     )
-    # The chips take the design's short captions -- "Name", "Held" --
-    # which is what lets five of them fit a 358px row. The wide frame
-    # keeps "Holding" and "Held since" on the same elements.
-    assert order == ["Weight", "Return", "IRR", "Name", "Held"], order
+    # The chips run in the order the card under them reads, so a reader
+    # scanning the strip is looking at the same row of cards either
+    # way: name, the line under it, the two figures on the right, then
+    # the bar across the bottom.
+    assert order == ["Name", "Held since", "Return", "IRR", "Weight"], order
     order = page.evaluate(
         """(sel) => [...document.querySelectorAll(sel)]
             .filter(t => getComputedStyle(t).display !== 'none')
@@ -309,7 +310,7 @@ def test_mobile_sort_chips_follow_the_designs_order(page: Page, preview_index: P
             .map(o => o.t)""",
         "#closed thead th",
     )
-    assert order == ["Dates", "Return", "IRR", "Name"], order
+    assert order == ["Name", "Dates", "Return", "IRR"], order
     order = page.evaluate(
         """(sel) => [...document.querySelectorAll(sel)]
             .filter(t => getComputedStyle(t).display !== 'none')
@@ -318,9 +319,10 @@ def test_mobile_sort_chips_follow_the_designs_order(page: Page, preview_index: P
             .map(o => o.t)""",
         "#activity thead th",
     )
-    # The design's five, in its order; Company follows, since this
-    # table offers a sort the mock's chip set does not list.
-    assert order[:5] == ["Date", "Ticker", "Action", "Detail", "Price"], order
+    # Ticker and name lead, as they do on the card's first line; the
+    # date closes, as it does on the second. "Name", not "Company":
+    # half these rows are funds.
+    assert order == ["Ticker", "Name", "Action", "Detail", "Price", "Date"], order
 
 
 # The baseline probe: an empty inline-block's baseline is its bottom
@@ -767,15 +769,26 @@ def test_trades_price_sorts_by_currency_first(preview_page: Page):
     expect(header.locator(".trades__sort")).to_have_attribute(
         "title", re.compile(r"currency first")
     )
+    # Price is a number, so the first click opens it high-to-low --
+    # the same direction the holdings tables open a number in. This
+    # table used to open every column but Date ascending, so the first
+    # click on Price offered the cheapest fill in the log while the
+    # identical click two sections up offered the largest position.
+    header.locator(".trades__sort").click()
+    expect(header).to_have_attribute("aria-sort", "descending")
+
+    def pairs():
+        return preview_page.locator(".trades__row").evaluate_all(
+            """els => els.map(el => [
+                el.getAttribute('data-sort-currency'),
+                parseFloat(el.getAttribute('data-sort-price')),
+            ])"""
+        )
+
+    assert pairs() == sorted(pairs(), key=lambda p: (p[0], p[1]), reverse=True)
     header.locator(".trades__sort").click()
     expect(header).to_have_attribute("aria-sort", "ascending")
-    pairs = preview_page.locator(".trades__row").evaluate_all(
-        """els => els.map(el => [
-            el.getAttribute('data-sort-currency'),
-            parseFloat(el.getAttribute('data-sort-price')),
-        ])"""
-    )
-    assert pairs == sorted(pairs, key=lambda p: (p[0], p[1]))
+    assert pairs() == sorted(pairs(), key=lambda p: (p[0], p[1]))
 
 
 def test_nav_scroll_sets_hash_on_section_link(preview_page: Page):
