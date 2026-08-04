@@ -517,13 +517,16 @@ class TestAddTrades:
         assert f'data-total="{total}"' in table_html
         assert 'aria-expanded="false"' in table_html
         assert f">Show all {total} trades<" in table_html
-        # The button is emitted AFTER the table closes so it sits
-        # below the rows in the visual / reading order, not inside
-        # the horizontal-scroll wrapper where it could be clipped.
+        # The button sits after the table but *inside* the wrap, which
+        # is where the design draws it: a full-width strip along the
+        # card's bottom edge, reading as the last row of the table it
+        # opens rather than as a control parked underneath. The card
+        # chrome moved to the wrap for this, since a ``<button>`` is
+        # not valid inside a ``<table>``.
         toggle_idx = table_html.index('class="trades__toggle"')
         table_close = table_html.index("</table>")
-        wrap_close = table_html.index("</div>", table_close)
-        assert wrap_close < toggle_idx
+        wrap_close = table_html.rindex("</div>")
+        assert table_close < toggle_idx < wrap_close
 
     def test_collapse_rule_hides_overflow_rows_by_default(self):
         # The actual hiding is purely CSS: a

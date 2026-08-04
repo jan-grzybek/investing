@@ -72,7 +72,12 @@
   --card-bg: #ffffff;
   --link: #0077b6;
   --link-hover: #005f8f;
-  --max-width: 880px;
+  /* The design's frame is 880px wide with 32px gutters, so the
+     content column inside it is 816px. ``--max-width`` is the column,
+     not the frame, and the gutter is body padding either side -- at an
+     880px window the two reproduce the frame exactly, and past that
+     the column stops growing where the design stops it. */
+  --max-width: 816px;
   --radius: 12px;
   /* Sector palette for the equity-sleeve allocation bar. Light mode
      anchors on the brand deck (Blue Green for Technology, Deep-Space
@@ -187,6 +192,15 @@
 html {
   color-scheme: light dark;
   background: var(--bg);
+  /* Safari on iOS inflates text inside blocks it judges "wide" unless
+     told not to, which silently grows every ``white-space: nowrap``
+     run on the page -- the sort chips, the prices, the dates, the
+     legend items -- past the width they were laid out for. Pinning it
+     to 100% keeps the rendered size the size the stylesheet asked
+     for, on the one engine that does this. The unprefixed property
+     leads so it wins wherever both are understood. */
+  text-size-adjust: 100%;
+  -webkit-text-size-adjust: 100%;
 }
 body {
   background: var(--bg);
@@ -196,7 +210,9 @@ body {
   line-height: 1.5;
   margin: 0 auto;
   max-width: var(--max-width);
-  padding: 0 24px 48px;
+  /* No bottom padding: the Method band closes the page and carries
+     the design's final 34px itself. */
+  padding: 0 32px 0;
   -webkit-font-smoothing: antialiased;
 }
 img { max-width: 100%; height: auto; }
@@ -359,7 +375,14 @@ main:focus-visible { outline: none; }
 /* Section rhythm. Every section below the hero is evidence for the
    claim the hero makes, so they share one vertical cadence and one
    heading treatment rather than each carrying its own chrome. */
-.section { margin-top: 40px; }
+/* 34px between section blocks, which is the design's rhythm: its
+   blocks carry ``padding: 0 32px 34px`` and no top padding, so the gap
+   between one section's last line and the next one's heading is that
+   34. The first section after the hero takes 30px, because there the
+   design's chart block adds its own ``padding-top: 30px`` on top of
+   the hero's 32px bottom padding rather than the full 34. */
+.section { margin-top: 34px; }
+.section:first-of-type { margin-top: 30px; }
 .section__head {
   display: flex;
   align-items: baseline;

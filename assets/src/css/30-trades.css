@@ -23,15 +23,19 @@
   container-name: trades;
   overflow-x: auto;
   margin-top: 10px;
+  /* The card chrome lives here, not on the ``<table>``, so the "Show
+     all" button can sit inside the card along its bottom edge -- a
+     ``<button>`` is not valid inside ``<table>``. The wrap already
+     clips (``overflow-x`` is not ``visible``), so the radius trims
+     the corners without a second ``overflow`` declaration. */
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card-bg);
 }
 .trades {
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--card-bg);
-  overflow: hidden;
   /* 13.5px, the design's row size -- a full 15px made the log the
      loudest table on a page where it is the supporting detail. */
   font-size: 0.84375rem;
@@ -273,46 +277,34 @@
 .trades:not([data-expanded="true"]) tbody tr.trades__row:nth-of-type(n+11) {
   display: none;
 }
+/* The last row of the card rather than a control parked beneath it:
+   full width, a hairline above it, and the link colour, so it reads
+   as "there is more of this table" instead of as a button that
+   happens to sit nearby. */
 .trades__toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin: 10px 0 0;
-  padding: 8px 14px;
-  background: var(--card-bg);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  color: var(--fg);
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 11px 18px;
+  background: color-mix(in srgb, var(--card-bg) 60%, var(--bg) 40%);
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+  color: var(--link);
   font: inherit;
-  font-size: 0.875rem;
+  font-size: 0.84375rem;
+  font-weight: 600;
+  text-align: center;
   cursor: pointer;
-  transition: background 120ms ease, border-color 120ms ease;
+  transition: background 120ms ease, color 120ms ease;
 }
 .trades__toggle:hover {
-  background: color-mix(in srgb, var(--card-bg) 70%, var(--bg) 30%);
-  border-color: color-mix(in srgb, var(--line) 50%, var(--fg) 50%);
+  background: color-mix(in srgb, var(--card-bg) 30%, var(--bg) 70%);
+  color: var(--link-hover);
 }
 .trades__toggle:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
-}
-/* Small chevron glyph that flips when the table opens so the
-   button visually signals which way the next click will move
-   the section. ``::after`` keeps the indicator decorative
-   (``aria-expanded`` on the button is what assistive tech
-   actually announces). */
-.trades__toggle::after {
-  content: "";
-  display: inline-block;
-  width: 0;
-  height: 0;
-  border-left: 4px solid transparent;
-  border-right: 4px solid transparent;
-  border-top: 5px solid var(--muted);
-  transition: transform 150ms ease;
-}
-.trades__toggle[aria-expanded="true"]::after {
-  transform: rotate(180deg);
 }
 
 /* Below ~620px the log becomes two lines per trade, as the design

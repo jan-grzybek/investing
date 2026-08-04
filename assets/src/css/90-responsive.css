@@ -105,6 +105,19 @@
   .method { font-size: 0.71875rem; }
   .method__title { font-size: 0.8125rem; }
   .method__legal { font-size: 0.6875rem; }
+  /* The design's phone rhythm: 20px between blocks against the wide
+     frame's 34, and 36px from the hero to the first section. */
+  .section { margin-top: 20px; }
+  .section:first-of-type { margin-top: 18px; }
+  .yearly { padding: 16px 16px 14px; }
+  .allocation {
+    padding: 14px 16px 16px;
+    gap: 16px;
+  }
+  .method {
+    margin: 20px -16px 0;
+    padding: 18px 16px 24px;
+  }
   /* The chart's axis labels are sized in viewBox units, so they
      shrink with the frame. Below this width the 15px ticks land
      around 7px on screen, which is unreadable, so they grow back in
@@ -133,7 +146,7 @@
 }
 
 @media (max-width: 560px) {
-  body { padding: 0 16px 40px; }
+  body { padding: 0 16px 0; }
   .site-header {
     margin: 0 -16px 0;
     padding: 10px 16px;
@@ -191,7 +204,7 @@
   .site-brand { font-size: 0.90625rem; }
   .site-brand__mark { width: 22px; height: 22px; }
   .site-brand__section { font-size: 0.84375rem; }
-  .hero { padding: 24px 0 22px; }
+  .hero { padding: 20px 0 18px; }
   .hero__figure { font-size: 3.875rem; }
   .hero__unit { font-size: 1.625rem; }
   .hero__gloss { padding-bottom: 0; }
@@ -201,7 +214,6 @@
   .hero__stat { padding: 10px 12px; }
   .hero__stat-value { font-size: 1.3125rem; }
   .hero__stat-note { font-size: 0.75rem; }
-  .section { margin-top: 28px; }
   .yearly,
   .allocation,
   .method { padding-left: 16px; padding-right: 16px; }
@@ -228,6 +240,5 @@
   .return-chart__hover,
   .holdings__indicator,
   .trades__sort-indicator,
-  .trades__toggle::after,
   .site-nav a { transition: none; }
 }

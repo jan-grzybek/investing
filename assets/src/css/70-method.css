@@ -7,12 +7,23 @@
    between time-weighted and money-weighted is the single most
    misreadable thing on the page, and burying it as bullet three of
    four made it look like boilerplate. */
+/* A full-bleed band closing the page, not a rounded card. The design
+   ends its frame with a white block that runs edge to edge under a
+   single hairline -- it is the colophon, and boxing it made it look
+   like one more section of evidence competing with the tables above.
+
+   The bleed is negative margins equal to the body's gutter, never
+   ``100vw``: on iOS ``vw`` counts the scrollbar gutter, so a
+   ``100vw`` bleed is itself a cause of the horizontal scrolling this
+   page must not have. Negative margins bleed to exactly the padding
+   box the gutter carved out, which is the frame edge at every width. */
 .method {
-  margin-top: 40px;
-  padding: 26px 24px 28px;
+  margin: 34px -32px 0;
+  padding: 26px 32px 34px;
   background: var(--card-bg);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
   color: var(--muted);
   font-size: 0.84375rem;
   line-height: 1.6;

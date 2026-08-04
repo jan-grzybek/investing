@@ -197,15 +197,6 @@ def build_table(rows: list[str]) -> str:
         )
     thead = f'<thead role="rowgroup"><tr role="row">{"".join(headers)}</tr></thead>'
     tbody = f'<tbody role="rowgroup">{"".join(rows)}</tbody>'
-    table_html = (
-        '<div class="trades__wrap">'
-        '<table class="trades" role="table" '
-        'data-sort-default="date" '
-        'data-sort-default-dir="desc">'
-        f"{thead}{tbody}"
-        "</table>"
-        "</div>"
-    )
     toggle_html = ""
     total = len(rows)
     if total > VISIBLE_DEFAULT:
@@ -214,4 +205,19 @@ def build_table(rows: list[str]) -> str:
             f'data-total="{total}" aria-expanded="false">'
             f"Show all {total} trades</button>"
         )
-    return table_html + toggle_html
+    # The toggle sits *inside* the card, as the design draws it: a
+    # full-width strip along the bottom edge under a hairline, reading
+    # as the last row of the table it opens. Outside and pill-shaped it
+    # read as an unrelated control that happened to land nearby.
+    # ``<button>`` is not valid inside ``<table>``, so the card chrome
+    # lives on the wrap and the table sits inside it untrimmed.
+    return (
+        '<div class="trades__wrap">'
+        '<table class="trades" role="table" '
+        'data-sort-default="date" '
+        'data-sort-default-dir="desc">'
+        f"{thead}{tbody}"
+        "</table>"
+        f"{toggle_html}"
+        "</div>"
+    )
