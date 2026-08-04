@@ -682,11 +682,11 @@ class Webpage:
             "holdings with the same price chart can post different IRRs "
             "purely on timing.</p>"
             "</div>"
-            "</div>"
             '<p class="metrics-note__foot">Both exclude capital-gains tax and '
             "both net out an assumed 15% dividend withholding. Neither is "
             "&ldquo;the real one&rdquo; &mdash; they answer different "
             "questions, which is why the page shows both.</p>"
+            "</div>"
             "</div>"
         )
 

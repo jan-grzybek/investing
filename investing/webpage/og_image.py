@@ -258,7 +258,7 @@ _OG_FG: tuple[int, int, int] = (15, 36, 48)
 _OG_MUTED: tuple[int, int, int] = (107, 130, 145)
 _OG_ACCENT: tuple[int, int, int] = (251, 133, 0)
 _OG_BENCH: tuple[int, int, int] = (2, 48, 71)
-_OG_RULE: tuple[int, int, int] = (217, 226, 234)
+_OG_RULE: tuple[int, int, int] = (221, 228, 234)
 _OG_POS: tuple[int, int, int] = (42, 157, 143)
 _OG_NEG: tuple[int, int, int] = (230, 57, 112)
 
@@ -718,7 +718,7 @@ def _draw_total(
         _OG_MUTED,
         _OG_LABEL_TRACKING,
     )
-    value_y = y + label_h + 8
+    value_y = y + label_h + _OG_LABEL_TO_VALUE
     value_top = draw.textbbox((0, 0), value, font=value_font)[1]
     draw.text((x, value_y - value_top), value, font=value_font, fill=value_fill)
     return value_y + _text_height(draw, value, value_font)
@@ -728,6 +728,22 @@ def _draw_total(
 # rendered sizes (~0.1em on the byline, ~0.07em on the total labels).
 _OG_BYLINE_TRACKING = 2.7
 _OG_LABEL_TRACKING = 1.5
+
+# Vertical rhythm, as ink-to-ink distances.
+#
+# The design states these as CSS box margins (16 / 20 / 4 / 20+20),
+# but a CSS box carries leading above and below its ink, so the gap
+# the eye sees is always larger than the declared margin. Pillow has
+# no line boxes -- it places ink -- so porting the margins literally
+# collapsed every gap on the card: the claim sat 7px under the hero
+# where the design shows 31, and each total's figure sat 4px under
+# its label where the design shows 19. These are the design's own
+# rendered spacings, measured off the reference at 1200x630.
+_OG_BYLINE_INK_TOP = 6  # caps sit this far into a 27px line box
+_OG_EYEBROW_TO_HERO = 29
+_OG_HERO_TO_CLAIM = 31
+_OG_LABEL_TO_VALUE = 19
+_OG_TOTALS_BLOCK_GAP = 54
 
 
 def _render_unsafe(
@@ -771,31 +787,30 @@ def _render_unsafe(
     byline_h = _text_height(draw, byline, f_byline)
     header_top = _PAD_T
     rule_w, rule_h = 26, 8
+    rule_mid = header_top + _OG_BYLINE_INK_TOP + byline_h / 2
     draw.rectangle(
-        (
-            content_l,
-            header_top + byline_h / 2 - rule_h / 2,
-            content_l + rule_w,
-            header_top + byline_h / 2 + rule_h / 2,
-        ),
+        (content_l, rule_mid - rule_h / 2, content_l + rule_w, rule_mid + rule_h / 2),
         fill=_OG_ACCENT,
     )
     _draw_tracked(
         draw,
-        (content_l + rule_w + 14, header_top - draw.textbbox((0, 0), byline, font=f_byline)[1]),
+        (
+            content_l + rule_w + 14,
+            header_top + _OG_BYLINE_INK_TOP - draw.textbbox((0, 0), byline, font=f_byline)[1],
+        ),
         byline,
         f_byline,
         _OG_FG,
         _OG_BYLINE_TRACKING,
     )
     draw.text(
-        (content_r, header_top + byline_h / 2),
+        (content_r, rule_mid),
         "Investment Portfolio",
         font=f_section,
         fill=_OG_MUTED,
         anchor="rm",
     )
-    header_bottom = header_top + byline_h
+    header_bottom = header_top + _OG_BYLINE_INK_TOP + byline_h
 
     # ---- foot + logo strip, measured up from the bottom edge ---------
     f_foot = load_font("regular", 22)
@@ -803,8 +818,13 @@ def _render_unsafe(
     foot_left = f"Since {_fmt_date_long(start_date)}  \u00b7  {duration}"
     if tickers:
         foot_left += f"  \u00b7  {equities}"
-    foot_h = _text_height(draw, foot_left, f_foot)
-    foot_top = _H - _PAD_B - foot_h
+    # Anchored by its ink bottom, not its box top. The design bottoms
+    # the foot's line box against the 34px padding, so what sits a
+    # fixed distance from the canvas edge is the last row of pixels --
+    # placing the box top there instead pushed the whole line, and the
+    # logo strip above it, several pixels low.
+    foot_bb = draw.textbbox((0, 0), foot_left, font=f_foot)
+    foot_top = _H - _PAD_B - 1 - foot_bb[3]
     # ``MUTED`` on the opaque ``BG`` page surface lands at WCAG-AA
     # contrast (4.3 : 1), readable without any stroke outline. At
     # 22px it survives the ~0.46x scale a feed renders the card at,
@@ -856,9 +876,11 @@ def _render_unsafe(
     )
     totals_x = content_r - totals_w
     block_h = (
-        _text_height(draw, "PORTFOLIO", f_total_label) + 8 + _text_height(draw, "0%", f_total_value)
+        _text_height(draw, "PORTFOLIO", f_total_label)
+        + _OG_LABEL_TO_VALUE
+        + _text_height(draw, "0%", f_total_value)
     )
-    totals_h = block_h * len(totals) + 40 * (len(totals) - 1)
+    totals_h = block_h * len(totals) + _OG_TOTALS_BLOCK_GAP * (len(totals) - 1)
     totals_top = mid_top + (mid_bottom - mid_top - totals_h) / 2
 
     # The divider is the right column's leading edge, so it spans that
@@ -874,7 +896,7 @@ def _render_unsafe(
     y = totals_top
     for index, (swatch, label, value, fill) in enumerate(totals):
         if index:
-            rule_y = y - 20
+            rule_y = y - _OG_TOTALS_BLOCK_GAP / 2
             draw.rectangle((totals_x, rule_y, content_r, rule_y + 2), fill=_OG_RULE)
         y = (
             _draw_total(
@@ -888,7 +910,7 @@ def _render_unsafe(
                 value_font=f_total_value,
                 value_fill=fill,
             )
-            + 40
+            + _OG_TOTALS_BLOCK_GAP
         )
 
     # ---- the claim, on the left --------------------------------------
@@ -904,7 +926,17 @@ def _render_unsafe(
     eyebrow_h = _text_height(draw, eyebrow, f_eyebrow)
     num_h = _text_height(draw, hero.number, f_hero_num)
     claim_h = _text_height(draw, hero.claim, f_claim)
-    stack_h = eyebrow_h + 16 + num_h + 20 + claim_h
+    # The unit sits on the number's baseline, and "pp" descends below
+    # it. That descender is part of the lockup the eye sees, so the
+    # gap to the claim is measured from it -- measuring from the
+    # digits instead pulled the claim up into the descender by exactly
+    # its depth.
+    unit_descent = max(
+        0.0,
+        draw.textbbox((0, 0), hero.unit, font=f_hero_unit, anchor="ls")[3],
+    )
+    lockup_h = num_h + unit_descent
+    stack_h = eyebrow_h + _OG_EYEBROW_TO_HERO + lockup_h + _OG_HERO_TO_CLAIM + claim_h
     y = mid_top + (mid_bottom - mid_top - stack_h) / 2
 
     _draw_tracked(
@@ -915,7 +947,7 @@ def _render_unsafe(
         _OG_MUTED,
         2.4,
     )
-    y += eyebrow_h + 16
+    y += eyebrow_h + _OG_EYEBROW_TO_HERO
     num_top = draw.textbbox((0, 0), hero.number, font=f_hero_num)[1]
     draw.text((content_l, y - num_top), hero.number, font=f_hero_num, fill=hero_fill)
     # The unit sits on the number's baseline rather than on its own
@@ -927,7 +959,7 @@ def _render_unsafe(
         fill=hero_fill,
         anchor="ls",
     )
-    y += num_h + 20
+    y += lockup_h + _OG_HERO_TO_CLAIM
     draw.text(
         (content_l, y - draw.textbbox((0, 0), hero.claim, font=f_claim)[1]),
         hero.claim,

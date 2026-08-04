@@ -45,11 +45,20 @@
   white-space: nowrap;
   vertical-align: middle;
 }
-.holdings__col-logo { width: 56px; }
-.holdings__col--num { text-align: right; }
+/* Column widths track the design's grid spec (40 / 1fr / 104 / 132 /
+   78 / 68 at a 14px gutter). This is a real table rather than a grid,
+   so each fixed column carries the design's content width plus the
+   24px of cell padding that stands in for the gutter -- which lands
+   the flexible name column within a few pixels of the design's 288. */
+.holdings__col-logo { width: 58px; }
+/* Return 78 and IRR 68 in the design; IRR is the last column in both
+   tables, which is the only thing distinguishing the two here. */
+.holdings__col--num { width: 102px; text-align: right; }
+.holdings__col--num:last-child { width: 92px; }
 .holdings__col--num .holdings__sort { justify-content: flex-end; }
-.holdings__col--weight { width: 150px; }
-.holdings__col--since { width: 118px; }
+.holdings__col--weight { width: 156px; }
+.holdings__col--since { width: 128px; }
+.holdings__col--periods { width: 224px; }
 /* Sort buttons are visually identical to the surrounding header
    text so the table reads as a tight grid; the affordance is
    carried by the indicator triangle and the focus ring rather than
@@ -116,7 +125,7 @@
   text-align: left;
   font-weight: 400;
 }
-.holdings__logo-cell { width: 56px; }
+.holdings__logo-cell { width: 58px; }
 .holdings__logo-link { display: inline-flex; align-items: center; }
 .holdings__logo-link:focus-visible {
   outline: 2px solid var(--accent);
@@ -127,10 +136,10 @@
    wordmarks, and a square box letterboxes them down to a third of
    the visual weight of the icon-style marks beside them.
    ``object-position: left`` keeps every mark on a common left edge
-   so the column reads as a column. */
+   so the column reads as a column. 34x22 is the design's box. */
 .holdings__logo {
-  width: 48px;
-  height: 30px;
+  width: 34px;
+  height: 22px;
   object-fit: contain;
   object-position: left center;
 }
@@ -163,15 +172,20 @@
    book is legible before a single figure is read. */
 .holdings__weight {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 42px;
+  grid-template-columns: minmax(0, 1fr) 40px;
   align-items: center;
   column-gap: 9px;
 }
+/* The unfilled track is derived from ``--fg``, not ``--line``: a
+   line-coloured track is a clean light grey on the white card and
+   almost exactly the card's own colour on the dark one, which left
+   the fill reading as an orange stub floating in space. Tinting the
+   foreground inverts with the theme and stays a track on both. */
 .holdings__bar {
   display: block;
   height: 7px;
   border-radius: 2px;
-  background: color-mix(in srgb, var(--line) 70%, transparent);
+  background: color-mix(in srgb, var(--fg) 14%, transparent);
   overflow: hidden;
 }
 /* The row publishes its own weight as ``--w``; the table publishes

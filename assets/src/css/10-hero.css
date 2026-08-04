@@ -58,7 +58,10 @@
 }
 .hero__gloss {
   padding-bottom: 8px;
-  max-width: 34ch;
+  /* The design pins 340px. A ``ch`` measure would drift with whatever
+     face the reader's system resolves, which is exactly the kind of
+     silent variance the rest of this pass is removing. */
+  max-width: 340px;
 }
 .hero__headline {
   margin: 0;

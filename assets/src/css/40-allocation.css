@@ -95,9 +95,13 @@
   flex: 0 0 auto;
 }
 /* Segments too narrow to hold their own percentage defer it to the
-   legend, so the bar never renders a clipped number. */
+   legend, so the bar never renders a clipped number. It inherits the
+   legend's muted ink rather than stepping up to ``--fg``: the chip
+   exists to name a sector, and a figure set brighter than the name it
+   belongs to reads as the more important of the two, which inverts
+   the point. Weight alone is enough to find it. */
 .allocation__key-value {
   font-weight: 600;
-  color: var(--fg);
+  color: inherit;
   font-variant-numeric: tabular-nums;
 }

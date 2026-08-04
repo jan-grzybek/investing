@@ -57,7 +57,7 @@
 .yearly__row:last-child td,
 .yearly__row:last-child th { border-bottom: 0; }
 .yearly__year {
-  width: 56px;
+  width: 44px;
   text-align: left;
   font-size: 0.875rem;
   font-weight: 700;
@@ -90,13 +90,17 @@
 /* A losing year is the one case where the series colour would lie
    about direction, so the loss colour wins over the series colour. */
 .yearly__bar--neg { background: var(--negative); }
+/* The design's 56 / 56 / 62 columns at a 14px gutter; this table has
+   no gutter of its own, so each figure carries the gap as padding. */
 .yearly__num {
-  width: 62px;
+  width: 70px;
+  padding-left: 14px;
   text-align: right;
   font-size: 0.875rem;
   font-weight: 600;
   white-space: nowrap;
 }
+.yearly__alpha { width: 76px; }
 .yearly__bench { font-weight: 500; color: color-mix(in srgb, var(--fg) 70%, var(--muted) 30%); }
 .yearly__alpha { font-weight: 700; }
 .yearly__empty { color: var(--muted); font-weight: 400; }

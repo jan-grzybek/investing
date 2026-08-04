@@ -32,7 +32,9 @@
   border-radius: var(--radius);
   background: var(--card-bg);
   overflow: hidden;
-  font-size: 0.9375rem;
+  /* 13.5px, the design's row size -- a full 15px made the log the
+     loudest table on a page where it is the supporting detail. */
+  font-size: 0.84375rem;
 }
 .trades thead th {
   font-size: 0.75rem;
