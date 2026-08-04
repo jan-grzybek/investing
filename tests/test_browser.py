@@ -186,6 +186,46 @@ def test_return_chart_shows_hover_on_pointer_move(preview_page: Page):
     expect(hover).to_have_class(re.compile(r"\bis-active\b"))
 
 
+def test_return_chart_tooltip_rows_line_up(preview_page: Page):
+    # The tooltip's rows are ``display: contents`` over a two-column
+    # grid, so every element inside a row is itself a grid item. A
+    # third child per series (the swatch appended beside the label
+    # rather than inside it) pushes that series' value into the next
+    # row's label slot and scrambles the card from line two down.
+    #
+    # Asserting the geometry rather than the DOM shape: what matters
+    # is that each label sits on the same line as its own value, with
+    # the value to its right. That holds however the markup is built,
+    # and fails for every arrangement that reads as broken.
+    plot = preview_page.locator(".return-chart__plot").first
+    box = plot.bounding_box()
+    assert box is not None
+    preview_page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    expect(plot.locator(".return-chart__hover")).to_have_class(re.compile(r"\bis-active\b"))
+
+    rows = plot.locator(".return-chart__tooltip-row")
+    assert rows.count() >= 2, "preview should chart a portfolio and a benchmark"
+    for index in range(rows.count()):
+        row = rows.nth(index)
+        label = row.locator(".return-chart__tooltip-label").bounding_box()
+        value = row.locator(".return-chart__tooltip-value").bounding_box()
+        assert label is not None and value is not None
+        label_mid = label["y"] + label["height"] / 2
+        value_mid = value["y"] + value["height"] / 2
+        assert abs(label_mid - value_mid) <= 4, (
+            f"row {index}: label and value are on different lines "
+            f"({label_mid:.1f} vs {value_mid:.1f})"
+        )
+        assert value["x"] >= label["x"] + label["width"], (
+            f"row {index}: value does not sit to the right of its label"
+        )
+        # The swatch belongs to its label, which is what keeps the row
+        # at two grid items.
+        assert (
+            row.locator(".return-chart__tooltip-label .return-chart__tooltip-swatch").count() == 1
+        )
+
+
 def test_marquee_and_treemap_are_gone(preview_page: Page):
     # Both surfaces were removed, along with the scripts that drove
     # them. A stale element would mean a script hash is still pinned

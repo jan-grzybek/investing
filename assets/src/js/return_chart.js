@@ -106,10 +106,15 @@
       sw.className = "return-chart__tooltip-swatch return-chart__tooltip-swatch--" + s.kind;
       var lbl = document.createElement("span");
       lbl.className = "return-chart__tooltip-label";
-      lbl.textContent = s.label;
+      // The swatch goes *inside* the label, not beside it. The row is
+      // `display: contents` over a two-column grid, so every element
+      // it contains is itself a grid item -- a third child per series
+      // pushes that series' value into the next row's label slot and
+      // scrambles the whole card from the second line down.
+      lbl.appendChild(sw);
+      lbl.appendChild(document.createTextNode(s.label));
       var val = document.createElement("span");
       val.className = "return-chart__tooltip-value";
-      row.appendChild(sw);
       row.appendChild(lbl);
       row.appendChild(val);
       rowsEl.appendChild(row);
