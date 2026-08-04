@@ -114,7 +114,7 @@
       lbl.appendChild(sw);
       lbl.appendChild(document.createTextNode(s.label));
       var val = document.createElement("span");
-      val.className = "return-chart__tooltip-value";
+      val.className = "return-chart__tooltip-value return-chart__tooltip-value--" + s.kind;
       row.appendChild(lbl);
       row.appendChild(val);
       rowsEl.appendChild(row);

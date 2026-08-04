@@ -61,6 +61,10 @@
   .section__note-wide { display: none; }
   .section__note-narrow { display: inline; }
   .section__intro { font-size: 0.71875rem; }
+  /* The chart's caption runs half a step larger than the tables'
+     intros in the design -- it is the one instruction on the page,
+     and it sits alone above the thing it instructs. */
+  .section--chart > .section__intro { font-size: 0.75rem; }
   .legend { font-size: 0.71875rem; }
   /* The line swatches shrink with the type they label. */
   .legend__swatch { width: 12px; }
@@ -76,7 +80,7 @@
     margin: 0 0 8px;
   }
   .hero__eyebrow { font-size: 0.59375rem; letter-spacing: 0.1em; }
-  .hero__updated { font-size: 0.59375rem; letter-spacing: 0.06em; }
+  .hero__updated { font-size: 0.59375rem; font-weight: 700; letter-spacing: 0.06em; }
   .hero__stat-label { font-size: 0.59375rem; letter-spacing: 0.07em; }
   /* "Portfolio TWR" / "S&P 500 TSR" shed the acronym here -- see
      ``hero._stat``. */
@@ -94,6 +98,11 @@
     color: var(--muted-soft);
   }
   .allocation__segment-value { font-size: 0.6875rem; }
+  /* The sector bar's figures step down again: there are five of them
+     against the asset bar's three, in the same width. */
+  .allocation__block + .allocation__block .allocation__segment-value {
+    font-size: 0.65625rem;
+  }
   .allocation__key { font-size: 0.71875rem; }
   .metrics-note__toggle { font-size: 0.71875rem; }
   .metrics-note { font-size: 0.71875rem; }
@@ -125,7 +134,7 @@
      size there is no longer room for all of them. The gridlines all
      stay: fewer numbers against the same grid is the readable
      trade, and it is what the design mock does too. */
-  .return-chart__tick { font-size: 28px; }
+  .return-chart__tick { font-size: 29px; }
   .return-chart__tick--minor { display: none; }
   /* No end labels on the phone. The design drops them, and it is
      right to: at this scale the two stacked names and figures eat a
@@ -204,6 +213,10 @@
   .site-brand { font-size: 0.90625rem; }
   .site-brand__mark { width: 22px; height: 22px; }
   .site-brand__section { font-size: 0.84375rem; }
+  /* The rule between the name and the section keeps its full size
+     while the words either side shrink -- it is a divider, and the
+     design lets it stay the tallest thing in the bar. */
+  .site-brand__sep { font-size: 1rem; }
   .hero { padding: 20px 0 18px; }
   .hero__figure { font-size: 3.875rem; }
   .hero__unit { font-size: 1.625rem; }
@@ -230,7 +243,23 @@
   .yearly__alpha { width: 66px; }
   .yearly__year { width: 46px; }
   .yearly__bars { padding-right: 6px; padding-left: 6px; }
+  /* The tooltip steps down with everything else on the phone: the
+     design runs it a size smaller throughout so it can sit over a
+     149px-tall chart without covering the curve it is reading. */
   .return-chart__tooltip { min-width: 148px; padding: 8px 10px; }
+  /* The tracking on the date is a wide-frame refinement; the design
+     leaves the phone's alone, where the label is already tight. */
+  .return-chart__tooltip-date {
+    font-size: 0.65625rem;
+    letter-spacing: normal;
+  }
+  .return-chart__tooltip-label { font-size: 0.6875rem; }
+  .return-chart__tooltip-value { font-size: 0.75rem; }
+  .return-chart__tooltip-delta { font-size: 0.78125rem; }
+  .return-chart__tooltip-delta::before {
+    font-size: 0.625rem;
+    letter-spacing: 0.07em;
+  }
 }
 
 /* Users who ask for less motion get the same page without the
