@@ -28,6 +28,7 @@ __all__ = [
     "SITE_URL",
     "SOCIAL_IMAGE",
     "_MARKET_DATA_DIR",
+    "_POSITION_GROUPS_PATH",
     "_REPO_LOGOS_DIR",
     "_REPO_LOGOS_SOURCE_DIR",
     "_SECTOR_OVERRIDES_PATH",
@@ -131,6 +132,12 @@ _REPO_LOGOS_DIR = os.path.join(_REPO_LOGOS_SOURCE_DIR, "tight")
 # other repo-relative constants and a fork that wants to repoint the
 # data only has to edit one module.
 _SECTOR_OVERRIDES_PATH = os.path.join(_REPO_DIR, "sector_overrides.toml")
+
+# Maintainer-curated map of several tickers onto one economic position
+# (a primary listing plus its depositary receipts / secondary
+# listings). Consumed by ``investing.position_groups``; see that
+# module for the file's schema.
+_POSITION_GROUPS_PATH = os.path.join(_REPO_DIR, "position_groups.toml")
 
 # Committed yfinance snapshot tree (splits / dividends / FX / history).
 # Override with ``INVESTING_MARKET_DATA_DIR``; disable persistence with

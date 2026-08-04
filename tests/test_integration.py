@@ -247,6 +247,11 @@ class TestGenerateWebpage:
         html = (chdir_tmp / "index.html").read_text()
         assert 'id="equities"' in html
         assert 'id="fixed-income"' in html
-        assert "NMS:AAA" in html
-        assert "NMS:BBB" in html
+        # Capsules are titled by company name, not ticker. The equity
+        # ticker still reaches the page via the marquee and the
+        # treemap payload, but a fixed-income holding appears in
+        # neither of those equity-only surfaces -- so its *name* is
+        # the only thing that evidences the sub-section rendered.
+        assert "AAA Inc." in html
+        assert "BBB Inc." in html
         assert 'href="#fixed-income"' in html

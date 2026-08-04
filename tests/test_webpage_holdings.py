@@ -457,11 +457,11 @@ class TestAddHolding:
             )
         )
         card = w.current[0]
-        # Ticker key drops the exchange prefix and lower-cases so
-        # "Sort by Ticker" reads as a clean A->Z run of company
-        # symbols.
-        assert 'data-sort-ticker="nvda"' in card
-        # Names case-fold for the same reason.
+        # No ticker sort key: capsules identify positions by company
+        # name, so sorting by an invisible symbol was dropped along
+        # with the toolbar button.
+        assert "data-sort-ticker" not in card
+        # Names case-fold so "Sort by Name" reads as a clean A->Z run.
         assert 'data-sort-name="nvidia corporation"' in card
         # Numeric keys are emitted with a fixed-decimal float
         # serialisation so int / float upstream values render
@@ -494,21 +494,21 @@ class TestAddHolding:
             )
         )
         card = w.historical[0]
-        assert 'data-sort-ticker="old"' in card
         assert 'data-sort-name="old co."' in card
         assert 'data-sort-tsr="-12.5000"' in card
         assert 'data-sort-cagr="-7.3000"' in card
         assert "data-sort-weight" not in card
 
-    def test_holding_title_keeps_exchange_prefix_for_display(
+    def test_holding_title_is_company_name_without_ticker(
         self,
         stub_logo_lookup,
     ):
-        # The visible title still reads as ``EXCHANGE:SYMBOL -
-        # Company`` so the row stays unambiguous; only the
-        # *sort key* drops the prefix. Guards against an
-        # accidental refactor that lower-cases the displayed
-        # ticker too.
+        # The Holdings section answers "what do I own", and the answer
+        # is a company. Which listing it was bought through belongs to
+        # the Trades table, where each row is one specific security.
+        # Dropping the ticker here is also what lets a position backed
+        # by several listings (``investing.positions``) render like
+        # every other capsule instead of needing a joined title.
         w = Webpage()
         w.add_holding(
             _holding(
@@ -517,7 +517,8 @@ class TestAddHolding:
             )
         )
         card = w.current[0]
-        assert "NMS:NVDA - NVIDIA Corporation" in card
+        assert '<h3 class="holding__title">NVIDIA Corporation</h3>' in card
+        assert "NMS:NVDA" not in card.split("</h3>")[0]
 
 
 class TestHoldingsSortControl:
@@ -528,10 +529,12 @@ class TestHoldingsSortControl:
         freeze_today,
     ):
         # The current-holdings toolbar exposes the full set
-        # (Default / Ticker / Name / TSR / CAGR / Weight) since
-        # current rows carry all five sort dimensions; the
-        # historical toolbar drops Weight (no current weight on
-        # closed positions). Default starts ``aria-pressed="true"``
+        # (Default / Name / TSR / CAGR / Weight) since current rows
+        # carry all four sort dimensions; the historical toolbar
+        # drops Weight (no current weight on closed positions).
+        # There is no Ticker button -- capsules show the company
+        # name, so a ticker sort would reorder against invisible
+        # data. Default starts ``aria-pressed="true"``
         # so first paint reads as the upstream order
         # (most-recent-trade-first) rather than an ambiguous
         # "no sort applied" state.
@@ -549,9 +552,10 @@ class TestHoldingsSortControl:
         # Toolbar present and scoped to the current list.
         assert 'class="holdings__sort"' in out
         assert 'data-holdings-sort="current"' in out
-        # All five sort keys + Default render as buttons.
-        for key in ("default", "ticker", "name", "tsr", "cagr", "weight"):
+        # All four sort keys + Default render as buttons.
+        for key in ("default", "name", "tsr", "cagr", "weight"):
             assert f'data-holdings-sort-key="{key}"' in out
+        assert 'data-holdings-sort-key="ticker"' not in out
         # Default is pre-pressed; the others start inert.
         assert (
             'data-holdings-sort-key="default" data-holdings-sort-kind="default" aria-pressed="true"'
@@ -596,8 +600,9 @@ class TestHoldingsSortControl:
         hist_idx = out.index('data-holdings-sort="historical"')
         hist_end = out.index("</div>", hist_idx)
         hist_toolbar = out[hist_idx:hist_end]
-        for key in ("default", "ticker", "name", "tsr", "cagr"):
+        for key in ("default", "name", "tsr", "cagr"):
             assert f'data-holdings-sort-key="{key}"' in hist_toolbar
+        assert 'data-holdings-sort-key="ticker"' not in hist_toolbar
         assert 'data-holdings-sort-key="weight"' not in hist_toolbar
 
     def test_each_section_wraps_cards_in_holdings_list(

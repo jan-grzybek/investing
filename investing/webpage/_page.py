@@ -200,6 +200,15 @@ class Webpage:
                     "name": holding["name"],
                     "sector": holding.get("sector") or "",
                     "current_weight%": holding.get("current_weight%"),
+                    # Multi-listing positions (``investing.positions``)
+                    # need both to render: ``short_label`` is the tile
+                    # text, since no single symbol identifies the
+                    # position, and ``tickers`` lets the tooltip spell
+                    # out every constituent listing. Absent on ordinary
+                    # holdings, where the treemap falls back to
+                    # ``ticker``.
+                    "short_label": holding.get("short_label", ""),
+                    "tickers": list(holding.get("tickers") or ()),
                 }
             )
         card = self._build_holding_card(holding)

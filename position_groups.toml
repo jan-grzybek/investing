@@ -1,0 +1,87 @@
+# Multi-ticker positions: several listings of one company reported as
+# a single holding on the rendered page.
+#
+# A company can enter the portfolio through more than one instrument --
+# a primary listing plus a depositary receipt, a dual listing on a
+# second exchange, or two share classes. Without an entry here the
+# pipeline reports each listing as an independent holding: two
+# capsules, two treemap tiles, two rows in the top-10 weights. The
+# reader sees two half-sized stakes in the same company instead of one
+# whole one.
+#
+# Combination happens on the USD cashflow timeline (see
+# ``investing.holdings.merge_ledgers``), not on the finished
+# percentages. That matters because ``Return`` is a ratio that could be
+# recombined from totals, but ``IRR`` is an XIRR -- no weighting of two
+# IRRs reproduces the IRR of the merged series. Working on the timeline
+# also means legs in different currencies, or a GDR representing a
+# fraction of a common share, need no reconciliation: share counts
+# never leave the leg that owns them.
+#
+# The Trades section is deliberately NOT combined. A trade happened
+# against a specific listing, at a specific price, in a specific
+# currency, so each leg keeps its own rows; only the Name column is
+# normalised to the group name so sorting by name keeps the company's
+# activity together.
+#
+# ---------------------------------------------------------------------
+# Schema
+# ---------------------------------------------------------------------
+#
+#   [<group-key>]                # any unique slug; not displayed
+#   primary = "EXCHANGE:SYMBOL"  # required -- the identity leg
+#   members = ["EXCHANGE:SYMBOL", ...]   # required -- the other legs
+#   name    = "Display Name"     # optional -- overrides yfinance longName
+#   label   = "Short"            # optional -- compact treemap tile text
+#
+# ``primary`` supplies the combined position's logo file, anchor id,
+# issuer website, sector and asset class, and is the key its portfolio
+# weight is recorded under. Pick the leg you actually keep a logo for
+# under ``logos/``.
+#
+# ``name`` matters more often than it looks: yfinance returns the
+# *listing's* name, which frequently carries a "GDR" / "SPONSORED ADR"
+# suffix or differs in punctuation between legs.
+#
+# ``label`` is used only where space is tight (currently the sector
+# treemap tile). It defaults to the primary's symbol with the exchange
+# stripped, which is already correct whenever one leg is the
+# recognisable one -- holding ``NMS:GOOGL`` next to ``NMS:GOOG`` should
+# just read ``GOOGL``. Set it when no single symbol reads as the
+# company.
+#
+# Ticker keys use the same ``EXCHANGE:SYMBOL`` shape as the rest of the
+# pipeline. The exchange prefix is yfinance's ``info["exchange"]``,
+# which is not always the venue you would guess -- the London-listed
+# Samsung GDR reports ``IOB`` (International Order Book), not ``LSE``.
+# The build logs every holding as ``EXCHANGE:SYMBOL - Name - Weight``,
+# so the surest way to get a key right is to copy it from a build log.
+#
+# ---------------------------------------------------------------------
+# Behaviour when a leg is not held
+# ---------------------------------------------------------------------
+#
+# Groups degrade quietly rather than failing the build. A group is
+# applied only when its primary AND at least one other leg are both
+# currently held; otherwise the legs render as ordinary standalone
+# positions. So an entry can be declared ahead of actually buying the
+# second listing, and can stay in place after the pairing is exited.
+#
+# The one hard error is a ticker claimed by two groups -- that is
+# unresolvable, and silently picking a winner would drop the loser's
+# cashflows out of the portfolio entirely.
+
+# Samsung Electronics is held on Düsseldorf as SSU.DU (EUR). The
+# London International Order Book GDR, SMSN.IL (USD), is the same
+# company. Declared ahead of time: while only one leg is held this
+# entry is inert and the page is unchanged, and the moment both are
+# held they report as one position.
+#
+# ``label`` is set because neither symbol reads as Samsung to anyone
+# scanning the treemap -- SSU.DU is a Düsseldorf listing code and
+# SMSN.IL is the IOB GDR code.
+[samsung]
+primary = "DUS:SSU.DU"
+members = ["IOB:SMSN.IL"]
+name = "Samsung Electronics"
+label = "Samsung"

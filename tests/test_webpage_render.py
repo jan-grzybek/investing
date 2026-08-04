@@ -995,17 +995,26 @@ class TestSave:
         main_idx = out.index('<main id="main-content"')
         performance_idx = out.index('id="performance"')
         assert main_idx < ticker_idx < performance_idx
-        # Each current holding ticker now also appears in the marquee
-        # (two copies for the seamless loop) plus the card + two more
-        # occurrences for the equities-by-sector treemap tile
-        # (``title`` + ``aria-label`` both spell out the full
-        # ``ticker - name`` tooltip; the ``href`` uses the slugged
-        # ``holding-NMS-CURR`` form and so doesn't contribute to the
-        # raw ticker count). The ticker-level equities bar chart
-        # used to add a sixth occurrence here but has been retired
-        # in favour of the treemap.
+        # A current holding's ticker appears four times: twice in the
+        # marquee (two copies of the strip for the seamless loop,
+        # each carrying a ``title="TICKER - Name"`` tooltip) and
+        # twice in the treemap's JSON payload -- once as ``ticker``
+        # (identity: logo key, anchor, weights) and once as
+        # ``tickers`` (the tooltip's listing, which for a combined
+        # position spells out every constituent line). The ``href``
+        # uses the slugged ``holding-NMS-CURR`` form and so doesn't
+        # contribute to the raw count.
+        #
+        # The capsule no longer contributes: holdings are titled by
+        # company name, with the ticker left to the Trades table.
+        # The count is unchanged from before that switch only by
+        # coincidence -- the card's occurrence was traded for the
+        # payload's new ``tickers`` field.
         assert out.count("NMS:CURR") == 4
-        assert out.count("NMS:OLD") == 1  # historical -> not in ticker
+        # Historical positions are excluded from both the marquee and
+        # the treemap, and their capsule is name-only, so a closed
+        # position's ticker is absent from the page entirely.
+        assert out.count("NMS:OLD") == 0
         # Asset-allocation bar chart still rendered; the previous
         # ticker-level equities bar chart has been removed in
         # favour of the sector treemap, so no ``<div class="bars

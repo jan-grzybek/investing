@@ -58,19 +58,29 @@ def test_yearly_returns_toggle_expands_and_collapses(preview_page: Page):
 
 
 def test_holdings_sort_reorders_current_list(preview_page: Page):
+    # Name is the alphabetical sort on this toolbar. There is no
+    # Ticker button: capsules are titled by company name, so sorting
+    # by symbol would reorder the list against data the reader cannot
+    # see (and a position backed by several listings has no single
+    # symbol to sort by). The Trades table keeps its own ticker sort.
     list_el = preview_page.locator('[data-holdings-list="current"]')
-    ticker_btn = preview_page.locator(
-        '[data-holdings-sort="current"] .holdings__sort-btn[data-holdings-sort-key="ticker"]'
+    name_btn = preview_page.locator(
+        '[data-holdings-sort="current"] .holdings__sort-btn[data-holdings-sort-key="name"]'
     )
     expect(list_el).to_be_visible()
+    expect(
+        preview_page.locator(
+            '[data-holdings-sort="current"] .holdings__sort-btn[data-holdings-sort-key="ticker"]'
+        )
+    ).to_have_count(0)
     before = list_el.locator(".holding").evaluate_all(
-        "els => els.map(el => el.getAttribute('data-sort-ticker'))"
+        "els => els.map(el => el.getAttribute('data-sort-name'))"
     )
     assert len(before) >= 2
 
-    ticker_btn.click()
+    name_btn.click()
     after = list_el.locator(".holding").evaluate_all(
-        "els => els.map(el => el.getAttribute('data-sort-ticker'))"
+        "els => els.map(el => el.getAttribute('data-sort-name'))"
     )
     assert after != before
     assert after == sorted(before)

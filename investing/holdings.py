@@ -7,6 +7,7 @@ from __future__ import annotations
 import bisect
 import math
 import urllib.parse
+from dataclasses import dataclass, field
 from datetime import datetime
 
 import numpy as np
@@ -143,6 +144,140 @@ def _xirr(
         if abs(high - low) < tol:
             break
     return (low + high) / 2.0
+
+
+# ---------------------------------------------------------------------------
+# Position ledgers
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class PositionLedger:
+    """The USD-normalised money timeline behind one position.
+
+    :meth:`Holding.summary` used to build this state inline and
+    immediately collapse it to two percentages. It is materialised as
+    its own value object so several tickers backing the *same*
+    economic position (a company holding a primary listing plus a
+    depositary receipt -- see :mod:`investing.position_groups`) can be
+    merged and reduced **once**, rather than trying to recombine the
+    finished percentages.
+
+    That distinction is not cosmetic. ``tsr%`` is a ratio of the two
+    gross totals, so it recombines exactly given those totals -- but
+    ``cagr%`` is an XIRR, and no weighting of two IRRs reproduces the
+    IRR of the concatenated cashflow series. Merging has to happen
+    here, on the timeline, before the reduction runs.
+
+    Every amount is already in USD: :meth:`Holding.ledger` applies the
+    per-leg FX rate at each event's own date as it records the
+    cashflow. Merging across legs denominated in different currencies
+    is therefore just list concatenation, and legs whose shares are
+    not comparable (a GDR representing a fraction of a common share)
+    need no reconciliation at all -- the share counts never leave the
+    leg that owns them.
+    """
+
+    cashflows: list[tuple[datetime, float]]
+    gross_invested: float
+    gross_returned: float
+    current_value_usd: float
+    is_current: bool
+    periods: list[HoldingPeriod] = field(default_factory=list)
+    latest_buy: datetime | None = None
+    latest_sell: datetime | None = None
+
+
+def _merge_periods(periods: list[HoldingPeriod]) -> list[HoldingPeriod]:
+    """Coalesce ownership spans into their union, newest first.
+
+    Two listings of the same company are typically held over
+    overlapping (often identical) spans, and the combined capsule
+    should read as one continuous period rather than repeating the
+    same date range once per leg. Touching or overlapping spans are
+    merged; genuinely disjoint ones stay separate so a position that
+    was exited and re-entered still shows both stints.
+
+    ``end is None`` means "still open", so an open span absorbs every
+    later span rather than comparing ``None`` against a datetime.
+    """
+    if not periods:
+        return []
+    ordered = sorted(periods, key=lambda period: period["start"])
+    merged: list[HoldingPeriod] = [
+        {"start": ordered[0]["start"], "end": ordered[0]["end"]},
+    ]
+    for period in ordered[1:]:
+        last = merged[-1]
+        if last["end"] is None:
+            # The running span runs to the present, so anything
+            # starting later is already inside it.
+            continue
+        if period["start"] <= last["end"]:
+            last["end"] = None if period["end"] is None else max(last["end"], period["end"])
+        else:
+            merged.append({"start": period["start"], "end": period["end"]})
+    # Newest-first, matching the single-ticker ordering the capsule
+    # renderer receives (it re-sorts defensively, but the contract is
+    # worth keeping uniform across combined and plain positions).
+    return list(reversed(merged))
+
+
+def merge_ledgers(ledgers: list[PositionLedger]) -> PositionLedger:
+    """Combine several legs of one position into a single ledger.
+
+    Cashflows concatenate (the reduction sorts them), gross totals and
+    current values sum, and ownership spans are unioned. The position
+    counts as current when *any* leg is still open -- holding one
+    listing after closing another is still holding the company.
+
+    Raises :class:`InvariantError` on an empty list: a group with no
+    legs is a configuration fault, and returning a zero-valued ledger
+    would silently render a phantom capsule.
+    """
+    if not ledgers:
+        raise InvariantError("cannot merge an empty list of position ledgers")
+    cashflows: list[tuple[datetime, float]] = []
+    periods: list[HoldingPeriod] = []
+    for ledger in ledgers:
+        cashflows.extend(ledger.cashflows)
+        periods.extend(ledger.periods)
+    latest_buys = [ledger.latest_buy for ledger in ledgers if ledger.latest_buy is not None]
+    latest_sells = [ledger.latest_sell for ledger in ledgers if ledger.latest_sell is not None]
+    return PositionLedger(
+        cashflows=cashflows,
+        gross_invested=sum(ledger.gross_invested for ledger in ledgers),
+        gross_returned=sum(ledger.gross_returned for ledger in ledgers),
+        current_value_usd=sum(ledger.current_value_usd for ledger in ledgers),
+        is_current=any(ledger.is_current for ledger in ledgers),
+        periods=_merge_periods(periods),
+        latest_buy=max(latest_buys) if latest_buys else None,
+        # The most recent exit across every leg. A combined position
+        # that still holds one listing keeps ``is_current`` True, so
+        # this only drives the historical bucket's sort order.
+        latest_sell=max(latest_sells) if latest_sells else None,
+    )
+
+
+def ledger_metrics(ledger: PositionLedger) -> tuple[float, float]:
+    """Reduce a ledger to its ``(tsr%, cagr%)`` pair.
+
+    ``tsr%`` is the money multiple minus one (MoIC - 1) in percentage
+    points; ``cagr%`` is the annualised XIRR over the whole cashflow
+    series. A degenerate series that the solver cannot bracket comes
+    back as ``math.inf`` rather than ``nan`` so the renderer's
+    existing ``CAGR_TBA_THRESHOLD`` comparison takes the "TBA" branch
+    (``nan > threshold`` is ``False``, which would have rendered a
+    misleading figure instead).
+    """
+    if ledger.gross_invested > 0:
+        tsr = ledger.gross_returned / ledger.gross_invested - 1.0
+    else:
+        tsr = 0.0
+    irr = _xirr(ledger.cashflows)
+    if math.isnan(irr):
+        irr = math.inf
+    return tsr * 100, irr * 100
 
 
 # ---------------------------------------------------------------------------
@@ -570,8 +705,14 @@ class Holding:
             description="yfinance ticker history",
         )
 
-    def summary(self) -> HoldingSummary:
-        """Compute money-weighted return / IRR plus the renderer payload.
+    def ledger(self) -> PositionLedger:
+        """Build this ticker's USD cashflow timeline.
+
+        Split out of :meth:`summary` so the timeline can be merged
+        with other legs of the same position before any percentage is
+        computed (see :func:`merge_ledgers`). :meth:`summary` is the
+        single-ticker path: build one ledger, reduce it, attach the
+        identity fields.
 
         The per-holding figures answer "how did *I* do on this
         position" rather than "how did the security itself perform".
@@ -730,26 +871,6 @@ class Holding:
             cashflows.append((now, +mtm_usd))
             gross_returned += mtm_usd
 
-        # MoIC - 1, in percent. Reuses the historical ``tsr%`` key
-        # so the renderer / sort attrs / OG image / capsule layout
-        # don't have to plumb a new field; the disclaimer carries
-        # the methodology change.
-        if gross_invested > 0:
-            tsr = gross_returned / gross_invested - 1.0
-        else:
-            tsr = 0.0
-
-        # XIRR via the bisection solver. ``math.nan`` (no bracket
-        # found, e.g. degenerate cashflow series) propagates through
-        # the multiplication and the renderer will hit the
-        # ``CAGR_TBA_THRESHOLD`` guard which already exists for
-        # extreme rates -- ``nan > threshold`` is ``False`` in
-        # Python, so we explicitly map ``nan`` to ``inf`` to take
-        # the "TBA" branch.
-        irr = _xirr(cashflows)
-        if math.isnan(irr):
-            irr = math.inf
-
         if quantity_current > 0:
             current_value_usd = (
                 quantity_current * self._info["regularMarketPrice"] * self._fx(currency)
@@ -757,6 +878,34 @@ class Holding:
         else:
             current_value_usd = 0.0
 
+        return PositionLedger(
+            cashflows=cashflows,
+            gross_invested=gross_invested,
+            gross_returned=gross_returned,
+            current_value_usd=current_value_usd,
+            is_current=self._positions[-1]["quantity"] > 0,
+            periods=list(reversed(self._periods)),
+            latest_buy=self._inflows[-1]["date"] if self._inflows else None,
+            latest_sell=self._outflows[-1]["date"] if self._outflows else None,
+        )
+
+    def summary(self) -> HoldingSummary:
+        """Reduce this ticker's ledger to the renderer payload.
+
+        The money math lives in :meth:`ledger` and
+        :func:`ledger_metrics`; everything added here is per-ticker
+        identity (display name, logo / anchor key, issuer URL, sector,
+        asset class). Combined positions take the same two steps in
+        :mod:`investing.positions`, which is why the reduction is a
+        free function rather than a method.
+        """
+        position = self.ledger()
+        tsr_pct, cagr_pct = ledger_metrics(position)
+        if position.latest_buy is None:
+            raise InvariantError(
+                f"holding {self._ticker_symbol!r} has no recorded BUY -- "
+                "summary() requires at least one inflow",
+            )
         return {
             "ticker": f"{self._info['exchange']}:{self._info['symbol']}",
             "name": self._info["longName"],
@@ -764,14 +913,14 @@ class Holding:
             # (delta vs benchmark, top-10 weight summing, OG-image
             # hero) can do further math without compounding rounding
             # error. Display sites round at format time with ``:.1f``.
-            "tsr%": tsr * 100,
-            "cagr%": irr * 100,
-            "is_current": self._positions[-1]["quantity"] > 0,
+            "tsr%": tsr_pct,
+            "cagr%": cagr_pct,
+            "is_current": position.is_current,
             "current_weight%": None,
-            "current_value_usd": current_value_usd,
-            "periods": list(reversed(self._periods)),
-            "latest_buy": self._inflows[-1]["date"],
-            "latest_sell": self._outflows[-1]["date"] if self._outflows else None,
+            "current_value_usd": position.current_value_usd,
+            "periods": position.periods,
+            "latest_buy": position.latest_buy,
+            "latest_sell": position.latest_sell,
             # Click target for the capsule's logo wrapper: the issuer's
             # own ``website`` when yfinance has it, ``irWebsite`` when
             # it doesn't, and a Google search on the company name as

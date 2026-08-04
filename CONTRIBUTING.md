@@ -22,7 +22,9 @@ deploy workflow runs the same command. New code should
 | `investing/formatting.py` | Date / percentage / duration / hash helpers. |
 | `investing/fx.py` | `ExchangeRate` + the `fx` callable threaded through the API. |
 | `investing/trades.py` | `Trade` records and burst aggregation. |
-| `investing/holdings.py` | `Holding` (positions, periods, dividends, TSR / CAGR). |
+| `investing/holdings.py` | `Holding` (positions, periods, dividends, TSR / CAGR) + `PositionLedger`, the USD cashflow timeline the return figures reduce from. |
+| `investing/position_groups.py` | Loader + validator for `position_groups.toml` (several listings of one company reported as one holding). |
+| `investing/positions.py` | Folds a group's per-listing ledgers into one summary; owns which listing supplies the combined position's identity. |
 | `investing/sheets.py` | Google Sheets ingestion + row schema validators. |
 | `investing/performance.py` | TWR / allocations / top-10 / benchmarks. |
 | `investing/logos.py` | `LogoCache` (session + retry + negative cache) for logo URL resolution. |
@@ -106,6 +108,44 @@ versions are installed in the active virtualenv. Always install the
 dev set (step 1 above) before running `pre-commit install`, otherwise
 the hooks won't find the binaries. CI installs the same dev extras from
 `pyproject.toml`, so a successful pre-commit pass matches CI.
+
+## Multi-listing positions
+
+One company can enter the portfolio through more than one instrument
+— a primary listing plus a depositary receipt, a dual listing, or two
+share classes. Left alone the pipeline reports each listing as its own
+holding, so the page shows two half-sized stakes in one company.
+
+[`position_groups.toml`](position_groups.toml) declares that several
+listings are one position; its header documents the schema. The
+Holdings capsule, the sector treemap tile, and the top-10 weights then
+show a single entry.
+
+Two things are worth knowing before editing it:
+
+* **Combination happens on the cashflow timeline, not on the finished
+  percentages.** `Return` is a ratio and could be recombined from
+  totals, but `IRR` is an XIRR — no weighting of two IRRs reproduces
+  the IRR of the merged series. `investing.holdings.merge_ledgers`
+  concatenates the legs' USD cashflows and
+  `investing.holdings.ledger_metrics` solves once. A consequence worth
+  keeping: legs in different currencies, or a GDR representing a
+  fraction of a common share, need no reconciliation, because share
+  counts never leave the leg that owns them.
+* **Trades are deliberately not combined.** A trade hit one specific
+  security at one specific price in one specific currency. Each leg
+  keeps its own rows; only the Name column is normalised to the group
+  name so sorting by name keeps the company's activity together.
+
+Ticker keys use the `EXCHANGE:SYMBOL` form, where the prefix is
+yfinance's `info["exchange"]` — not always the venue you would guess
+(the London-listed Samsung GDR reports `IOB`, not `LSE`). Copy keys
+from a build log to be sure.
+
+Groups degrade quietly: one is applied only when its primary and at
+least one other leg are both currently held, so an entry can be
+declared before buying the second listing and left in place after
+exiting it. The single hard error is a ticker claimed by two groups.
 
 ## Commits
 
