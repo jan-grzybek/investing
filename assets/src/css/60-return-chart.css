@@ -23,7 +23,15 @@
   display: block;
   width: 100%;
   height: auto;
-  overflow: visible;
+  /* ``--chart-view`` is the full viewBox, gutter included, and is what
+     the wide frame draws. The phone frame swaps in ``--chart-plot``,
+     the plot alone, and ``preserveAspectRatio="xMinYMid slice"`` then
+     scales the drawing to fill that narrower box and clips the gutter
+     off the right. Both are published on the figure by
+     ``return_chart.render`` so the numbers cannot drift from the
+     geometry that produced them. */
+  aspect-ratio: var(--chart-view);
+  overflow: hidden;
 }
 .return-chart__grid {
   stroke: color-mix(in srgb, var(--line) 75%, transparent);

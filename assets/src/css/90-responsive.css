@@ -61,12 +61,19 @@
   .section__note-wide { display: none; }
   .section__note-narrow { display: inline; }
   .section__intro { font-size: 0.71875rem; }
-  /* The legend rides in the section head's note slot, so it would
-     otherwise inherit the note's lighter tone. It labels the two
-     curves and stays on ``--muted``, as the design has it. */
-  .legend {
-    font-size: 0.71875rem;
-    color: var(--muted);
+  .legend { font-size: 0.71875rem; }
+  /* The line swatches shrink with the type they label. */
+  .legend__swatch { width: 12px; }
+  .legend__swatch--band { width: 11px; height: 8px; }
+  /* Phone frame: the legend drops out of the heading's row and back
+     to its DOM position, under the caption and directly above the
+     chart it names. */
+  .section--chart { grid-template-columns: minmax(0, 1fr); }
+  .section--chart > .legend {
+    grid-column: 1;
+    grid-row: auto;
+    justify-self: start;
+    margin: 0 0 8px;
   }
   .hero__eyebrow { font-size: 0.59375rem; letter-spacing: 0.1em; }
   .hero__updated { font-size: 0.59375rem; letter-spacing: 0.06em; }
@@ -98,6 +105,31 @@
   .method { font-size: 0.71875rem; }
   .method__title { font-size: 0.8125rem; }
   .method__legal { font-size: 0.6875rem; }
+  /* The chart's axis labels are sized in viewBox units, so they
+     shrink with the frame. Below this width the 15px ticks land
+     around 7px on screen, which is unreadable, so they grow back in
+     viewBox units -- and every second label goes, because at that
+     size there is no longer room for all of them. The gridlines all
+     stay: fewer numbers against the same grid is the readable
+     trade, and it is what the design mock does too. */
+  .return-chart__tick { font-size: 28px; }
+  .return-chart__tick--minor { display: none; }
+  /* No end labels on the phone. The design drops them, and it is
+     right to: at this scale the two stacked names and figures eat a
+     ninth of the chart's width to repeat two numbers the hero states
+     at 62px a screen earlier. The dots stay -- they mark where each
+     curve ends without costing width.
+
+     With the labels gone their gutter is dead margin, so the SVG
+     switches to the plot-only aspect ratio and ``slice`` clips the
+     gutter away, letting the curve run to the right edge. */
+  .return-chart__end-name,
+  .return-chart__end-value { display: none; }
+  .return-chart__plot svg { aspect-ratio: var(--chart-plot); }
+  /* "0% / 20% / 40%", not "+0% / +20% / +40%" -- the design's phone
+     axis. The sign is a glyph of noise in front of every tick on an
+     axis that only runs one way; a negative sign is never dropped. */
+  .return-chart__tick-sign { display: none; }
 }
 
 @media (max-width: 560px) {
@@ -186,21 +218,6 @@
   .yearly__alpha { width: 66px; }
   .yearly__year { width: 46px; }
   .yearly__bars { padding-right: 6px; padding-left: 6px; }
-  /* The chart's axis labels are sized in viewBox units, so they
-     shrink with the frame. Below this width the 15px ticks land
-     around 7px on screen, which is unreadable, so they grow back in
-     viewBox units -- and every second label goes, because at that
-     size there is no longer room for all of them. The gridlines all
-     stay: fewer numbers against the same grid is the readable
-     trade, and it is what the design mock does too. */
-  .return-chart__tick { font-size: 28px; }
-  .return-chart__tick--minor { display: none; }
-  /* "S&P 500" is a wider token than the "S&P" the design abbreviates
-     to, and the end labels sit in a 114-unit inset. At 20 / 24 the
-     longer name and its figure both clear the viewBox edge with room
-     to spare; at 26 the figure came within 3 units of it. */
-  .return-chart__end-name { font-size: 20px; }
-  .return-chart__end-value { font-size: 24px; }
   .return-chart__tooltip { min-width: 148px; padding: 8px 10px; }
 }
 

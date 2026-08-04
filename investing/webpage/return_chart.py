@@ -264,8 +264,26 @@ def render(
         py = PLOT_Y1 - (ys - view_min) / y_span * (PLOT_Y1 - PLOT_Y0)
         return " ".join(f"{a:.2f},{b:.2f}" for a, b in zip(px, py, strict=True))
 
+    # ``xMinYMid slice`` plus a CSS ``aspect-ratio`` is what lets one
+    # SVG serve both frames without redrawing it.
+    #
+    # The wide frame reserves ``VIEW_W - PLOT_X1`` of viewBox for the
+    # end labels beside the curves. The phone frame has no end labels
+    # -- the design drops them, and at that size they crowd the plot --
+    # so that gutter would sit there as dead margin, the curve stopping
+    # 11% short of the right edge.
+    #
+    # With ``slice`` the SVG scales to *cover* its box and clips the
+    # overflow, and ``xMin`` anchors that at the left. Give the element
+    # the viewBox's own ratio and scale lands exactly where ``meet``
+    # would, so nothing is clipped; give it the ratio of the plot alone
+    # and the plot fills the width while the label gutter is clipped
+    # away. One attribute, one CSS line per frame, no second geometry
+    # and no distortion -- the aspect ratio of the drawing is preserved
+    # either way.
     svg: list[str] = [
         f'<svg viewBox="0 0 {VIEW_W:.0f} {VIEW_H:.0f}" '
+        'preserveAspectRatio="xMinYMid slice" '
         'xmlns="http://www.w3.org/2000/svg" role="img" '
         f'aria-label="{html.escape(_chart_alt(series, total_return, benchmarks))}">'
     ]
@@ -306,7 +324,17 @@ def render(
         f'<div class="return-chart__plot">{"".join(svg)}'
         f"{_build_hover_html(has_delta=len(series) >= 2)}</div>"
     )
-    return f'<figure class="return-chart" data-chart="{chart_data_attr}">{plot_html}</figure>'
+    # Both ratios ride on the element so the stylesheet can switch
+    # between them without hard-coding geometry that lives here. The
+    # clipped one keeps the plot plus the end dot's radius and a little
+    # air; everything past it is the end-label gutter.
+    ratios = (
+        f"--chart-view: {VIEW_W:.0f} / {VIEW_H:.0f}; --chart-plot: {PLOT_X1 + 8:.0f} / {VIEW_H:.0f}"
+    )
+    return (
+        f'<figure class="return-chart" style="{ratios}" '
+        f'data-chart="{chart_data_attr}">{plot_html}</figure>'
+    )
 
 
 def _chart_alt(
@@ -382,7 +410,14 @@ def _tick_text(pct: float) -> str:
     keep their decimal, because there the digit carries information.
     """
     body = f"{pct:.0f}" if abs(pct - round(pct)) < 1e-9 else f"{pct:.1f}"
-    return f"{'+' if pct >= 0 else ''}{body}%"
+    if pct < 0:
+        return f"{body}%"
+    # The leading "+" lives in its own tspan because the phone frame
+    # drops it -- the design labels that axis "0% / 20% / 40%", and at
+    # phone scale the sign is a glyph of noise in front of every tick
+    # on an axis that only runs one way anyway. A negative sign is
+    # never dropped: there the glyph carries the meaning.
+    return f'<tspan class="return-chart__tick-sign">+</tspan>{body}%'
 
 
 def _year_tick_svg(

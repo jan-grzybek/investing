@@ -84,6 +84,12 @@ _TAP_TO_SORT = '<span class="section__note-narrow"> &middot; tap to sort</span>'
 # phone note is "All 12 - tap to sort", which says the same thing in
 # the space it has.
 _SHOWN = '<span class="section__note-wide"> shown</span>'
+# The chart is scrubbed with a pointer on the wide frame and with a
+# finger on the narrow one, and the caption should say which.
+_HOVER_VERB = (
+    '<span class="section__note-wide">Hover</span>'
+    '<span class="section__note-narrow">Tap and drag</span>'
+)
 
 
 class Webpage:
@@ -253,7 +259,7 @@ class Webpage:
             parts.append(self._build_hero(update_date, update_iso))
 
         if self.return_html:
-            parts.append('<section id="performance" class="section">')
+            parts.append('<section id="performance" class="section section--chart">')
             parts.append(self.return_html)
             parts.append("</section>")
 
@@ -620,20 +626,27 @@ class Webpage:
         yearly_returns: list[YearlyReturn] | None = None,
     ) -> str:
         lines: list[str] = []
-        lines.append(
-            self._section_head(
-                "Cumulative return",
-                self._chart_legend(benchmarks),
-            )
-        )
+        # The legend follows the caption in the DOM because that is
+        # where the phone frame wants it -- under the sentence that
+        # tells you to drag the chart, immediately above the chart.
+        # The wide frame lifts it onto the heading's line with a grid
+        # placement rather than a second copy in the markup, so the
+        # curves are named exactly once for a screen reader.
+        lines.append(self._section_head("Cumulative return", ""))
+        # Same split as the sort hint: the gesture differs by frame, so
+        # the page carries both spellings and shows the true one. The
+        # design's phone caption is "Tap and drag the chart"; nobody
+        # hovers anything on a phone.
+        read_it = f"{_HOVER_VERB} the chart to read the return"
         lines.append(
             '<p class="section__intro">'
-            "Hover the chart to read the return and alpha on any date. "
+            f"{read_it} and alpha on any date. "
             "The shaded band is the running gap between the two."
             "</p>"
             if benchmarks
-            else '<p class="section__intro">Hover the chart to read the return on any date.</p>'
+            else f'<p class="section__intro">{read_it} on any date.</p>'
         )
+        lines.append(self._chart_legend(benchmarks))
         chart = self._render_return_chart(total_return, benchmarks)
         if chart:
             lines.append(chart)

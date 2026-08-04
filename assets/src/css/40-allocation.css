@@ -58,6 +58,29 @@
   justify-content: center;
   min-width: 0;
   cursor: default;
+  /* Each segment is its own inline-size container, which is what lets
+     the rule below ask the only question that matters -- "is there
+     room for the label?" -- of the one box that knows the answer.
+     A segment's width is set by the flex layout from its share, so
+     there is no circularity: size containment stops the label inside
+     from feeding back into it.
+
+     ``overflow: hidden`` is the safety net under that. Without it a
+     ``white-space: nowrap`` label simply spilled out of a segment too
+     narrow to hold it and ran into its neighbour's -- the bar read
+     "10.7%10.6%", two numbers with no gap and no way to tell which
+     belonged to which colour. */
+  container: allocation-segment / inline-size;
+  overflow: hidden;
+}
+/* 46px clears the widest figure the bar can draw ("100.0%" at 12px
+   bold tabular is ~40px) plus a little air either side, so a label
+   never sits edge-to-edge with its segment's boundary. Below that the
+   segment shows colour only and the legend carries its share -- which
+   the legend does for every segment, wide or narrow, so the set is
+   never half-labelled. */
+@container allocation-segment (max-width: 46px) {
+  .allocation__segment-value { display: none; }
 }
 /* Segment labels sit on saturated fills, so they take a fixed white
    rather than ``--fg``: the ink has to clear every hue in the
@@ -94,10 +117,9 @@
   border-radius: 2px;
   flex: 0 0 auto;
 }
-/* Segments too narrow to hold their own percentage defer it to the
-   legend, so the bar never renders a clipped number. It inherits the
-   legend's muted ink rather than stepping up to ``--fg``: the chip
-   exists to name a sector, and a figure set brighter than the name it
+/* Every chip carries its share. It inherits the legend's muted ink
+   rather than stepping up to ``--fg``: the chip exists to name a
+   sector, and a figure set brighter than the name it
    belongs to reads as the more important of the two, which inverts
    the point. Weight alone is enough to find it. */
 .allocation__key-value {

@@ -54,16 +54,42 @@ class TestAllocationBars:
         out = self._render({"Equities": 78.7, "Fixed Income": 21.3})
         assert "78.7%" in out.split("allocation__key", 1)[0]
 
-    def test_narrow_segments_defer_their_label_to_the_legend(self):
-        # A segment too thin to hold its own number would render it
-        # clipped, so the figure moves to the legend chip instead.
+    def test_every_segment_and_every_chip_carries_its_share(self):
+        # Which of the two the reader ends up seeing is a CSS question
+        # -- a container query on the segment hides a label the segment
+        # is too narrow to hold, at whatever width that happens to be.
+        # The renderer's job is to put the figure in both places.
+        #
+        # This replaced a render-time ``pct >= 6`` rule, which decided
+        # in *percent* a question that is really about *pixels*: six
+        # percent of an 880px bar holds a label and six percent of a
+        # 340px one does not, so on a narrow page two neighbours both
+        # kept labels neither could fit and the numbers collided. It
+        # also left the legend half-labelled, since a chip showed its
+        # share only when the bar had dropped it.
         out = self._render({"Equities": 97.0, "Fixed Income": 3.0})
         bar, _, key = out.partition("allocation__key")
-        # The hover title still names the slice and its share -- what
-        # moves is the *drawn* label, which would otherwise clip.
         drawn = [chunk.split("<", 1)[0] for chunk in bar.split('allocation__segment-value">')[1:]]
-        assert drawn == ["97.0%", ""]
-        assert "3.0%" in key
+        assert drawn == ["97.0%", "3.0%"]
+        # Every chip, not just the ones the bar gave up on.
+        chips = [chunk.split("<", 1)[0] for chunk in key.split('allocation__key-value">')[1:]]
+        assert chips == ["97.0%", "3.0%"]
+
+    def test_a_segment_is_its_own_container_so_labels_hide_when_they_do_not_fit(self):
+        # The segment has to establish an inline-size containment
+        # context for the query to have anything to ask, and it has to
+        # clip: without ``overflow: hidden`` a ``nowrap`` label simply
+        # spills into its neighbour's, which is how the bar came to
+        # read "10.7%10.6%" with no gap between two different slices.
+        from investing.assets import _PAGE_STYLES
+        from tests._css_helpers import blocks_for, contains_at_rule, has_declaration
+
+        bodies = blocks_for(_PAGE_STYLES, ".allocation__segment")
+        assert bodies
+        joined = " ".join(bodies).replace(" ", "")
+        assert "inline-size" in joined
+        assert has_declaration(bodies[0], "overflow", "hidden")
+        assert contains_at_rule(_PAGE_STYLES, "@container allocation-segment (max-width: 46px)")
 
     def test_sector_bar_is_captioned_with_its_denominator(self):
         # The sector bar is a share of the equity sleeve, not of the

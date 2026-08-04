@@ -131,10 +131,19 @@
 
     function update(clientX) {
       var r = plot.getBoundingClientRect();
-      if (r.width <= 0) return;
-      // The SVG scales uniformly and fills the plot box's width, so
-      // one viewBox unit is r.width / W container pixels.
-      var scale = r.width / W;
+      if (r.width <= 0 || r.height <= 0) return;
+      // One viewBox unit in container pixels.
+      //
+      // Height, not width. The SVG carries `preserveAspectRatio=
+      // "xMinYMid slice"` so the wide frame can show the end-label
+      // gutter and the phone frame can clip it away, which means the
+      // rendered content is *wider* than the box whenever it is
+      // clipped -- `r.width / W` would then under-report the scale and
+      // every marker would drift left of its curve. The vertical axis
+      // is never clipped in either frame (the element's aspect ratio
+      // always divides VIEW_H exactly), so height is the honest
+      // reference, and `xMin` means there is no offset to correct for.
+      var scale = r.height / H;
       var left = box.x0 * scale;
       var right = box.x1 * scale;
       if (right <= left) return;
@@ -144,13 +153,14 @@
       dateEl.textContent = fmtDate(startMs + days * 86400000);
 
       var x = box.x0 + frac * (box.x1 - box.x0);
+      var xpx = x * scale;
       var ys = [];
       data.series.forEach(function (s) {
         var v = valueAt(s, days);
         ys.push(v);
         s._val.textContent = fmtPct(v);
-        s._mk.style.left = (x / W) * 100 + "%";
-        s._mk.style.top = (svgY(v) / H) * 100 + "%";
+        s._mk.style.left = xpx + "px";
+        s._mk.style.top = svgY(v) * scale + "px";
       });
 
       if (deltaBar && deltaRow && ys.length >= 2) {
@@ -158,23 +168,22 @@
         var b = svgY(ys[1]);
         var pp = (ys[0] - ys[1]) * 100;
         var color = pp >= 0 ? "var(--positive)" : "var(--negative)";
-        deltaBar.style.left = (x / W) * 100 + "%";
-        deltaBar.style.top = (Math.min(a, b) / H) * 100 + "%";
-        deltaBar.style.height = (Math.abs(a - b) / H) * 100 + "%";
+        deltaBar.style.left = xpx + "px";
+        deltaBar.style.top = Math.min(a, b) * scale + "px";
+        deltaBar.style.height = Math.abs(a - b) * scale + "px";
         deltaBar.style.setProperty("--delta-color", color);
         deltaRow.textContent = signed(pp, " pp");
         deltaRow.style.color = color;
       }
 
-      guide.style.left = (x / W) * 100 + "%";
-      var tipFrac = x / W;
-      if (tipFrac > 0.55) {
+      guide.style.left = xpx + "px";
+      if (xpx > r.width * 0.55) {
         tip.style.left = "auto";
-        tip.style.right = (1 - tipFrac) * 100 + "%";
+        tip.style.right = r.width - xpx + "px";
         tip.style.transform = "translateX(-12px)";
       } else {
         tip.style.right = "auto";
-        tip.style.left = tipFrac * 100 + "%";
+        tip.style.left = xpx + "px";
         tip.style.transform = "translateX(12px)";
       }
     }

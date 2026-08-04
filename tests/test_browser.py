@@ -424,6 +424,180 @@ def test_phone_frame_runs_the_designs_smaller_type_scale(page: Page, preview_ind
     assert not any("TWR" in x or "TSR" in x for x in labels), labels
 
 
+def test_phone_chart_drops_the_end_labels_and_reclaims_their_gutter(
+    page: Page, preview_index: Path
+):
+    """The design's phone chart has no end labels, and its curve runs
+    to the right edge.
+
+    Hiding the labels is half the job. The wide frame reserves viewBox
+    for them, so with the labels gone that gutter would sit there as
+    dead margin and the curve would stop a ninth short of the edge.
+    ``preserveAspectRatio="xMinYMid slice"`` plus the plot-only aspect
+    ratio scales the drawing to fill the narrower box and clips the
+    gutter away -- same geometry, no distortion.
+    """
+    measured = {}
+    for width, key in ((880, "wide"), (390, "phone")):
+        page.set_viewport_size({"width": width, "height": 900})
+        page.goto(preview_index.as_uri())
+        measured[key] = page.evaluate(
+            """() => {
+                const fig = document.querySelector('.return-chart');
+                const svg = fig.querySelector('svg');
+                const d = JSON.parse(fig.dataset.chart);
+                // Where the last plotted x actually lands on screen.
+                const pt = svg.createSVGPoint();
+                pt.x = d.plot.x1; pt.y = 0;
+                const at = pt.matrixTransform(svg.getScreenCTM());
+                const box = svg.getBoundingClientRect();
+                return {
+                    fill: (at.x - box.left) / box.width,
+                    ends: getComputedStyle(
+                        fig.querySelector('.return-chart__end-value')).display,
+                    sign: getComputedStyle(
+                        fig.querySelector('.return-chart__tick-sign')).display,
+                };
+            }"""
+        )
+    assert measured["wide"]["ends"] != "none"
+    assert measured["phone"]["ends"] == "none"
+    # "+0%" wide, "0%" on the phone -- the design's phone axis.
+    assert measured["wide"]["sign"] != "none"
+    assert measured["phone"]["sign"] == "none"
+    # The wide frame keeps a gutter for the labels; the phone does not.
+    assert measured["wide"]["fill"] < 0.92, measured
+    assert measured["phone"]["fill"] > 0.95, measured
+
+
+def test_chart_hover_marker_tracks_the_curve_in_both_frames(page: Page, preview_index: Path):
+    """The hover marker has to sit on the curve it reads.
+
+    The scale factor is derived from the plot's *height*, not its
+    width, precisely because the phone frame clips the SVG
+    horizontally: there the rendered drawing is wider than its box, so
+    a width-derived scale under-reports and every marker drifts left
+    of its curve -- by about 12% of the chart at the right-hand end.
+    The vertical axis is never clipped, which is what makes height the
+    honest reference.
+    """
+    for width in (880, 390):
+        page.set_viewport_size({"width": width, "height": 900})
+        page.goto(preview_index.as_uri())
+        plot = page.locator(".return-chart__plot")
+        plot.scroll_into_view_if_needed()
+        box = plot.bounding_box()
+        assert box is not None
+        for fraction in (0.15, 0.5, 0.9):
+            page.mouse.move(box["x"] + box["width"] * fraction, box["y"] + box["height"] / 2)
+            offset = page.evaluate(
+                """() => {
+                    const fig = document.querySelector('.return-chart');
+                    const svg = fig.querySelector('svg');
+                    const ctm = svg.getScreenCTM();
+                    let worst = 0;
+                    ['jg', 'bench'].forEach(kind => {
+                        const mk = fig.querySelector('.return-chart__marker--' + kind);
+                        const line = svg.querySelector('.return-chart__line--' + kind);
+                        if (!mk || !line) return;
+                        const m = mk.getBoundingClientRect();
+                        const mx = m.left + m.width / 2, my = m.top + m.height / 2;
+                        let best = Infinity, bestY = 0;
+                        line.getAttribute('points').trim().split(' ').forEach(pair => {
+                            const [px, py] = pair.split(',').map(Number);
+                            const q = svg.createSVGPoint(); q.x = px; q.y = py;
+                            const s = q.matrixTransform(ctm);
+                            const d = Math.abs(s.x - mx);
+                            if (d < best) { best = d; bestY = s.y; }
+                        });
+                        worst = Math.max(worst, Math.abs(bestY - my));
+                    });
+                    return worst;
+                }"""
+            )
+            # Vertical distance from the marker's centre to the curve.
+            # Compared against the nearest sampled vertex, so a couple
+            # of pixels of polyline granularity is expected; a broken
+            # scale puts it tens of pixels out.
+            assert offset < 4, (width, fraction, offset)
+
+
+def test_allocation_labels_never_overflow_their_segment(page: Page, preview_index: Path):
+    """A drawn percentage has to fit inside the slice it belongs to,
+    and every legend chip carries its share whether the bar drew one
+    or not.
+
+    The old rule dropped a label below a fixed 6% share, which decided
+    in percent a question that is really about pixels: on a narrow
+    page two neighbours both cleared 6% and neither could fit, so the
+    bar rendered "10.7%10.6%" -- two numbers, no gap, no way to tell
+    which belonged to which colour. A container query on the segment
+    asks the question of the box that knows the answer.
+    """
+    for width in (1440, 880, 620, 390, 320):
+        page.set_viewport_size({"width": width, "height": 900})
+        page.goto(preview_index.as_uri())
+        result = page.evaluate(
+            """() => {
+                const bad = [];
+                let drawn = 0;
+                document.querySelectorAll('.allocation__segment').forEach(seg => {
+                    const v = seg.querySelector('.allocation__segment-value');
+                    if (!v || getComputedStyle(v).display === 'none') return;
+                    drawn++;
+                    const range = document.createRange();
+                    range.selectNodeContents(v);
+                    const text = range.getBoundingClientRect();
+                    const slice = seg.getBoundingClientRect();
+                    if (text.width > slice.width + 0.5) {
+                        bad.push(v.textContent + ' in ' + slice.width.toFixed(0) + 'px');
+                    }
+                });
+                const legends = [];
+                document.querySelectorAll('.allocation__key').forEach(k => {
+                    const items = [...k.querySelectorAll('.allocation__key-item')];
+                    legends.push([
+                        items.length,
+                        items.filter(i => i.querySelector('.allocation__key-value')).length,
+                    ]);
+                });
+                return {bad, drawn, legends};
+            }"""
+        )
+        assert not result["bad"], (width, result["bad"])
+        # Non-vacuous: the widest slice always keeps its label.
+        assert result["drawn"] >= 1, (width, result)
+        for total, labelled in result["legends"]:
+            assert total == labelled, (width, result["legends"])
+
+
+def test_chart_legend_sits_under_the_caption_on_a_phone(page: Page, preview_index: Path):
+    """Wide, the legend shares the heading's line; narrow, it drops to
+    its DOM position under the caption and directly above the chart.
+    One copy of the markup, two grid placements -- so the curves are
+    named exactly once for a screen reader."""
+    placements = {}
+    for width, key in ((880, "wide"), (390, "phone")):
+        page.set_viewport_size({"width": width, "height": 900})
+        page.goto(preview_index.as_uri())
+        placements[key] = page.evaluate(
+            """() => {
+                const top = s => document.querySelector(s).getBoundingClientRect().top;
+                return {
+                    heading: top('.section--chart > .section__head'),
+                    caption: top('.section--chart > .section__intro'),
+                    legend: top('.section--chart > .legend'),
+                    copies: document.querySelectorAll('.legend').length,
+                };
+            }"""
+        )
+    wide, phone = placements["wide"], placements["phone"]
+    assert wide["legend"] < wide["caption"], wide
+    assert abs(wide["legend"] - wide["heading"]) < 24, wide
+    assert phone["legend"] > phone["caption"], phone
+    assert wide["copies"] == 1 and phone["copies"] == 1, placements
+
+
 def test_metrics_note_discloses_the_long_explanation(preview_page: Page):
     toggle = preview_page.locator(".metrics-note__toggle")
     panel = preview_page.locator("#metrics-note")

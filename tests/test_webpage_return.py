@@ -97,7 +97,9 @@ class TestReturnChartAxes:
         assert "return-chart__tick" in chart
         # A real 0% baseline, not an unlabelled dashed line.
         assert "return-chart__base" in chart
-        assert ">+0%<" in chart
+        # The leading "+" sits in its own tspan so the phone frame can
+        # drop it -- the design's phone axis reads "0% / 20% / 40%".
+        assert '<tspan class="return-chart__tick-sign">+</tspan>0%<' in chart
 
     def test_axis_ticks_drop_the_decimal_on_whole_numbers(self, stub_logo_lookup):
         # Tick values come off a 1 / 2 / 2.5 / 5 ladder precisely so a
@@ -105,7 +107,7 @@ class TestReturnChartAxes:
         # arithmetic with than "+10.0%".
         w = Webpage()
         w.add_return(_charted_return(), [_charted_benchmark()])
-        assert ">+0.0%<" not in self._chart(w)
+        assert "</tspan>0.0%<" not in self._chart(w)
 
     def test_gridlines_accompany_every_tick(self, stub_logo_lookup):
         w = Webpage()

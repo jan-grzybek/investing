@@ -31,12 +31,6 @@ from collections.abc import Iterable, Sequence
 
 from ..formatting import _fmt_pct
 
-# Segments narrower than this can't fit their own percentage without
-# the label spilling into a neighbour, so the number moves to the
-# legend chip instead. 6% of the bar is roughly 50px at the page's
-# 880px content width, which is about what "12.3%" needs at 12px.
-_LABEL_MIN_PCT = 6.0
-
 _OTHER_SECTOR = "Other"
 
 # The cash bucket's key in the allocation rollup. Spelled out in
@@ -127,29 +121,41 @@ def _bar(
     """Render one titled stacked bar plus its legend.
 
     ``segments`` is ``(label, percent, css-colour-variable)`` in
-    draw order. Each segment carries its own percentage inline when
-    it is wide enough to hold one; narrow segments defer to the
-    legend so the bar never renders a clipped number.
+    draw order.
+
+    Every segment is rendered with its percentage and every legend
+    chip carries the same figure. Which of the two the reader ends up
+    seeing is settled in CSS, by a container query on the segment
+    itself: a segment narrower than its own label hides it, at
+    whatever width that happens to be.
+
+    This replaced a render-time ``pct >= 6`` threshold, which decided
+    in *percent* a question that is really about *pixels*. Six percent
+    of an 880px bar holds a label comfortably; six percent of a 340px
+    one does not, so on a narrow page two adjacent segments both kept
+    labels neither could fit and the numbers collided -- "10.7%10.6%"
+    with no gap. It also made the legend inconsistent: a chip showed
+    its percentage only when the bar had dropped one, so the same
+    legend listed some shares and not others for no reason the reader
+    could see. Now the legend always lists all of them.
     """
     if not segments:
         return ""
     parts = []
     chips = []
     for label, pct, color in segments:
-        inline = f"{_fmt_pct(pct)}%" if pct >= _LABEL_MIN_PCT else ""
+        value = f"{_fmt_pct(pct)}%"
         parts.append(
             f'<div class="allocation__segment" style="width: {pct:.2f}%; '
-            f'background: var({color})" title="{html.escape(f"{label} {_fmt_pct(pct)}%")}">'
-            f'<span class="allocation__segment-value">{html.escape(inline)}</span>'
+            f'background: var({color})" title="{html.escape(f"{label} {value}")}">'
+            f'<span class="allocation__segment-value">{html.escape(value)}</span>'
             "</div>"
-        )
-        chip_value = (
-            "" if inline else f' <span class="allocation__key-value">{_fmt_pct(pct)}%</span>'
         )
         chips.append(
             '<li class="allocation__key-item">'
             f'<span class="allocation__key-swatch" style="background: var({color})"></span>'
-            f"{html.escape(label)}{chip_value}"
+            f"{html.escape(label)}"
+            f' <span class="allocation__key-value">{value}</span>'
             "</li>"
         )
     note_html = f'<span class="allocation__note">{html.escape(note)}</span>' if note else ""

@@ -397,6 +397,26 @@ main:focus-visible { outline: none; }
   flex-wrap: wrap;
   align-items: center;
   gap: 6px 16px;
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+/* The legend sits after the caption in the DOM, which is where the
+   phone frame reads it. The wide frame wants it on the heading's
+   line, so the chart section becomes a two-column grid and the
+   legend is placed into the heading's row -- one copy of the markup,
+   two placements. Everything else spans both columns. */
+.section--chart {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+}
+.section--chart > * { grid-column: 1 / -1; }
+.section--chart > .section__head { grid-column: 1; grid-row: 1; }
+.section--chart > .legend {
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: end;
+  margin-bottom: 4px;
 }
 .legend__item {
   display: inline-flex;
