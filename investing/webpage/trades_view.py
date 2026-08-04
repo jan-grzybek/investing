@@ -149,7 +149,7 @@ def build_row(event: TradeEvent) -> str:
     sort_action = TRADE_ACTION_SORT_INDEX[category]
     sort_detail = TRADE_DETAIL_SORT_INDEX[category]
     return (
-        '<tr class="trades__row"'
+        '<tr class="trades__row" role="row"'
         f' data-sort-date="{sort_date}"'
         f' data-sort-ticker="{html.escape(sort_ticker)}"'
         f' data-sort-name="{html.escape(sort_name)}"'
@@ -157,19 +157,19 @@ def build_row(event: TradeEvent) -> str:
         f' data-sort-detail="{sort_detail}"'
         f' data-sort-currency="{html.escape(event["currency"])}"'
         f' data-sort-price="{event["price"]:.6f}">'
-        f'<td class="trades__cell trades__cell--ticker">{html.escape(symbol)}</td>'
-        f'<td class="trades__cell trades__cell--name">{html.escape(name)}</td>'
-        '<td class="trades__cell trades__cell--action">'
+        f'<td class="trades__cell trades__cell--ticker" role="cell">{html.escape(symbol)}</td>'
+        f'<td class="trades__cell trades__cell--name" role="cell">{html.escape(name)}</td>'
+        '<td class="trades__cell trades__cell--action" role="cell">'
         f'<span class="trade__badge trade__badge--{action_modifier}">'
         f"{html.escape(action_label)}</span>"
         "</td>"
-        '<td class="trades__cell trades__cell--detail">'
+        '<td class="trades__cell trades__cell--detail" role="cell">'
         f'<span class="{detail_class}" '
         f'data-detail-kind="{detail_modifier}">'
         f"{html.escape(detail_label)}</span>"
         "</td>"
-        f'<td class="trades__cell trades__cell--date">{period_html}</td>'
-        f'<td class="trades__cell trades__cell--price">{price_html}</td>'
+        f'<td class="trades__cell trades__cell--date" role="cell">{period_html}</td>'
+        f'<td class="trades__cell trades__cell--price" role="cell">{price_html}</td>'
         "</tr>"
     )
 
@@ -188,18 +188,18 @@ def build_table(rows: list[str]) -> str:
     for key, label, modifier in SORTABLE_COLUMNS:
         hint = f' title="{html.escape(PRICE_SORT_HINT)}"' if key == "price" else ""
         headers.append(
-            f'<th class="trades__col {modifier}" scope="col" '
+            f'<th class="trades__col {modifier}" scope="col" role="columnheader" '
             f'data-sort-key="{key}" aria-sort="none">'
             f'<button type="button" class="trades__sort"{hint}>'
             f"{html.escape(label)}"
             '<span class="trades__sort-indicator" aria-hidden="true"></span>'
             "</button></th>"
         )
-    thead = f"<thead><tr>{''.join(headers)}</tr></thead>"
-    tbody = f"<tbody>{''.join(rows)}</tbody>"
+    thead = f'<thead role="rowgroup"><tr role="row">{"".join(headers)}</tr></thead>'
+    tbody = f'<tbody role="rowgroup">{"".join(rows)}</tbody>'
     table_html = (
         '<div class="trades__wrap">'
-        '<table class="trades" '
+        '<table class="trades" role="table" '
         'data-sort-default="date" '
         'data-sort-default-dir="desc">'
         f"{thead}{tbody}"

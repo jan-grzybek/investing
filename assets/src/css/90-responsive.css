@@ -8,17 +8,22 @@
    blocks still have room for two columns, and the scroll offset the
    sticky header imposes on in-page anchors. */
 
-/* In-page anchors have to clear the sticky header. The header is
-   ~52px tall, so the offset is that plus a little air -- the old
-   value was 120px against a ~60px header, which landed every anchor
-   with most of a screen of dead space above it. */
-:target { scroll-margin-top: 68px; }
+/* In-page anchors have to clear the sticky header, so the offset is
+   the header's height plus a little air.
+   It used to be the literal 68px, which was right on desktop and
+   wrong on a phone: there the nav wrapped to a second line, the
+   header grew to 86px, and every section landed 18px *underneath*
+   the bar. ``--header-h`` is published by ``nav_scroll.js`` from a
+   ResizeObserver on the header itself, so the number tracks whatever
+   the header actually is -- at any width, with the mobile nav open or
+   closed. The fallback covers the no-JS case. */
+:target { scroll-margin-top: calc(var(--header-h, 52px) + 12px); }
 #performance,
 #allocation,
 #holdings,
 #closed,
 #activity,
-#method { scroll-margin-top: 68px; }
+#method { scroll-margin-top: calc(var(--header-h, 52px) + 12px); }
 
 @media (max-width: 720px) {
   /* Below this the two-column explainer blocks stop being a
@@ -33,12 +38,47 @@
   .site-header {
     margin: 0 -16px 0;
     padding: 10px 16px;
+    /* One line, always. Letting the four links wrap beside the brand
+       is what made the header 86px on a phone; the design collapses
+       them behind a disclosure precisely so the bar stays a bar. */
+    flex-wrap: nowrap;
   }
-  /* The section label is the first thing to go: the mark plus the
-     name already identify the page, and the nav says what section
-     the reader is in. */
-  .site-brand__sep,
-  .site-brand__section { display: none; }
+  .site-nav__toggle { display: flex; }
+  /* Open, the nav is a full-width column under the bar -- the
+     design's mobile drawer, not a row of pills. It is laid out as a
+     sibling that spans the header's full width by ordering it onto
+     its own flex line. */
+  .site-header { flex-wrap: wrap; }
+  .site-nav {
+    display: none;
+    flex-basis: 100%;
+    flex-direction: column;
+    gap: 0;
+    margin: 10px -16px -10px;
+    border-top: 1px solid var(--line);
+  }
+  .site-header[data-nav="open"] .site-nav { display: flex; }
+  .site-nav a {
+    padding: 12px 16px;
+    border-radius: 0;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--fg);
+    border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent);
+  }
+  .site-nav a:last-child { border-bottom: 0; }
+  /* The bars cross into an X so the control says what the next tap
+     does rather than only what it did. */
+  .site-header[data-nav="open"] .site-nav__toggle span:nth-child(1) {
+    transform: translateY(5.3px) rotate(45deg);
+  }
+  .site-header[data-nav="open"] .site-nav__toggle span:nth-child(2) { opacity: 0; }
+  .site-header[data-nav="open"] .site-nav__toggle span:nth-child(3) {
+    transform: translateY(-5.3px) rotate(-45deg);
+  }
+  .site-brand { font-size: 0.90625rem; }
+  .site-brand__mark { width: 22px; height: 22px; }
+  .site-brand__section { font-size: 0.84375rem; }
   .hero { padding: 24px 0 22px; }
   .hero__figure { font-size: 3.875rem; }
   .hero__unit { font-size: 1.625rem; }

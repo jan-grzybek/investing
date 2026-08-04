@@ -102,10 +102,13 @@ class TestAddTrades:
         bodies = blocks_for(_PAGE_STYLES, ".trade__badge")
         assert bodies
         assert has_declaration(bodies[0], "text-align", "center")
-        sizing_bodies = [body for body in bodies if "width:" in body]
-        assert sizing_bodies
-        for body in sizing_bodies:
-            assert has_declaration(body, "width", "7em")
+        # The base rule pins the pill so BOUGHT and SOLD render at
+        # byte-identical widths in the table column. The mobile card
+        # layout overrides it to ``auto``: on its own line the pill
+        # only has to fit its own label, and a 7em box there is just
+        # a gap. ``min-width`` stays banned everywhere -- that is what
+        # let the longer label grow past the shorter one.
+        assert has_declaration(bodies[0], "width", "7em")
         for body in bodies:
             assert "min-width" not in body
 
@@ -556,16 +559,12 @@ class TestAddTrades:
 
     def test_wrap_is_a_named_inline_size_container(self):
         # ``.trades__wrap`` is declared as a ``container-type:
-        # inline-size`` query container with the name ``trades`` so
-        # the matching ``@container trades (max-width: ...)`` rules
-        # below can hide the Company and Action columns against the
-        # wrap's actual rendered width (not the viewport). The two
-        # CSS declarations are the load-bearing prerequisite for the
-        # rest of the responsive column-hiding contract -- without
-        # them the ``@container`` rules below would never match and
-        # both columns would stay visible at every viewport down to
-        # the wrapper-scroll fallback. Assert they ship in the
-        # served stylesheet.
+        # inline-size`` query container named ``trades`` so the
+        # matching ``@container`` rule fires on the wrap's own
+        # rendered width rather than the viewport's. Those two
+        # declarations are the load-bearing prerequisite for the
+        # mobile layout -- without them the rule never matches and
+        # the phone gets the desktop table.
         from investing.assets import _PAGE_STYLES
         from tests._css_helpers import contains_at_rule
 
@@ -574,38 +573,28 @@ class TestAddTrades:
         # pair.
         assert re.search(r"container-type:\s*inline-size", _PAGE_STYLES)
         assert re.search(r"container-name:\s*trades", _PAGE_STYLES)
-        # And the two ``@container`` rules that actually drive the
-        # responsive hiding. Both target the named ``trades``
-        # container and collapse the appropriate ``<th>`` / ``<td>``
-        # cells via ``display: none``.
-        assert contains_at_rule(_PAGE_STYLES, "@container trades (max-width: 600px)")
-        assert contains_at_rule(_PAGE_STYLES, "@container trades (max-width: 430px)")
+        # And the ``@container`` rule that rebuilds the log as the
+        # design's two-line cards on a phone. It targets the named
+        # ``trades`` container, so it fires on the wrap's own width.
+        assert contains_at_rule(_PAGE_STYLES, "@container trades (max-width: 620px)")
 
-    def test_container_query_thresholds_are_well_separated(self):
-        # The Company / Action drop order is intentional (Company
-        # first, since the ticker still uniquely identifies the
-        # security; Action second, since BUY / SELL is redundantly
-        # encoded by the Details column). Just as importantly, the
-        # two thresholds sit far enough apart that a continuous
-        # resize through the boundary produces two clearly separated
-        # visual transitions rather than dropping both columns in
-        # lockstep at one viewport change. Lock that property by
-        # checking the threshold gap stays at least ~150px (the
-        # current design ships 170px of headroom between Company at
-        # 600px and Action at 430px). A future tweak that pushes
-        # them within ~100px of each other would risk reintroducing
-        # the perceived simultaneous-hide bug this test exists to
-        # prevent.
+    def test_mobile_keeps_every_column_rather_than_dropping_them(self):
+        # The narrow layout used to shed Company at 600px and Action
+        # at 430px. The design does not drop either: it puts them on
+        # a second line, so a phone reader gets the whole trade
+        # instead of a progressively poorer one.
         from investing.assets import _PAGE_STYLES
+        from tests._css_helpers import at_rule_body, blocks_for, normalize
 
-        thresholds = [
-            int(m.group(1))
-            for m in re.finditer(r"@container\s+trades\s*\(max-width:\s*(\d+)px\)", _PAGE_STYLES)
-        ]
-        assert len(thresholds) >= 2, thresholds
-        thresholds.sort(reverse=True)
-        # First (widest) hides Company, second hides Action.
-        assert thresholds[0] - thresholds[1] >= 150, thresholds
+        body = at_rule_body(_PAGE_STYLES, "@container trades (max-width: 620px)") or ""
+        assert body
+        for cell in ("--ticker", "--name", "--action", "--detail", "--date", "--price"):
+            rules = blocks_for(body, f".trades__cell{cell}")
+            assert rules, f"{cell} is not placed on the mobile grid"
+            # Placed, not hidden. The point of the two-line card is
+            # that nothing has to be sacrificed to fit.
+            for rule in rules:
+                assert "display:none" not in normalize(rule), f"{cell} is hidden on mobile"
 
     def test_name_and_currency_are_html_escaped(self, stub_logo_lookup):
         # Even though tickers/names are sourced from a trusted sheet,

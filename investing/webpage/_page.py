@@ -377,11 +377,22 @@ class Webpage:
             if attrs and not any(getattr(self, attr) for attr in attrs):
                 continue
             links.append(f'<a href="#{anchor}">{html.escape(label)}</a>')
-        nav_html = (
-            f'<nav class="site-nav" aria-label="Page sections">{"".join(links)}</nav>'
-            if len(links) > 1
-            else ""
-        )
+        nav_html = ""
+        if len(links) > 1:
+            # The toggle only exists for narrow viewports, where the
+            # design collapses the nav behind it. Four pills plus the
+            # brand do not fit one line on a phone, and letting them
+            # wrap doubled the sticky header's height -- which in turn
+            # left every anchor landing underneath it.
+            nav_html = (
+                '<button type="button" class="site-nav__toggle" '
+                'aria-expanded="false" aria-controls="site-nav" aria-label="Sections">'
+                "<span></span><span></span><span></span>"
+                "</button>"
+                '<nav class="site-nav" id="site-nav" aria-label="Page sections">'
+                f"{''.join(links)}"
+                "</nav>"
+            )
         return (
             '<header class="site-header">'
             '<p class="site-brand">'

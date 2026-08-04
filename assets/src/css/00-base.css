@@ -307,6 +307,34 @@ main:focus-visible { outline: none; }
   color: var(--fg);
   outline: none;
 }
+/* The disclosure the design collapses the nav behind on a phone. It
+   is hidden on wide viewports, where all four links fit beside the
+   brand -- see the narrow-viewport block for the rest. */
+.site-nav__toggle {
+  display: none;
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 6px 2px;
+  margin: 0;
+  cursor: pointer;
+  flex-direction: column;
+  gap: 3.5px;
+  flex: 0 0 auto;
+}
+.site-nav__toggle span {
+  display: block;
+  width: 18px;
+  height: 1.8px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--fg) 75%, transparent);
+  transition: transform 160ms ease, opacity 160ms ease;
+}
+.site-nav__toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
 /* Section rhythm. Every section below the hero is evidence for the
    claim the hero makes, so they share one vertical cadence and one
    heading treatment rather than each carrying its own chrome. */

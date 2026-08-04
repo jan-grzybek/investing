@@ -250,40 +250,164 @@
   gap: 2px;
 }
 .holdings__periods span { padding: 0 4px; }
-/* Progressive column dropping, container-query driven. Each
-   threshold sheds the column that has become the least load-bearing
-   at that width:
+/* Below ~620px the design stops being a table and becomes a list of
+   cards -- because a six-column grid on a 358px screen is not a
+   narrower table, it is an unreadable one. What follows rebuilds the
+   design's mobile row out of the same cells:
 
-     * **620px**: "Held since" goes. It is context, not comparison --
-       nobody scans a portfolio by entry date on a phone.
-     * **460px**: the weight bar's track collapses to its number.
-       The figure survives; only the visual comparison it supports
-       goes, and that comparison needs horizontal room to mean
-       anything in the first place.
-     * **380px**: the logo column goes. The company name is
-       immediately beside it and says the same thing in words. */
+       [logo] [name              ] [return    ]
+              [listing    since  ] [IRR  x.x% ]
+              [====== bar =======] [   weight ]
+
+   and turns the header row into the design's pill chips above it.
+   The explicit ARIA roles the renderer emits are what keep the
+   row/column semantics intact once ``display`` stops being
+   ``table-*`` -- browsers drop the implicit ones. */
 @container holdings (max-width: 620px) {
+  .holdings { display: block; }
+  .holdings__section { display: block; }
+  .holdings__band { display: block; }
+  .holdings__band td {
+    display: block;
+    padding: 8px 14px;
+    font-size: 0.59375rem;
+    letter-spacing: 0.1em;
+  }
+
+  /* The header row becomes a scrollable strip of sort chips. It stays
+     inside the card, which the design draws it just above -- keeping
+     it in the table is what lets one DOM serve both layouts, and it
+     scrolls with the rows it sorts. */
+  .holdings thead { display: block; }
+  .holdings thead tr {
+    display: flex;
+    gap: 6px;
+    padding: 10px 14px;
+    background: none;
+    border-bottom: 1px solid var(--line);
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .holdings thead tr::-webkit-scrollbar { display: none; }
+  .holdings thead th {
+    display: block;
+    width: auto;
+    padding: 0;
+    background: none;
+    border: 0;
+    flex: 0 0 auto;
+  }
+  .holdings__col-logo { display: none; }
+  /* The design leads the chips with the metric a reader sorts by
+     most, not with the column order. */
+  .holdings__col--weight { order: 1; }
+  .holdings__col--num { order: 2; }
+  .holdings__col--num:last-child { order: 3; }
+  .holdings__col--name { order: 4; }
   .holdings__col--since,
-  .holdings__since { display: none; }
-}
-@container holdings (max-width: 460px) {
-  .holdings__bar { display: none; }
-  .holdings__weight-grid { grid-template-columns: minmax(0, 1fr); }
-  .holdings__col--weight { width: auto; }
-  /* With the bar gone, the 12px gutters are what tips the table
-     into a horizontal scroll on a 390px phone. Halving them buys
-     back more than the overflow. */
-  .holdings thead th,
+  .holdings__col--periods { order: 5; }
+  .holdings__sort {
+    width: auto;
+    justify-content: center;
+    padding: 4px 10px;
+    background: var(--card-bg);
+    border: 1px solid color-mix(in srgb, var(--line) 90%, transparent);
+    border-radius: 999px;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0;
+    text-transform: none;
+    color: var(--fg);
+  }
+  .holdings th[aria-sort="ascending"] .holdings__sort,
+  .holdings th[aria-sort="descending"] .holdings__sort {
+    border-color: var(--accent);
+    color: var(--fg);
+  }
+
+  .holdings__row {
+    display: grid;
+    grid-template-columns: 30px minmax(0, 1fr) auto;
+    column-gap: 10px;
+    row-gap: 5px;
+    align-items: center;
+    padding: 9px 14px;
+  }
   .holdings__row td,
-  .holdings__row th,
-  .holdings__band td { padding-left: 8px; padding-right: 8px; }
-  .holdings { font-size: 0.875rem; }
-  .holdings__num { font-size: 0.8125rem; }
+  .holdings__row th {
+    display: block;
+    padding: 0;
+    border: 0;
+  }
+  .holdings__logo-cell {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+    width: auto;
+  }
+  .holdings__logo { width: 28px; height: 18px; }
+  /* ``contents`` so the name and its listing become row items in
+     their own right and can sit on separate lines opposite the two
+     metrics, which is the design's arrangement. */
+  .holdings__name-cell { display: contents; }
+  .holdings__name {
+    grid-column: 2;
+    grid-row: 1;
+    font-size: 0.8125rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .holdings__ticker {
+    grid-column: 2;
+    grid-row: 2;
+    justify-self: start;
+    max-width: 60%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.65625rem;
+  }
+  /* Shares the listing's line, pinned to the other end of it -- the
+     design joins the two with a middot; a table cell cannot be
+     inlined into a sibling cell without duplicating the date, so it
+     takes the far end of the same line instead. */
+  .holdings__since {
+    grid-column: 2;
+    grid-row: 2;
+    justify-self: end;
+    font-size: 0.65625rem;
+  }
+  .holdings__periods {
+    grid-column: 2;
+    grid-row: 3;
+    font-size: 0.65625rem;
+    white-space: normal;
+  }
+  .holdings__num {
+    grid-column: 3;
+    grid-row: 1;
+    font-size: 0.8125rem;
+  }
+  .holdings__num--soft,
+  .holdings__num--tba {
+    grid-row: 2;
+    font-size: 0.65625rem;
+    color: var(--muted);
+  }
+  .holdings__num--soft::before,
+  .holdings__num--tba::before {
+    content: "IRR ";
+    color: var(--muted);
+  }
+  .holdings__weight {
+    grid-column: 2 / -1;
+    grid-row: 3;
+  }
+  .holdings__weight-grid { grid-template-columns: minmax(0, 1fr) 36px; column-gap: 8px; }
+  .holdings__bar { height: 6px; }
+  .holdings__weight-value { font-size: 0.6875rem; color: var(--muted); }
 }
-@container holdings (max-width: 380px) {
-  .holdings__col-logo,
-  .holdings__logo-cell { display: none; }
-}
+
 /* The time-weighted vs money-weighted explainer, one click from the
    columns it applies to rather than four screens down in a footer.
    The accent edge marks it as an aside rather than as another

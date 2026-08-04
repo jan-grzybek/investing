@@ -8,6 +8,7 @@ from datetime import datetime
 from investing.assets import _PAGE_STYLES
 from investing.webpage import Webpage
 from tests._css_helpers import (
+    at_rule_body,
     blocks_for,
     contains_at_rule,
     contains_selector,
@@ -241,7 +242,9 @@ class TestRowContract:
         # drifts off the baseline its row-mates sit on.
         w = Webpage()
         w.add_holding(_holding(weight=10.0))
-        assert '<td class="holdings__weight"><span class="holdings__weight-grid">' in w.current[0]
+        assert (
+            '<td class="holdings__weight" role="cell"><span class="holdings__weight-grid">'
+        ) in w.current[0]
 
     def test_logo_links_to_the_issuer_in_a_new_tab(self, stub_logo_lookup):
         w = Webpage()
@@ -484,16 +487,40 @@ class TestHoldingsStyles:
         ):
             assert contains_selector(_PAGE_STYLES, selector), selector
 
-    def test_narrow_containers_drop_columns_one_at_a_time(self):
-        # Each threshold sheds the column that has become the least
-        # load-bearing at that width, and they are far enough apart
-        # that a continuous resize shows them going one at a time.
-        for query in (
-            "@container holdings (max-width:620px)",
-            "@container holdings (max-width:460px)",
-            "@container holdings (max-width:380px)",
+    def test_narrow_containers_rebuild_the_row_as_a_card(self):
+        # Below the threshold the table stops being a table: a
+        # six-column grid on a 358px screen is not a narrower table,
+        # it is an unreadable one. The design's mobile row is a card,
+        # so the cells are re-placed rather than progressively hidden.
+        assert contains_at_rule(_PAGE_STYLES, "@container holdings (max-width:620px)")
+        body = at_rule_body(_PAGE_STYLES, "@container holdings (max-width:620px)")
+        assert body
+        # The row becomes a grid, and no cell is dropped outright --
+        # the old layout shed Held since, then the weight bar, then
+        # the logo, one threshold at a time.
+        assert "grid-template-columns:30px minmax(0,1fr)auto" in normalize(body).replace(
+            " auto", "auto"
+        )
+        assert "display:none" not in normalize(body).split(".holdings__row")[1][:400]
+
+    def test_table_semantics_survive_the_layout_change(self, stub_logo_lookup):
+        # Setting ``display`` to anything non-``table-*`` strips a
+        # table's implicit ARIA roles, which would cost a screen-reader
+        # user every row/column association the desktop layout gives
+        # them. The renderer declares them explicitly so the semantics
+        # are independent of the layout.
+        w = Webpage()
+        w.add_holding(_holding())
+        table = _open_table(w)
+        for role in (
+            'role="table"',
+            'role="rowgroup"',
+            'role="row"',
+            'role="columnheader"',
+            'role="rowheader"',
+            'role="cell"',
         ):
-            assert contains_at_rule(_PAGE_STYLES, query), f"missing {query}"
+            assert role in table, f"missing {role}"
 
     def test_no_collapse_rule_hides_holdings(self):
         # Every position renders. The ``nth-of-type`` cutoff that used

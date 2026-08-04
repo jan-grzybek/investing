@@ -122,7 +122,7 @@ def _logo_cell(*, logo_url: str, website_url: str, company_name: str) -> str:
     if logo_url == COURAGE_LOGO:
         classes += " holdings__logo--literal"
     return (
-        '<td class="holdings__logo-cell">'
+        '<td class="holdings__logo-cell" role="cell">'
         f'<a class="holdings__logo-link" href="{html.escape(website_url)}" '
         'target="_blank" rel="noopener noreferrer" '
         f'aria-label="{html.escape(label)}" title="{html.escape(label)}">'
@@ -145,7 +145,7 @@ def _name_cell(holding: dict) -> str:
     """
     listings = " + ".join(holding.get("tickers") or [holding["ticker"]])
     return (
-        '<th class="holdings__name-cell" scope="row">'
+        '<th class="holdings__name-cell" scope="row" role="rowheader">'
         f'<span class="holdings__name">{html.escape(holding["name"])}</span>'
         f'<span class="holdings__ticker">{html.escape(listings)}</span>'
         "</th>"
@@ -181,7 +181,7 @@ def _periods_cell(holding: dict) -> str:
         else:
             end_html = f'<time datetime="{end.strftime("%Y-%m-%d")}">{_fmt_date(end)}</time>'
         items.append(f"<li>{start_html}<span>&ndash;</span>{end_html}</li>")
-    return f'<td class="holdings__periods"><ul>{"".join(items)}</ul></td>'
+    return f'<td class="holdings__periods" role="cell"><ul>{"".join(items)}</ul></td>'
 
 
 def _metric_cells(holding: dict) -> str:
@@ -194,14 +194,15 @@ def _metric_cells(holding: dict) -> str:
     """
     tsr = holding["tsr%"]
     cells = [
-        f'<td class="holdings__num {_value_class(tsr)}">{_fmt_pct(tsr, signed=True)}%</td>',
+        f'<td class="holdings__num {_value_class(tsr)}" role="cell">'
+        f"{_fmt_pct(tsr, signed=True)}%</td>",
     ]
     cagr = holding["cagr%"]
     if cagr > CAGR_TBA_THRESHOLD:
-        cells.append('<td class="holdings__num holdings__num--tba">TBA</td>')
+        cells.append('<td class="holdings__num holdings__num--tba" role="cell">TBA</td>')
     else:
         cells.append(
-            f'<td class="holdings__num holdings__num--soft {_value_class(cagr)}">'
+            f'<td class="holdings__num holdings__num--soft {_value_class(cagr)}" role="cell">'
             f"{_fmt_pct(cagr, signed=True)}%</td>"
         )
     return "".join(cells)
@@ -242,7 +243,7 @@ def build_row(holding: dict, *, logo_url_for: Callable[[str], str]) -> str:
         sort_attrs["since"] = start.strftime("%Y-%m-%d")
         sort_attrs["weight"] = _format_sort_number(weight)
         cells.append(
-            f'<td class="holdings__since">'
+            f'<td class="holdings__since" role="cell">'
             f'<time datetime="{start.strftime("%Y-%m-%d")}">{_fmt_date(start)}</time>'
             "</td>"
         )
@@ -255,7 +256,7 @@ def build_row(holding: dict, *, logo_url_for: Callable[[str], str]) -> str:
         # figures it is supposed to line up with. The design puts the
         # grid on a span for exactly this reason.
         cells.append(
-            '<td class="holdings__weight">'
+            '<td class="holdings__weight" role="cell">'
             f'<span class="holdings__weight-grid">{_weight_bar(weight, muted=muted)}</span>'
             "</td>"
         )
@@ -272,7 +273,7 @@ def build_row(holding: dict, *, logo_url_for: Callable[[str], str]) -> str:
         f' data-sort-{key}="{html.escape(sort_attrs[key])}"' for key in sorted(sort_attrs)
     )
     return (
-        f'<tr class="holdings__row" id="{html.escape(holding_anchor(holding["ticker"]))}"{attrs}>'
+        f'<tr class="holdings__row" role="row" id="{html.escape(holding_anchor(holding["ticker"]))}"{attrs}>'
         f"{''.join(cells)}"
         "</tr>"
     )
@@ -290,8 +291,9 @@ def build_group(*, label: str, rows: Sequence[str], columns: int) -> str:
     if not rows:
         return ""
     return (
-        '<tbody class="holdings__section">'
-        f'<tr class="holdings__band"><td colspan="{columns}">{html.escape(label)}</td></tr>'
+        '<tbody class="holdings__section" role="rowgroup">'
+        f'<tr class="holdings__band" role="row">'
+        f'<td colspan="{columns}" role="cell">{html.escape(label)}</td></tr>'
         f"{''.join(rows)}"
         "</tbody>"
     )
@@ -323,10 +325,13 @@ def build_table(
     scale_attr = f' style="--holdings-weight-scale: {weight_scale:.2f}"' if weight_scale > 0 else ""
     # ``+ 1`` for the logo column, which is decorative and carries no
     # sort affordance of its own.
-    header_cells = ['<th class="holdings__col-logo"><span class="visually-hidden">Logo</span></th>']
+    header_cells = [
+        '<th class="holdings__col-logo" role="columnheader">'
+        '<span class="visually-hidden">Logo</span></th>'
+    ]
     for key, label, kind, modifier in columns:
         header_cells.append(
-            f'<th class="holdings__col holdings__col--{modifier}" '
+            f'<th class="holdings__col holdings__col--{modifier}" role="columnheader" '
             f'data-sort-key="{key}" data-sort-kind="{kind}" aria-sort="none">'
             '<button type="button" class="holdings__sort">'
             f"{html.escape(label)}"
@@ -336,9 +341,9 @@ def build_table(
         )
     return (
         '<div class="holdings__wrap">'
-        f'<table class="holdings" data-holdings-table="{html.escape(scope)}"{scale_attr}>'
+        f'<table class="holdings" role="table" data-holdings-table="{html.escape(scope)}"{scale_attr}>'
         f'<caption class="visually-hidden">{html.escape(caption)}</caption>'
-        f"<thead><tr>{''.join(header_cells)}</tr></thead>"
+        f'<thead role="rowgroup"><tr role="row">{"".join(header_cells)}</tr></thead>'
         f"{body}"
         "</table>"
         "</div>"

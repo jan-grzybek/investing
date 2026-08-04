@@ -176,20 +176,7 @@
    between when the user crosses a threshold and when the column
    actually disappears.
 */
-@container trades (max-width: 600px) {
-  .trades__col--name,
-  .trades__cell--name { display: none; }
-}
-@container trades (max-width: 430px) {
-  .trades__col--action,
-  .trades__cell--action { display: none; }
-  /* With four columns left, the 12px gutters are what tips the
-     table into a horizontal scroll on a 390px phone. Halving them
-     buys back ~32px, which is more than the overflow. */
-  .trades thead th,
-  .trades tbody td { padding-left: 8px; padding-right: 8px; }
-  .trades { font-size: 0.875rem; }
-}
+
 /* Solid-pill BUY / SELL badge. Uppercase + letter-spacing give it
    the "label" affordance a typographic reader expects from a
    category tag and distinguishes it cleanly from the prose around
@@ -329,4 +316,86 @@
 }
 .trades__toggle[aria-expanded="true"]::after {
   transform: rotate(180deg);
+}
+
+/* Below ~620px the log becomes two lines per trade, as the design
+   draws it, rather than a six-column table squeezed onto a phone:
+
+       TICKER  Company name           921.40 USD
+       BOUGHT  +32%                      Q2 2026
+
+   Three grid columns and two rows place every existing cell without
+   dropping any of them -- the narrow layout used to shed Company and
+   then Action entirely. The header row becomes the design's sort
+   chips. */
+@container trades (max-width: 620px) {
+  .trades { display: block; font-size: 0.84375rem; }
+  .trades tbody { display: block; }
+
+  .trades thead { display: block; }
+  .trades thead tr {
+    display: flex;
+    gap: 6px;
+    padding: 10px 14px;
+    background: none;
+    border-bottom: 1px solid var(--line);
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .trades thead tr::-webkit-scrollbar { display: none; }
+  .trades thead th {
+    display: block;
+    padding: 0;
+    background: none;
+    border: 0;
+    flex: 0 0 auto;
+  }
+  .trades__sort {
+    width: auto;
+    justify-content: center;
+    padding: 4px 10px;
+    background: var(--card-bg);
+    border: 1px solid color-mix(in srgb, var(--line) 90%, transparent);
+    border-radius: 999px;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0;
+    text-transform: none;
+    color: var(--fg);
+  }
+  .trades th[aria-sort="ascending"] .trades__sort,
+  .trades th[aria-sort="descending"] .trades__sort { border-color: var(--accent); }
+
+  .trades__row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: baseline;
+    column-gap: 8px;
+    row-gap: 3px;
+    padding: 9px 14px;
+  }
+  .trades tbody td {
+    display: block;
+    padding: 0;
+    border: 0;
+    background: none;
+  }
+  .trades tbody tr:nth-child(even) td { background: none; }
+  .trades__cell--ticker { grid-column: 1; grid-row: 1; font-size: 0.78125rem; }
+  .trades__cell--name {
+    grid-column: 2;
+    grid-row: 1;
+    color: var(--muted);
+    font-size: 0.71875rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .trades__cell--price { grid-column: 3; grid-row: 1; font-size: 0.78125rem; }
+  .trades__cell--action { grid-column: 1; grid-row: 2; }
+  .trades__cell--detail { grid-column: 2; grid-row: 2; font-size: 0.71875rem; }
+  .trades__cell--date { grid-column: 3; grid-row: 2; font-size: 0.6875rem; text-align: right; }
+  /* The pill's fixed 7em was sized for a table column; on two lines
+     it only has to fit its own label. */
+  .trade__badge { width: auto; padding: 2px 8px; font-size: 0.625rem; }
 }

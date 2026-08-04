@@ -214,6 +214,56 @@ def test_nav_scroll_sets_hash_on_section_link(preview_page: Page):
     )
 
 
+def test_nav_anchors_clear_the_sticky_header_on_a_phone(page: Page, preview_index: Path):
+    """Every shortcut has to land the section *below* the sticky bar.
+
+    The offset used to be a literal 68px, which was right on desktop
+    and wrong on a phone: there the four nav links wrapped to a second
+    line, the header grew to 86px, and every section landed 18px
+    underneath it. The offset is now derived from the header's
+    measured height, and the nav collapses behind a disclosure so the
+    header stays one line -- both of which this pins.
+    """
+    page.set_viewport_size({"width": 390, "height": 844})
+    page.goto(preview_index.as_uri())
+
+    header = page.locator(".site-header")
+    toggle = page.locator(".site-nav__toggle")
+    expect(toggle).to_be_visible()
+    # One line: the wrap is what made the header tall enough to swallow
+    # the anchor offset.
+    assert header.bounding_box()["height"] < 60
+
+    targets = page.locator("nav.site-nav a").evaluate_all(
+        "els => els.map(a => a.getAttribute('href').slice(1))"
+    )
+    assert targets, "expected a collapsed nav with links"
+    for target in targets:
+        page.evaluate("window.scrollTo(0, 0)")
+        toggle.click()
+        page.locator(f'nav.site-nav a[href="#{target}"]').click()
+        page.wait_for_timeout(900)
+        landed = page.evaluate(
+            """(id) => {
+                const top = document.getElementById(id).getBoundingClientRect().top;
+                const bottom = document.querySelector('.site-header').getBoundingClientRect().bottom;
+                const max = document.documentElement.scrollHeight - window.innerHeight;
+                return {gap: Math.round(top - bottom), atEnd: Math.ceil(window.scrollY) >= max - 1};
+            }""",
+            target,
+        )
+        # The last section on the page cannot reach the top -- the
+        # document runs out of scroll first -- so "as far as it goes"
+        # is the correct landing there. Everywhere else the section
+        # has to clear the bar without hiding behind it.
+        assert landed["atEnd"] or 0 <= landed["gap"] <= 28, (
+            f"#{target} landed {landed['gap']}px relative to the header"
+        )
+        # Choosing a section closes the drawer; leaving it open would
+        # cover the thing the reader just asked to see.
+        expect(page.locator("nav.site-nav")).to_be_hidden()
+
+
 def test_hash_clear_strips_hash_after_user_scroll(preview_page: Page):
     preview_page.goto(f"{preview_page.url}#performance")
     expect(preview_page).to_have_url(re.compile(r"#performance$"))
