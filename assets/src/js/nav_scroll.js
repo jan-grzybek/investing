@@ -26,11 +26,17 @@ function boot(){
   function setOpen(open){
     toggle.setAttribute('aria-expanded',open?'true':'false');
     header.setAttribute('data-nav',open?'open':'closed');
-    publish();
   }
   setOpen(false);
-  toggle.addEventListener('click',function(){
+  toggle.addEventListener('click',function(e){
+    e.stopPropagation();
     setOpen(toggle.getAttribute('aria-expanded')!=='true');
+  });
+  /* An overlay that only closes from the button it opened with is a
+     trap on a phone; tapping the page behind it is the gesture a
+     reader will try first. */
+  document.addEventListener('click',function(e){
+    if(!header.contains(e.target))setOpen(false);
   });
   /* Close on choose: leaving it open would cover the section the
      reader just asked to see. */

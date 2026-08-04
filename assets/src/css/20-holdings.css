@@ -347,8 +347,12 @@
   .holdings__logo { width: 28px; height: 18px; }
   /* ``contents`` so the name and its listing become row items in
      their own right and can sit on separate lines opposite the two
-     metrics, which is the design's arrangement. */
-  .holdings__name-cell { display: contents; }
+     metrics, which is the design's arrangement.
+     Two classes, not one: the blanket ``.holdings__row th`` reset
+     above sets ``display: block`` at (0,1,1) and would otherwise win,
+     leaving the cell intact and every sibling auto-placed around it.
+     Same collision that flattened the Return column earlier. */
+  .holdings__row .holdings__name-cell { display: contents; }
   .holdings__name {
     grid-column: 2;
     grid-row: 1;

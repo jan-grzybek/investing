@@ -148,6 +148,89 @@ def test_numeric_columns_align_with_their_headers(preview_page: Page):
         assert by_key["cagr"] == "500", by_key
 
 
+def test_mobile_cards_place_every_item_on_the_right_grid_line(page: Page, preview_index: Path):
+    """The phone layout is a card, and each part has one place in it.
+
+        [logo] [name              ] [return ]
+               [listing     since ] [IRR    ]
+               [======= bar ======] [ weight]
+
+    This is the geometry, not the CSS, because the layout depends on
+    the name cell dissolving via ``display: contents`` -- and a
+    blanket ``.holdings__row th`` reset at (0,1,1) sits in front of
+    that (0,1,0) declaration and will silently win if anyone reorders
+    or re-adds it. When that happened the cell stayed intact and every
+    sibling auto-placed around it: the listing, the date and the IRR
+    each ended up on their own line.
+    """
+    page.set_viewport_size({"width": 390, "height": 844})
+    page.goto(preview_index.as_uri())
+
+    placement = page.evaluate(
+        """() => {
+            const out = {};
+            for (const scope of ['open', 'closed']) {
+                const row = document.querySelector(
+                    `table[data-holdings-table="${scope}"] .holdings__row`);
+                const items = [];
+                const walk = el => {
+                    for (const c of el.children) {
+                        const cs = getComputedStyle(c);
+                        if (cs.display === 'contents') { walk(c); continue; }
+                        const b = c.getBoundingClientRect();
+                        items.push({cls: c.className, row: cs.gridRowStart,
+                                    col: cs.gridColumnStart,
+                                    left: Math.round(b.left), right: Math.round(b.right)});
+                    }
+                };
+                walk(row);
+                out[scope] = items;
+            }
+            return out;
+        }"""
+    )
+
+    def find(items, needle):
+        hit = [i for i in items if needle in i["cls"]]
+        assert hit, f"no cell matching {needle}"
+        return hit[0]
+
+    for scope, expected in (
+        (
+            "open",
+            {
+                "holdings__name": ("1", "2"),
+                "holdings__ticker": ("2", "2"),
+                "holdings__since": ("2", "2"),
+                "holdings__weight": ("3", "2"),
+            },
+        ),
+        (
+            "closed",
+            {
+                "holdings__name": ("1", "2"),
+                "holdings__ticker": ("2", "2"),
+                "holdings__periods": ("3", "2"),
+            },
+        ),
+    ):
+        items = placement[scope]
+        for cls, (row, col) in expected.items():
+            cell = find(items, cls)
+            assert (cell["row"], cell["col"]) == (row, col), f"{scope}/{cls}: {cell}"
+        # The two metrics stack in the third column.
+        nums = [i for i in items if "holdings__num" in i["cls"]]
+        assert len(nums) == 2, nums
+        assert {n["col"] for n in nums} == {"3"}, nums
+        assert {n["row"] for n in nums} == {"1", "2"}, nums
+
+    # Listing and date share row 2 without running into each other --
+    # the whole reason they take opposite ends of it.
+    open_items = placement["open"]
+    ticker, since = find(open_items, "holdings__ticker"), find(open_items, "holdings__since")
+    assert ticker["right"] < since["left"], (ticker, since)
+
+
 def test_metrics_note_discloses_the_long_explanation(preview_page: Page):
     toggle = preview_page.locator(".metrics-note__toggle")
     panel = preview_page.locator("#metrics-note")

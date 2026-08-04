@@ -45,17 +45,30 @@
   }
   .site-nav__toggle { display: flex; }
   /* Open, the nav is a full-width column under the bar -- the
-     design's mobile drawer, not a row of pills. It is laid out as a
-     sibling that spans the header's full width by ordering it onto
-     its own flex line. */
-  .site-header { flex-wrap: wrap; }
+     design's mobile drawer, not a row of pills.
+     It is taken out of flow and hung off the header rather than
+     added to it. In flow it grew the header, which pushed every
+     section down the moment the reader tapped the button: the page
+     jumped under the finger, and ``--header-h`` grew with it, so the
+     anchor offset went wrong for as long as the drawer was open. Out
+     of flow it opens *over* the page, the header stays 45px, and
+     nothing below it moves. The header is ``position: sticky``, so
+     it is already the containing block; its ``isolation: isolate``
+     and z-index carry the drawer above the content it covers. */
   .site-nav {
     display: none;
-    flex-basis: 100%;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
     flex-direction: column;
     gap: 0;
-    margin: 10px -16px -10px;
-    border-top: 1px solid var(--line);
+    /* Fully opaque: it is covering content now, not sitting beside
+       it, and the header's 96% wash is not enough to read over a
+       table. */
+    background: var(--bg);
+    border-bottom: 1px solid var(--line);
+    box-shadow: 0 14px 26px -14px color-mix(in srgb, var(--fg) 40%, transparent);
   }
   .site-header[data-nav="open"] .site-nav { display: flex; }
   .site-nav a {
