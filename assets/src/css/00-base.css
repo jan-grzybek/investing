@@ -43,6 +43,27 @@
   --fg: #0f2430;
   --muted: #6b8291;
   --line: #d9e2ea;
+  /* The design reads text on a five-step neutral ramp, not the three
+     steps this file used to carry. Body copy sits a shade above
+     ``--muted``, secondary figures a shade below it, and tickers /
+     group labels a shade below that again -- so a holding's name, its
+     listing and its sector band separate by weight *and* by tone
+     instead of all landing on the same grey.
+
+     Each step is a mix of two tokens that already flip for dark mode
+     rather than a literal hex, so the whole ramp inverts with the
+     palette and stays inside the same slate family on both surfaces.
+     The light-mode results are the design's own values:
+
+       --fg-soft    #41586a   trade detail, company name, body copy
+       --muted-deep #5b7180   the benchmark's figures (quieter than
+                              the portfolio's, which is the point)
+       --muted-soft #8fa3b0   tickers, group bands, timestamps
+       --line-text  #c3ced7   the brand separator -- a rule, not a word */
+  --fg-soft: color-mix(in srgb, var(--muted) 57%, var(--fg));
+  --muted-deep: color-mix(in srgb, var(--muted) 82%, var(--fg));
+  --muted-soft: color-mix(in srgb, var(--line) 36%, var(--muted));
+  --line-text: color-mix(in srgb, var(--line) 79%, var(--muted));
   --accent: #fb8500;
   --accent-warm: #ffb703;
   --accent-bench: #023047;
@@ -280,7 +301,7 @@ main:focus-visible { outline: none; }
   letter-spacing: -0.02em;
   white-space: nowrap;
 }
-.site-brand__sep { color: var(--line); }
+.site-brand__sep { color: var(--line-text); }
 .site-brand__section {
   color: var(--muted);
   white-space: nowrap;
@@ -358,6 +379,9 @@ main:focus-visible { outline: none; }
   font-size: 0.8125rem;
   color: var(--muted);
 }
+/* Two spellings of the sort affordance; the stylesheet shows the one
+   that matches the layout on screen. See ``_page._CLICK_TO_SORT``. */
+.section__note-narrow { display: none; }
 .section__intro {
   margin: 0 0 10px;
   font-size: 0.8125rem;

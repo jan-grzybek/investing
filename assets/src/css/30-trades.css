@@ -112,13 +112,18 @@
 .trades tbody tr:nth-child(even) td {
   background: color-mix(in srgb, var(--card-bg) 60%, var(--bg) 40%);
 }
+/* The ticker is the row's identifier and takes the row's only bold
+   weight; the company name beside it is the same size but sits a
+   step down the neutral ramp, so the pair reads as "symbol, then
+   gloss" rather than as two equal columns. */
 .trades__cell--ticker {
-  font-weight: 600;
+  font-weight: 700;
+  letter-spacing: 0.02em;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
 .trades__cell--name {
-  color: var(--fg);
+  color: var(--fg-soft);
   /* Long names (e.g. "UnitedHealth Group Inc.") are allowed to wrap
      so the column doesn't blow out the table on narrow tablets.
      ``overflow-wrap: anywhere`` keeps the cell from forcing a
@@ -133,6 +138,7 @@
 }
 .trades__cell--date {
   color: var(--muted);
+  font-size: 0.8125rem;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
@@ -177,37 +183,45 @@
    actually disappears.
 */
 
-/* Solid-pill BUY / SELL badge. Uppercase + letter-spacing give it
-   the "label" affordance a typographic reader expects from a
-   category tag and distinguishes it cleanly from the prose around
-   it. ``width`` (not ``min-width``) pins both pills to the same
-   fixed box so "BOUGHT" and "SOLD" render at byte-for-byte
-   identical widths -- ``min-width`` alone would have let the
-   longer label grow past the shorter one and the column would
-   read as two slightly different chips. ``7em`` is wide enough
-   that the longer "BOUGHT" label sits comfortably away from the
-   pill's rounded ends with visible breathing room on either side,
-   rather than touching the edges. The pill content is centered
-   inside the fixed box with ``text-align: center``; horizontal
-   padding is zeroed because the fixed width already reserves
-   the breathing room. ``color: #fff`` (with the pure-black
-   override in dark mode) is set independently of ``--bg`` so
-   contrast against the saturated fills stays high regardless of
-   the page's ambient surface luminance. */
+/* BUY / SELL badge: a square swatch plus a quiet uppercase label,
+   which is what the design draws -- not the solid pill this used to
+   be. The pill was a saturated 84x24 lozenge in a section the page
+   ranks *below* the tables above it, so the loudest thing in the
+   Activity log was its least informative column: two values, endlessly
+   repeated. The swatch carries the same colour in a tenth of the area,
+   and the direction still reads at a glance down the column.
+
+   Colour lands on the text as well as the swatch, so the label keeps
+   its meaning for anyone who cannot resolve a 7px square -- and the
+   word itself ("Bought" / "Sold") says the same thing either way.
+
+   ``inline-block``, not ``inline-flex``. A flex container takes its
+   baseline from its first flex item, and the first item here is the
+   swatch -- an empty box, whose baseline is its bottom edge. That put
+   the badge's baseline 2.5px below the Detail and Date beside it on
+   the phone's second line, so the three sat visibly out of step.
+   Inline-block takes its baseline from its last line box, which is
+   the label: the badge now aligns on the same baseline as everything
+   else on the row, at every width. */
 .trade__badge {
   display: inline-block;
-  width: 7em;
-  padding: 3px 0;
-  border-radius: 999px;
-  font-size: 0.75rem;
+  font-size: 0.71875rem;
   font-weight: 700;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: #ffffff;
-  text-align: center;
-  /* The badge fills sit on coloured chips and overlap any
-     ``background`` ancestor; box-shadow: none keeps the pill flush. */
-  box-shadow: none;
+  white-space: nowrap;
+}
+/* Sits on the text baseline, lifted by about half the gap between the
+   baseline and the cap height so a 7px square reads as centred against
+   an uppercase label rather than as sunk below it. */
+.trade__badge-swatch {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 5px;
+  border-radius: 2px;
+  background: currentcolor;
+  vertical-align: 0.06em;
 }
 /* The four semantic categories collapse onto a single buy-vs-sell
    axis: green marks any move INTO a position, red marks any move
@@ -215,36 +229,19 @@
    (and the lifecycle distinction between "open" and "top-up", or
    between "trim" and "exit") lives in the adjacent "Details"
    column instead of being squeezed onto the badge. */
-.trade__badge--buy  { background: var(--positive); }
-.trade__badge--sell { background: var(--negative); }
-/* Dark mode lifts ``--positive`` / ``--negative`` to mid-tone greens
-   and reds so the same variables stay legible as TSR/CAGR text on
-   the deep slate background. White pill text on those lifted fills
-   drops below 2:1 contrast, so we flip the pill text to the page
-   background (deep slate) in dark mode -- inverted chip styling, the
-   standard pattern for high-contrast labels that sit on lighter
-   ``500``-shade fills. The light-mode pills keep the original white
-   text on the deeper ``700``-shade backgrounds where contrast is
-   already comfortable. */
-@media (prefers-color-scheme: dark) {
-  .trade__badge { color: var(--bg); }
+.trade__badge--buy  { color: var(--positive); }
+.trade__badge--sell { color: var(--negative); }
+/* "Details" column. Both kinds of detail -- ``--label`` (Initiated /
+   Divested) and ``--pct`` (+30% / -25%) -- render identically: same
+   size, same weight, same neutral tone. "+32%" and "Initiated"
+   answer the same question about the same trade, so ranking one
+   above the other by weight or by colour asserts a difference the
+   data does not have. ``--pct`` differs only in taking tabular
+   figures, so the percentages line up down the column. */
+.trades__detail {
+  color: var(--fg-soft);
+  font-size: 0.8125rem;
 }
-/* "Details" column. Every row -- ``--label`` (Initiated /
-   Divested) and ``--pct`` (+30% / -25%) alike -- picks up the
-   page's standard green / red value colours via the
-   ``.value--positive`` / ``.value--negative`` modifier the row
-   already carries: OPEN / INCREASE read as growth (green),
-   CLOSE / DECREASE as reduction (red). Those colour classes are
-   defined further up and shared with the holding capsules' TSR
-   / IRR readouts so the whole page speaks one colour-coding
-   language. ``--pct`` rows additionally get a heavier weight so
-   the signed percentage stands out as a numeric readout. */
-/* No weight distinction between the two kinds of detail. "+32%" and
-   "Initiated" answer the same question about the same trade, so
-   bolding one ranked it above the other for no reason the data
-   supports. Both keep the direction colour, which the Action badge
-   also carries -- and which becomes the *only* direction cue once
-   that badge drops out on narrow containers. */
 .trades__detail--pct {
   font-variant-numeric: tabular-nums;
 }
@@ -385,6 +382,10 @@
     display: flex;
     flex-wrap: wrap;
     align-items: baseline;
+    /* 7px is the design's ticker-to-name gap, the tightest on the
+       row; the wider gaps that separate those two from the price,
+       and the badge from the detail, are set as margins on the
+       items that need them. */
     column-gap: 7px;
     row-gap: 0;
     padding: 9px 14px;
@@ -420,7 +421,8 @@
     order: 2;
     flex: 1 1 0;
     min-width: 0;
-    color: var(--muted);
+    margin-right: 3px;
+    color: var(--muted-soft);
     font-size: 0.71875rem;
     white-space: nowrap;
     overflow: hidden;
@@ -433,12 +435,18 @@
     flex: 1 1 0;
     min-width: 0;
     margin-top: 3px;
+    margin-right: 3px;
     font-size: 0.71875rem;
   }
+  .trades__detail { font-size: inherit; }
+  /* 10px on mobile, one step down from the desktop 11.5px. */
+  .trade__badge { font-size: 0.625rem; }
+  .trade__badge-swatch { width: 6px; height: 6px; }
   .trades__cell--date {
     order: 7;
     flex: 0 0 auto;
     margin-top: 3px;
+    color: var(--muted-soft);
     font-size: 0.6875rem;
   }
   /* The design's chip order for the log: what a reader sorts a trade
@@ -449,7 +457,4 @@
   .trades__col--detail { order: 4; }
   .trades__col--price { order: 5; }
   .trades__col--name { order: 6; }
-  /* The pill's fixed 7em was sized for a table column; on two lines
-     it only has to fit its own label. */
-  .trade__badge { width: auto; padding: 2px 8px; font-size: 0.625rem; }
 }

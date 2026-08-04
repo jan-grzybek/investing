@@ -118,20 +118,19 @@ def build_row(event: TradeEvent) -> str:
     detail_label = _detail_text(event)
     # The two "boundary" labels (Initiated / Divested) are
     # qualitative; the magnitude rows (+30% / -25%) are
-    # quantitative and benefit from a tabular-numbers
-    # treatment. Both branches pick up the page's standard
-    # green / red value colours so the whole column speaks
-    # the same direction-of-travel language: OPEN / INCREASE
-    # are growth (green), CLOSE / DECREASE are reduction
-    # (red), matching the buy-vs-sell axis of the adjacent
-    # Action badge without needing a second glance.
-    value_modifier = "value--positive" if category in ("OPEN", "INCREASE") else "value--negative"
+    # quantitative and get a tabular-numbers treatment so the
+    # column's figures line up. Neither branch is coloured: the
+    # direction of travel is already stated twice on the row, by
+    # the Action badge and by the sign on the percentage itself,
+    # and painting a third of the log green or red made the page's
+    # quietest section its most saturated. The design keeps this
+    # column on the neutral body tone in both frames.
     if category in ("INCREASE", "DECREASE"):
         detail_modifier = "pct"
-        detail_class = f"trades__detail trades__detail--pct {value_modifier}"
+        detail_class = "trades__detail trades__detail--pct"
     else:
         detail_modifier = "label"
-        detail_class = f"trades__detail trades__detail--label {value_modifier}"
+        detail_class = "trades__detail trades__detail--label"
     start = event["start_date"]
     end = event["end_date"]
     # Quarter-granularity timing -- see ``_fmt_quarter_range``
@@ -161,6 +160,7 @@ def build_row(event: TradeEvent) -> str:
         f'<td class="trades__cell trades__cell--name" role="cell">{html.escape(name)}</td>'
         '<td class="trades__cell trades__cell--action" role="cell">'
         f'<span class="trade__badge trade__badge--{action_modifier}">'
+        '<span class="trade__badge-swatch" aria-hidden="true"></span>'
         f"{html.escape(action_label)}</span>"
         "</td>"
         '<td class="trades__cell trades__cell--detail" role="cell">'

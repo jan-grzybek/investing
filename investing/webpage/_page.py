@@ -73,6 +73,19 @@ def _write_if_changed(path: Path, body: str) -> bool:
     return True
 
 
+# The sort affordance names a gesture, and the gesture differs by
+# frame: the wide table sorts by clicking a column header, the phone's
+# card list by tapping a chip -- there are no columns on screen to
+# click. The design writes both and shows one, so the page carries
+# both and lets the stylesheet pick at the current width.
+_CLICK_TO_SORT = '<span class="section__note-wide"> &middot; click a column to sort</span>'
+_TAP_TO_SORT = '<span class="section__note-narrow"> &middot; tap to sort</span>'
+# "shown" only earns its place beside the count on the wide frame; the
+# phone note is "All 12 - tap to sort", which says the same thing in
+# the space it has.
+_SHOWN = '<span class="section__note-wide"> shown</span>'
+
+
 class Webpage:
     """Builds the JG Investing index page as a single responsive document."""
 
@@ -257,7 +270,7 @@ class Webpage:
             parts.append(
                 self._section_head(
                     "Holdings",
-                    f"All {self._open_count} shown &middot; click a column to sort",
+                    f"All {self._open_count}{_SHOWN}{_CLICK_TO_SORT}{_TAP_TO_SORT}",
                 )
             )
             parts.append(self._metrics_note())
@@ -270,7 +283,7 @@ class Webpage:
             parts.append(
                 self._section_head(
                     "Closed positions",
-                    "The losses stay on the page &middot; click a column to sort",
+                    f"The losses stay on the page{_CLICK_TO_SORT}",
                 )
             )
             parts.append(closed_table)

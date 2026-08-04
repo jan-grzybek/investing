@@ -23,7 +23,7 @@ from ..formatting import _fmt_date_long, _fmt_pct, _format_duration, _value_clas
 from ..types import BenchmarkSummary, TotalReturn, YearlyReturn
 
 
-def _stat(*, label: str, value: str, note: str = "", swatch: str = "") -> str:
+def _stat(*, label: str, value: str, note: str = "", swatch: str = "", metric: str = "") -> str:
     """One cell of the four-up strip under the headline.
 
     ``swatch`` names the CSS modifier for the little colour chip that
@@ -31,12 +31,21 @@ def _stat(*, label: str, value: str, note: str = "", swatch: str = "") -> str:
     cells without a counterpart on the chart render without one.
     ``note`` is the secondary figure some cells carry ("vs 9.2%",
     "3 closed"), set smaller and muted beside the primary.
+
+    ``metric`` is the acronym that names *which* return the figure is
+    ("TWR" for the portfolio, "TSR" for the benchmark). It renders in
+    its own span so the phone frame can drop it: at 9.5px the two
+    labels read as one long string of capitals apiece, and the
+    distinction they draw is spelled out in the Method footer anyway.
+    The wider frames keep it, which is where the reader comparing the
+    two columns actually is.
     """
     chip = f'<span class="hero__swatch hero__swatch--{swatch}"></span>' if swatch else ""
     tail = f'<span class="hero__stat-note">{html.escape(note)}</span>' if note else ""
+    acronym = f' <span class="hero__stat-metric">{html.escape(metric)}</span>' if metric else ""
     return (
         '<div class="hero__stat">'
-        f'<dt class="hero__stat-label">{chip}{html.escape(label)}</dt>'
+        f'<dt class="hero__stat-label">{chip}{html.escape(label)}{acronym}</dt>'
         f'<dd class="hero__stat-value">{value}{tail}</dd>'
         "</div>"
     )
@@ -103,12 +112,13 @@ def render(
         gloss += "."
 
     stats = [
-        _stat(label="Portfolio TWR", value=f"{_fmt_pct(twr)}%", swatch="jg"),
+        _stat(label="Portfolio", metric="TWR", value=f"{_fmt_pct(twr)}%", swatch="jg"),
     ]
     if bench_tsr is not None:
         stats.append(
             _stat(
-                label=f"{benchmark_label} TSR",
+                label=benchmark_label,
+                metric="TSR",
                 value=f'<span class="hero__stat-bench">{_fmt_pct(bench_tsr)}%</span>',
                 swatch="bench",
             )

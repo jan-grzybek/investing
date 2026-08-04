@@ -33,6 +33,73 @@
   .hero__stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
+/* The phone type scale.
+   The design ships two frames -- 880px and 390px -- and they do not
+   run the same type. Nearly every label, caption and heading steps
+   down on the narrow one: section headings 17 -> 15px, captions
+   13 -> 11.5px, the uppercase eyebrows 11 -> 9.5px, the year table
+   17% smaller across the board. Shipping the desktop scale into a
+   390px frame is most of why the phone layout read as a squeezed
+   desktop page rather than as the design's phone page: the same
+   words at the same size in half the width, so every line ran to
+   the edge and the hierarchy between a heading and the note under
+   it collapsed.
+
+   668px is where the two tables' container queries flip them to
+   cards (a 620px wrap inside 24px of body padding either side), so
+   the whole page changes character at one width instead of drifting
+   between two. Below 560px a second block adds the phone chrome --
+   drawer nav, tighter gutters, a smaller hero -- and being later in
+   the file it wins on the handful of properties both set. */
+@media (max-width: 668px) {
+  .section__title,
+  .yearly__heading { font-size: 0.9375rem; }
+  .section__note {
+    font-size: 0.6875rem;
+    color: var(--muted-soft);
+  }
+  .section__note-wide { display: none; }
+  .section__note-narrow { display: inline; }
+  .section__intro { font-size: 0.71875rem; }
+  /* The legend rides in the section head's note slot, so it would
+     otherwise inherit the note's lighter tone. It labels the two
+     curves and stays on ``--muted``, as the design has it. */
+  .legend {
+    font-size: 0.71875rem;
+    color: var(--muted);
+  }
+  .hero__eyebrow { font-size: 0.59375rem; letter-spacing: 0.1em; }
+  .hero__updated { font-size: 0.59375rem; letter-spacing: 0.06em; }
+  .hero__stat-label { font-size: 0.59375rem; letter-spacing: 0.07em; }
+  /* "Portfolio TWR" / "S&P 500 TSR" shed the acronym here -- see
+     ``hero._stat``. */
+  .hero__stat-metric { display: none; }
+  .yearly__caption {
+    font-size: 0.65625rem;
+    color: var(--muted-soft);
+  }
+  .yearly__summary { font-size: 0.71875rem; }
+  .yearly__table thead th { font-size: 0.59375rem; letter-spacing: 0.07em; }
+  .yearly__year { font-size: 0.78125rem; }
+  .allocation__title { font-size: 0.59375rem; letter-spacing: 0.07em; }
+  .allocation__note {
+    font-size: 0.65625rem;
+    color: var(--muted-soft);
+  }
+  .allocation__segment-value { font-size: 0.6875rem; }
+  .allocation__key { font-size: 0.71875rem; }
+  .metrics-note__toggle { font-size: 0.71875rem; }
+  .metrics-note { font-size: 0.71875rem; }
+  .metrics-note__title { font-size: 0.59375rem; letter-spacing: 0.07em; }
+  .metrics-note__foot {
+    font-size: 0.6875rem;
+    color: var(--muted-soft);
+  }
+  .method { font-size: 0.71875rem; }
+  .method__title { font-size: 0.8125rem; }
+  .method__legal { font-size: 0.6875rem; }
+}
+
 @media (max-width: 560px) {
   body { padding: 0 16px 40px; }
   .site-header {
@@ -113,7 +180,7 @@
      remains rather than collapsing to a sliver. */
   .yearly__num {
     width: 54px;
-    font-size: 0.8125rem;
+    font-size: 0.78125rem;
     padding-left: 8px;
   }
   .yearly__alpha { width: 66px; }

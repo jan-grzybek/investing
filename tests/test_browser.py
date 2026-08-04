@@ -312,6 +312,118 @@ def test_mobile_sort_chips_follow_the_designs_order(page: Page, preview_index: P
     assert order[:5] == ["Date", "Ticker", "Action", "Details", "Price"], order
 
 
+# The baseline probe: an empty inline-block's baseline is its bottom
+# margin edge, so a 0x0 span appended to a line reports that line's
+# baseline exactly. Comparing ``getBoundingClientRect()`` instead
+# compares border boxes against text boxes, which differ by the
+# descender even when the baselines agree -- so it cannot tell a real
+# misalignment from two different font sizes sitting correctly.
+_BASELINE_PROBE = """
+    const baseline = el => {
+        const s = document.createElement('span');
+        s.style.cssText = 'display:inline-block;width:0;height:0;';
+        el.appendChild(s);
+        const y = s.getBoundingClientRect().bottom;
+        s.remove();
+        return y;
+    };
+"""
+
+
+def test_action_badge_label_shares_the_row_baseline(page: Page, preview_index: Path):
+    """The badge's label must sit on the same baseline as the Detail
+    and Date beside it.
+
+    This is a trap the swatch walks straight into. A flex container
+    takes its baseline from its *first* flex item, and the first item
+    in the badge is the swatch -- an empty box, whose baseline is its
+    own bottom edge. Made ``inline-flex``, the badge therefore hands
+    the line a baseline taken from a 7px square, and its label floats
+    3px above everything else on the row. ``inline-block`` takes the
+    baseline from the last line box, which is the label itself.
+
+    The probe goes *inside* the badge, not inside its cell: the cell's
+    baseline is the one the flex row aligned, and it agrees either
+    way. What moves is the label within it.
+    """
+    page.set_viewport_size({"width": 390, "height": 844})
+    page.goto(preview_index.as_uri())
+    page.locator(".trades__toggle").click()
+
+    result = page.evaluate(
+        """() => {"""
+        + _BASELINE_PROBE
+        + """
+            const bad = [];
+            let checked = 0;
+            document.querySelectorAll('.trades__row').forEach((r, i) => {
+                if (r.getBoundingClientRect().height === 0) return;
+                checked++;
+                const line = [
+                    baseline(r.querySelector('.trade__badge')),
+                    baseline(r.querySelector('.trades__cell--detail')),
+                    baseline(r.querySelector('.trades__cell--date')),
+                ];
+                const spread = Math.max(...line) - Math.min(...line);
+                if (spread > 0.6) bad.push({i, spread: +spread.toFixed(2)});
+            });
+            return {checked, bad};
+        }"""
+    )
+    assert result["checked"] >= 10, result
+    assert not result["bad"], result["bad"]
+
+
+def test_phone_frame_runs_the_designs_smaller_type_scale(page: Page, preview_index: Path):
+    """The design ships two frames, 880px and 390px, and they do not
+    run the same type: headings, captions and uppercase labels all
+    step down on the narrow one.
+
+    Shipping the desktop scale into a 390px frame is what made the
+    phone layout read as a squeezed desktop page -- the same words at
+    the same size in half the width, so the hierarchy between a
+    heading and the note under it collapsed. Each pair below is a
+    measured value from the design's own two frames.
+    """
+    wanted = {
+        ".section__title": (17, 15),
+        ".hero__eyebrow": (11, 9.5),
+        ".hero__stat-label": (11, 9.5),
+        ".yearly__caption": (13, 10.5),
+        ".yearly__summary": (13, 11.5),
+        ".allocation__title": (11, 9.5),
+        ".method__title": (15, 13),
+    }
+    measured = {}
+    for width, key in ((880, 0), (390, 1)):
+        page.set_viewport_size({"width": width, "height": 900})
+        page.goto(preview_index.as_uri())
+        for selector in wanted:
+            size = page.evaluate(
+                """(sel) => {
+                    const e = document.querySelector(sel);
+                    return e ? parseFloat(getComputedStyle(e).fontSize) : null;
+                }""",
+                selector,
+            )
+            measured.setdefault(selector, [None, None])[key] = size
+
+    for selector, (desktop, phone) in wanted.items():
+        got_desktop, got_phone = measured[selector]
+        assert got_desktop == pytest.approx(desktop, abs=0.26), (selector, measured)
+        assert got_phone == pytest.approx(phone, abs=0.26), (selector, measured)
+
+    # The acronym that names the metric is dropped on the phone, so the
+    # stat label reads "Portfolio" rather than "Portfolio TWR".
+    page.set_viewport_size({"width": 390, "height": 900})
+    page.goto(preview_index.as_uri())
+    labels = page.evaluate(
+        """() => [...document.querySelectorAll('.hero__stat-label')]
+            .map(e => e.innerText.trim())"""
+    )
+    assert not any("TWR" in x or "TSR" in x for x in labels), labels
+
+
 def test_metrics_note_discloses_the_long_explanation(preview_page: Page):
     toggle = preview_page.locator(".metrics-note__toggle")
     panel = preview_page.locator("#metrics-note")

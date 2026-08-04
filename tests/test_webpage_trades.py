@@ -67,50 +67,64 @@ class TestAddTrades:
             assert ">Sold<" in row
             assert "trade__badge--buy" not in row
 
-    def test_action_pill_is_pinned_to_a_fixed_width(self, stub_logo_lookup):
-        # The "Bought" / "Sold" pills must render at byte-for-byte
-        # identical width so the column reads as a stack of uniform
-        # chips. ``min-width`` alone wasn't enough -- the longer
-        # "BOUGHT" label still grew past the shorter "SOLD" one --
-        # so the stylesheet pins both to an exact ``width`` box
-        # with zero horizontal padding and centered content. ``7em``
-        # leaves the longer "BOUGHT" with comfortable padding off
-        # the rounded pill ends rather than touching them, and the
-        # same value is reused at every mobile breakpoint so the
-        # iPhone SE / Galaxy Fold widths don't crop the longer
-        # label against the rounded ends (a regression that bit us
-        # at 5.25em).
-        # (We can't measure actual pixel widths from a static-HTML
-        # test, but holding the CSS rule in place is what guarantees
-        # the visual invariant downstream.)
+    def test_action_badge_is_a_swatch_and_a_label_not_a_filled_pill(
+        self,
+        stub_logo_lookup,
+    ):
+        # The badge used to be a solid 7em lozenge: saturated fill,
+        # white text, rounded ends. The design draws it as a small
+        # square swatch followed by the label in the same colour, and
+        # for a reason -- Activity is the page's supporting section,
+        # and a column of saturated pills made its least informative
+        # column (two values, repeated twenty times) the loudest thing
+        # on the screen.
+        #
+        # What has to hold: no background fill on the badge, the
+        # direction colour on the text itself, and a fixed square
+        # swatch. Colour on the *text* is what keeps the meaning for a
+        # reader who cannot resolve a 7px square.
         from investing.assets import _PAGE_STYLES
         from tests._css_helpers import blocks_for, has_declaration
 
-        # Every ``.trade__badge`` declaration block that touches sizing
-        # (base rule + any surviving per-breakpoint override) must pin
-        # the pill to ``width: 7em``. The base rule additionally
-        # centres the label; the 540px override doesn't need to repeat
-        # that since it inherits ``text-align`` from the base. Colour-
-        # only overrides (e.g. the dark-mode pill text flip) don't
-        # restate width and so don't need to repeat ``width: 7em`` --
-        # we only enforce the rule on blocks that already declare a
-        # ``width``. ``has_declaration`` normalises whitespace so the
-        # checks work whether the served CSS is formatted (dev) or
-        # minified (prod). ``min-width`` is explicitly excluded from
-        # every block to prevent the "longer label grows the pill"
-        # regression from creeping back in.
         bodies = blocks_for(_PAGE_STYLES, ".trade__badge")
         assert bodies
-        assert has_declaration(bodies[0], "text-align", "center")
-        # The base rule pins the pill so BOUGHT and SOLD render at
-        # byte-identical widths in the table column. The mobile card
-        # layout overrides it to ``auto``: on its own line the pill
-        # only has to fit its own label, and a 7em box there is just
-        # a gap. ``min-width`` stays banned everywhere -- that is what
-        # let the longer label grow past the shorter one.
-        assert has_declaration(bodies[0], "width", "7em")
+        base = bodies[0]
+        assert has_declaration(base, "text-transform", "uppercase")
+        # ``inline-block``, never ``inline-flex``. A flex container
+        # takes its baseline from its first flex item -- here the
+        # swatch, an empty box whose baseline is its own bottom edge --
+        # so an inline-flex badge floats its label 3px above the Detail
+        # and Date beside it. ``test_action_badge_label_shares_the_row
+        # _baseline`` measures the consequence in a browser; this pins
+        # the cause so the two cannot drift apart.
         for body in bodies:
-            assert "min-width" not in body
+            assert "display:inline-flex" not in body.replace(" ", "")
+        # No fill, and no fixed box to centre a label inside: both are
+        # the pill, and both are gone.
+        for body in bodies:
+            assert "background" not in body
+            assert "border-radius" not in body
+            assert "width" not in body
+
+        # The direction colour lands on the text (``color``), never as
+        # a fill. The swatch picks it up through ``currentcolor``, so
+        # the two can never disagree.
+        for modifier in (".trade__badge--buy", ".trade__badge--sell"):
+            blocks = blocks_for(_PAGE_STYLES, modifier)
+            assert blocks, modifier
+            assert all("background" not in b for b in blocks), modifier
+            assert any("color:var(" in b.replace(" ", "") for b in blocks), modifier
+
+        swatches = blocks_for(_PAGE_STYLES, ".trade__badge-swatch")
+        assert swatches
+        assert has_declaration(swatches[0], "background", "currentcolor")
+        # Square, and the same square at every breakpoint: a swatch
+        # that is 7x6 reads as a rendering bug, not as a swatch.
+        size = re.compile(r"(?:^|;)(width|height):([^;]+)")
+        for body in swatches:
+            sized = dict(size.findall(body))
+            if sized:
+                assert sized.get("width") == sized.get("height"), body
 
     def test_details_column_uses_past_tense_initiated_and_divested(
         self,
@@ -147,31 +161,30 @@ class TestAddTrades:
             assert "Initial stake" not in row
             assert "Disposal" not in row
         for row in (open_row, close_row):
-            # Boundary rows carry the ``--label`` modifier (no
-            # percentage / minus glyph is rendered) but still pick
-            # up the page's standard green / red value colour so
-            # the column reads as a single direction-of-travel
-            # cue: Initiated is growth (green), Divested is
-            # reduction (red), matching the buy-vs-sell axis of
-            # the adjacent Action badge.
+            # Boundary rows carry the ``--label`` modifier: no
+            # percentage or minus glyph is rendered.
             assert "trades__detail--label" in row
             assert "%" not in row.split("trades__cell--detail")[1].split("</td>")[0]
-        assert "value--positive" in open_row
-        assert "value--negative" in close_row
         # INCREASE / DECREASE: signed-percent readouts with the
-        # ``--pct`` modifier and the page's standard
-        # ``value--positive`` / ``value--negative`` colour classes
-        # so the cell speaks the same language as the holdings'
-        # TSR / CAGR rows.
+        # ``--pct`` modifier, which buys tabular figures and nothing
+        # else.
         assert ">+30%<" in inc_row
         assert "trades__detail--pct" in inc_row
-        assert "value--positive" in inc_row
         # The minus is the typographically correct U+2212 sign,
         # not the ASCII hyphen-minus, so it aligns with ``+`` in
         # tabular-numbers fonts.
         assert ">\u221225%<" in dec_row
         assert "trades__detail--pct" in dec_row
-        assert "value--negative" in dec_row
+        # No direction colour anywhere in the column. The row already
+        # states its direction twice -- in the Action badge and in the
+        # sign on the percentage -- and painting a third of the log
+        # green or red made the page's quietest section its most
+        # saturated. The design keeps this column on the body tone in
+        # both frames.
+        for row in w.trades:
+            detail = row.split("trades__cell--detail")[1].split("</td>")[0]
+            assert "value--positive" not in detail
+            assert "value--negative" not in detail
 
     def test_single_day_trade_renders_one_quarter_label(
         self,

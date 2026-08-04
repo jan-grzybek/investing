@@ -114,7 +114,7 @@
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: color-mix(in srgb, var(--muted) 80%, var(--fg) 20%);
+  color: var(--muted-soft);
 }
 .holdings__section:first-of-type .holdings__band td { border-top: 0; }
 .holdings__row td,
@@ -167,11 +167,15 @@
      that single word still does not fit. */
   overflow-wrap: break-word;
 }
+/* The listing sits a step below ``--muted``: it identifies the line
+   the holding trades on, which the reader wants available but almost
+   never reads. Putting it on the same grey as the "held since" date
+   beside it made the two compete. */
 .holdings__ticker {
   display: block;
   font-size: 0.71875rem;
   letter-spacing: 0.03em;
-  color: var(--muted);
+  color: var(--muted-soft);
 }
 .holdings__since {
   color: var(--muted);

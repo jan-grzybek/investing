@@ -123,7 +123,7 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-.hero__stat-bench { color: color-mix(in srgb, var(--fg) 70%, var(--muted) 30%); }
+.hero__stat-bench { color: var(--muted-deep); }
 .hero__stat-note {
   font-size: 0.9375rem;
   font-weight: 500;
