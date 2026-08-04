@@ -75,21 +75,15 @@ class _StubLogoCache:
     ``logos/`` directory (which is what GitHub Pages serves anyway)
     so the preview render never has to leave the workstation.
 
-    The class still mirrors ``LogoCache``'s full public surface --
-    ``__call__`` for the URL, plus ``aspect_ratio`` and
-    ``coverage_ratio`` -- even though the renderer now only calls the
-    first of the three: the sector treemap that consumed the other
-    two was replaced by a stacked allocation bar, and the OG card's
-    equal-area strip reads aspects straight off disk. Keeping the
-    stub shaped like the real cache means the preview keeps
-    substituting cleanly if either method finds a caller again.
+    ``__call__`` is the whole surface, matching ``LogoCache``: the
+    aspect and ink-density probes the stub used to mirror existed for
+    the sector treemap's equal-visual-area logo sizing, and both went
+    with it. The OG card's strip reads aspects straight off disk.
     """
 
     def __init__(self, extension_map: dict[str, str], logos_dir: Path):
         self._extensions = extension_map
         self._logos_dir = logos_dir
-        self._aspect_cache: dict[str, float] = {}
-        self._density_cache: dict[str, float] = {}
 
     def __call__(self, ticker: str) -> str:
         ext = self._extensions.get(ticker)
@@ -97,44 +91,6 @@ class _StubLogoCache:
             return COURAGE_LOGO
         encoded = ticker.replace(":", "%3A")
         return f"{LOGOS_ADDRESS}{encoded}{ext}"
-
-    def aspect_ratio(self, ticker: str) -> float:
-        from investing.logos import _DEFAULT_LOGO_ASPECT, _parse_svg_aspect_ratio
-
-        cached = self._aspect_cache.get(ticker)
-        if cached is not None:
-            return cached
-        aspect = _DEFAULT_LOGO_ASPECT
-        ext = self._extensions.get(ticker)
-        if ext == ".svg":
-            path = self._logos_dir / f"{ticker}.svg"
-            if path.is_file():
-                try:
-                    text = path.read_text(encoding="utf-8")
-                except OSError:
-                    text = ""
-                parsed = _parse_svg_aspect_ratio(text)
-                if parsed is not None:
-                    aspect = parsed
-        self._aspect_cache[ticker] = aspect
-        return aspect
-
-    def coverage_ratio(self, ticker: str) -> float:
-        from investing.logos import _DEFAULT_LOGO_DENSITY, _measure_svg_density
-
-        cached = self._density_cache.get(ticker)
-        if cached is not None:
-            return cached
-        density = _DEFAULT_LOGO_DENSITY
-        ext = self._extensions.get(ticker)
-        if ext == ".svg":
-            path = self._logos_dir / f"{ticker}.svg"
-            if path.is_file():
-                measured = _measure_svg_density(str(path))
-                if measured is not None:
-                    density = measured
-        self._density_cache[ticker] = density
-        return density
 
 
 def _ease_history(
