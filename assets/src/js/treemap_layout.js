@@ -256,7 +256,7 @@
     var toFold = [];
     for (var i = 0; i < rows.length; i++) {
       var row = rows[i];
-      if (!row.foldedTickers && anchors.indexOf(row.anchor) >= 0) {
+      if (!row.foldedLabels && anchors.indexOf(row.anchor) >= 0) {
         toFold.push(row);
       }
     }
@@ -264,7 +264,7 @@
     var remainingReal = [];
     for (var ri = 0; ri < rows.length; ri++) {
       var r = rows[ri];
-      if (!r.foldedTickers && toFold.indexOf(r) < 0) remainingReal.push(r);
+      if (!r.foldedLabels && toFold.indexOf(r) < 0) remainingReal.push(r);
     }
     if (!remainingReal.length) return rows;
     var next = [];
@@ -272,14 +272,14 @@
       if (toFold.indexOf(rows[ni]) < 0) next.push(rows[ni]);
     }
     var batchWeight = 0;
-    var batchTickers = [];
+    var batchLabels = [];
     for (var bi = 0; bi < toFold.length; bi++) {
       batchWeight += toFold[bi].weight;
-      batchTickers.push(toFold[bi].ticker);
+      batchLabels.push(toFold[bi].shortTicker || stripExchange(toFold[bi].ticker));
     }
     var existingOther = null;
     for (var oi = 0; oi < next.length; oi++) {
-      if (next[oi].foldedTickers) {
+      if (next[oi].foldedLabels) {
         existingOther = next[oi];
         break;
       }
@@ -295,11 +295,11 @@
         logoHFactor: 1,
         anchor: "",
         shortTicker: "",
-        foldedTickers: batchTickers,
+        foldedLabels: batchLabels,
       });
     } else {
       existingOther.weight += batchWeight;
-      existingOther.foldedTickers = existingOther.foldedTickers.concat(batchTickers);
+      existingOther.foldedLabels = existingOther.foldedLabels.concat(batchLabels);
     }
     return next;
   }
@@ -312,7 +312,7 @@
       var toFold = [];
       for (var li = 0; li < layout.length; li++) {
         var entry = layout[li];
-        if (!entry.row.foldedTickers && tileShouldFold(entry.tile, canvasW, canvasH)) {
+        if (!entry.row.foldedLabels && tileShouldFold(entry.tile, canvasW, canvasH)) {
           toFold.push(entry.row);
         }
       }
@@ -320,7 +320,7 @@
       var remainingReal = [];
       for (var ri = 0; ri < rowsList.length; ri++) {
         var row = rowsList[ri];
-        if (!row.foldedTickers && toFold.indexOf(row) < 0) {
+        if (!row.foldedLabels && toFold.indexOf(row) < 0) {
           remainingReal.push(row);
         }
       }
@@ -330,14 +330,14 @@
         if (toFold.indexOf(rowsList[ni]) < 0) next.push(rowsList[ni]);
       }
       var batchWeight = 0;
-      var batchTickers = [];
+      var batchLabels = [];
       for (var bi = 0; bi < toFold.length; bi++) {
         batchWeight += toFold[bi].weight;
-        batchTickers.push(toFold[bi].ticker);
+        batchLabels.push(toFold[bi].shortTicker || stripExchange(toFold[bi].ticker));
       }
       var existingOther = null;
       for (var oi = 0; oi < next.length; oi++) {
-        if (next[oi].foldedTickers) {
+        if (next[oi].foldedLabels) {
           existingOther = next[oi];
           break;
         }
@@ -353,12 +353,12 @@
           logoHFactor: 1,
           anchor: "",
           shortTicker: "",
-          foldedTickers: batchTickers,
+          foldedLabels: batchLabels,
         });
       } else {
-        var mergedTickers = existingOther.foldedTickers.concat(batchTickers);
+        var mergedLabels = existingOther.foldedLabels.concat(batchLabels);
         existingOther.weight += batchWeight;
-        existingOther.foldedTickers = mergedTickers;
+        existingOther.foldedLabels = mergedLabels;
       }
       rowsList = next;
     }
@@ -389,10 +389,10 @@
 
   function buildAggregatedTile(row, tile, meta, sectorVar) {
     var labelPct = fmtPct(row.weight);
-    var count = row.foldedTickers.length;
+    var count = row.foldedLabels.length;
     var tickersBlurb = [];
-    for (var i = 0; i < row.foldedTickers.length; i++) {
-      tickersBlurb.push(stripExchange(row.foldedTickers[i]));
+    for (var i = 0; i < row.foldedLabels.length; i++) {
+      tickersBlurb.push(row.foldedLabels[i]);
     }
     var tooltip =
       meta.otherDisplayLabel +
@@ -438,7 +438,14 @@
   function buildRealTile(row, tile, sectorVar) {
     var labelPct = fmtPct(row.weight);
     var tooltip =
-      row.ticker + " - " + row.name + " (" + row.sector + "): " + labelPct + "%";
+      (row.tickers || row.ticker) +
+      " - " +
+      row.name +
+      " (" +
+      row.sector +
+      "): " +
+      labelPct +
+      "%";
     var anchor = document.createElement("a");
     var modifier = row.logoUrl ? "" : " treemap__tile--no-logo";
     anchor.className = "treemap__tile" + modifier;
@@ -541,7 +548,8 @@
         logoHFactor: h.logoHFactor || 1,
         anchor: h.anchor,
         shortTicker: h.shortTicker,
-        foldedTickers: null,
+        tickers: h.tickers || h.ticker,
+        foldedLabels: null,
       });
     }
     return out;
@@ -559,7 +567,7 @@
         "--treemap-color-other"
       );
       var el;
-      if (entry.row.foldedTickers) {
+      if (entry.row.foldedLabels) {
         el = buildAggregatedTile(entry.row, entry.tile, meta, sectorVar);
       } else {
         el = buildRealTile(entry.row, entry.tile, sectorVar);

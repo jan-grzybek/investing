@@ -208,3 +208,20 @@ def _reset_sector_override_state():
     yield
     reset_hints()
     _clear_overrides_cache()
+
+
+@pytest.fixture(autouse=True)
+def _reset_position_groups_cache():
+    """Clear the parsed ``position_groups.toml`` cache between tests.
+
+    Same rationale as the sector-override cache above: the loader
+    memoises its parse for the process lifetime, so a test that points
+    it at a temp config would otherwise leak that config into every
+    later test (and vice versa -- a test running after one that read
+    the repo-root file would see the maintainer's real groups).
+    """
+    from investing.position_groups import _clear_groups_cache
+
+    _clear_groups_cache()
+    yield
+    _clear_groups_cache()

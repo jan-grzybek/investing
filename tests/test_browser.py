@@ -58,19 +58,29 @@ def test_yearly_returns_toggle_expands_and_collapses(preview_page: Page):
 
 
 def test_holdings_sort_reorders_current_list(preview_page: Page):
+    # Name is the alphabetical sort on this toolbar. There is no
+    # Ticker button: capsules are titled by company name, so sorting
+    # by symbol would reorder the list against data the reader cannot
+    # see (and a position backed by several listings has no single
+    # symbol to sort by). The Trades table keeps its own ticker sort.
     list_el = preview_page.locator('[data-holdings-list="current"]')
-    ticker_btn = preview_page.locator(
-        '[data-holdings-sort="current"] .holdings__sort-btn[data-holdings-sort-key="ticker"]'
+    name_btn = preview_page.locator(
+        '[data-holdings-sort="current"] .holdings__sort-btn[data-holdings-sort-key="name"]'
     )
     expect(list_el).to_be_visible()
+    expect(
+        preview_page.locator(
+            '[data-holdings-sort="current"] .holdings__sort-btn[data-holdings-sort-key="ticker"]'
+        )
+    ).to_have_count(0)
     before = list_el.locator(".holding").evaluate_all(
-        "els => els.map(el => el.getAttribute('data-sort-ticker'))"
+        "els => els.map(el => el.getAttribute('data-sort-name'))"
     )
     assert len(before) >= 2
 
-    ticker_btn.click()
+    name_btn.click()
     after = list_el.locator(".holding").evaluate_all(
-        "els => els.map(el => el.getAttribute('data-sort-ticker'))"
+        "els => els.map(el => el.getAttribute('data-sort-name'))"
     )
     assert after != before
     assert after == sorted(before)
@@ -87,6 +97,41 @@ def test_trades_sort_toggles_date_direction(preview_page: Page):
 
     sort_btn.click()
     expect(date_header).to_have_attribute("aria-sort", "descending")
+
+
+def test_treemap_combined_position_tile_labels_and_tooltip(preview_page: Page):
+    # The production treemap is laid out entirely by
+    # ``assets/treemap_layout.js``; the Python ``_ticker_tile`` is a
+    # parity helper used only by tests. So a multi-listing tile has to
+    # be asserted through a real browser or the shipped renderer goes
+    # unverified. The preview carries Samsung as a combined position
+    # (``DUS:SSU.DU`` + ``IOB:SMSN.IL``) for exactly this.
+    tile = preview_page.locator('.treemap a[href="#holding-DUS-SSU-DU"]')
+    expect(tile).to_have_count(1)
+
+    # Tile text is the compact group label, not either raw symbol --
+    # neither of Samsung's listing codes reads as the company, and
+    # tile space is the binding constraint.
+    expect(tile.locator(".treemap__tile-ticker")).to_have_text("Samsung")
+
+    # The tooltip is not space-constrained, so it names every listing.
+    tooltip = tile.get_attribute("title")
+    assert tooltip is not None
+    assert tooltip.startswith("DUS:SSU.DU + IOB:SMSN.IL - Samsung Electronics")
+    # ``aria-label`` mirrors it so screen readers get the same context.
+    assert tile.get_attribute("aria-label") == tooltip
+
+
+def test_treemap_single_listing_tile_still_shows_its_symbol(preview_page: Page):
+    # The fallback path: an ordinary holding carries neither
+    # ``short_label`` nor ``tickers``, and the client renderer strips
+    # the exchange off its ticker exactly as before.
+    tile = preview_page.locator('.treemap a[href="#holding-NMS-NVDA"]')
+    expect(tile).to_have_count(1)
+    expect(tile.locator(".treemap__tile-ticker")).to_have_text("NVDA")
+    tooltip = tile.get_attribute("title")
+    assert tooltip is not None
+    assert tooltip.startswith("NMS:NVDA - ")
 
 
 def test_treemap_link_expands_collapsed_holdings_and_scrolls(preview_page: Page):

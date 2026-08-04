@@ -17,6 +17,7 @@ from .fx import FxRate, _fx_or_default
 from .holdings import DAYS_YEAR, Holding
 from .log import logger
 from .market_data_store import MarketDataStore
+from .positions import apply_group_trade_names, build_position_summaries
 from .trades import ACTIONS, combine_and_sort
 from .types import (
     BenchmarkSummary,
@@ -109,8 +110,9 @@ def get_holdings(
     fx: FxRate | None = None,
     now: NowFn | None = None,
     store: MarketDataStore | None = None,
+    groups_path: str | None = None,
 ) -> HoldingsRollup:
-    """Roll up transactions into per-ticker Holding summaries.
+    """Roll up transactions into per-position summaries.
 
     ``fx`` is forwarded to every ``Holding`` so production can share a
     single ``ExchangeRate`` cache across the whole portfolio rather
@@ -127,6 +129,12 @@ def get_holdings(
     summaries into the dedicated fixed-income sub-sections. The list
     defaults to empty for backwards compatibility with callers that
     only carry equities.
+
+    ``groups_path`` overrides where multi-listing position groups are
+    read from (see :mod:`investing.position_groups`); ``None`` reads
+    ``position_groups.toml`` from the repo root. Tests pass a temp
+    file so the maintainer's real config never enters their fixture
+    surface.
     """
     fx = _fx_or_default(fx)
     fixed_income = list(fixed_income or [])
@@ -199,20 +207,38 @@ def get_holdings(
     current_fi: list[HoldingSummary] = []
     historical_fi: list[HoldingSummary] = []
     trade_events: list[TradeEvent] = []
-    for holding in holdings.values():
-        summary = holding.summary()
+
+    # Capsules are per *position*: several listings of one company
+    # (declared in ``position_groups.toml``) collapse into a single
+    # summary whose Return / IRR are computed from the merged USD
+    # cashflow timeline. With no config file, or no group whose legs
+    # are all held, this returns each holding's own summary unchanged.
+    position_summaries = build_position_summaries(
+        holdings.values(),
+        groups_path=groups_path,
+    )
+    for summary in position_summaries:
         is_fi = summary.get("asset_class") == "fixed_income"
         if summary["is_current"]:
             (current_fi if is_fi else current_equities).append(summary)
         else:
             (historical_fi if is_fi else historical_equities).append(summary)
-        # Per-ticker bursts are grouped within each ``Holding`` and
-        # then merged into one global, newest-first list so the page
-        # reads like a chronological activity log across the whole
-        # portfolio. Equity and fixed-income trades intermix in this
-        # single section by design -- the user-facing log reads as a
-        # chronological activity feed, not as an asset-class report.
+
+    # Trades stay per-listing even when the capsule above merged them:
+    # a trade happened against one specific security at one specific
+    # price in one specific currency. Only the display name is
+    # normalised (below) so a grouped company's rows still sort
+    # together by name.
+    #
+    # Per-ticker bursts are grouped within each ``Holding`` and then
+    # merged into one global, newest-first list so the page reads like
+    # a chronological activity log across the whole portfolio. Equity
+    # and fixed-income trades intermix in this single section by
+    # design -- the user-facing log reads as a chronological activity
+    # feed, not as an asset-class report.
+    for holding in holdings.values():
         trade_events.extend(holding.trade_events())
+    apply_group_trade_names(position_summaries, trade_events)
 
     # ``latest_sell`` is typed ``datetime | None`` on the TypedDict
     # because OPEN positions still have ``None`` -- but the

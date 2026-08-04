@@ -80,9 +80,14 @@ def _fmt_holding_pct_html(value: float) -> SafeHtml:
 VISIBLE_DEFAULT: int = 3
 
 
+# No "Ticker" option: capsules identify positions by company name, so
+# a ticker sort would reorder the list against data the reader cannot
+# see -- and for a combined position (several listings of one company,
+# see :mod:`investing.positions`) there is no single ticker it could
+# honestly sort by. The Trades table keeps its own ticker sort, where
+# the column is visible and each row is one specific listing.
 SORT_OPTIONS: tuple[tuple[str, str, str], ...] = (
     ("default", "Default", "default"),
-    ("ticker", "Ticker", "text"),
     ("name", "Name", "text"),
     # ``tsr`` and ``cagr`` are kept as the sort *keys* (they match
     # the ``data-sort-tsr`` / ``data-sort-cagr`` attributes the
@@ -356,13 +361,7 @@ def build_holding_card(
         stats.append(("Weight:", f"{_fmt_pct(weight)}%", None))
 
     periods = [(p["start"], p["end"]) for p in holding["periods"]]
-    # The ticker key drops the exchange prefix so ordering by
-    # "Ticker" reads as an alphabetical run of company symbols
-    # (NVDA before SPGI). The displayed title still carries the
-    # ``EXCHANGE:SYMBOL`` form so the row is unambiguous.
-    ticker_key = holding["ticker"].rsplit(":", 1)[-1].casefold()
     sort_attrs: dict[str, str] = {
-        "sort-ticker": ticker_key,
         "sort-name": holding["name"].casefold(),
         "sort-tsr": _format_sort_number(holding["tsr%"]),
         "sort-cagr": _format_sort_number(holding["cagr%"]),
@@ -381,7 +380,14 @@ def build_holding_card(
 
     return build_card(
         logo_url=logo_url_for(holding["ticker"]),
-        title=f"{holding['ticker']} - {holding['name']}",
+        # Company name alone. The Holdings section answers "what do I
+        # own", and the answer is a company -- which listing it was
+        # bought through is a detail of the transaction, so the ticker
+        # lives in the Trades table (and on the treemap tile, where
+        # space forces a short label). This also lets a position
+        # backed by several listings render identically to every other
+        # capsule instead of needing a concatenated title.
+        title=holding["name"],
         stats=stats,
         periods=periods,
         card_id=holding_anchor(holding["ticker"]),

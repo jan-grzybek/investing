@@ -118,6 +118,19 @@ HoldingSummary = TypedDict(
         # Current / Historical sections and keeps the equity-only
         # sector treemap from picking up fixed-income tickers.
         "asset_class": str,
+        # Every listing backing this position, canonical
+        # ``EXCHANGE:SYMBOL`` form, primary first. Present only on
+        # combined positions (see :mod:`investing.positions`); a
+        # single-listing holding leaves it unset and consumers fall
+        # back to ``ticker``. The treemap tooltip reads it so a
+        # combined tile still names both listings even though the
+        # tile text and the capsule show neither.
+        "tickers": list[str],
+        # Compact label for space-constrained surfaces -- currently
+        # the treemap tile text, where a 4-character symbol fits and
+        # a company name does not. Unset on ordinary holdings, where
+        # consumers strip the exchange off ``ticker`` instead.
+        "short_label": str,
     },
     total=False,
 )

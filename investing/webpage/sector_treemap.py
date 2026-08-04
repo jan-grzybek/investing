@@ -570,6 +570,18 @@ class _Row:
     bucket; the source tickers it represents are kept in
     ``folded_tickers`` so callers can surface them in tooltips /
     aria-labels.
+
+    ``short_label`` and ``listings`` carry the multi-listing case (see
+    :mod:`investing.positions`). A position backed by several listings
+    has no single symbol to print, so ``short_label`` holds the
+    maintainer-supplied compact form and ``listings`` holds every
+    constituent ticker for the tooltip. Both are empty on ordinary
+    rows, which fall back to the ``ticker`` field.
+
+    ``folded_tickers`` stays canonical ``EXCHANGE:SYMBOL`` -- it
+    answers *which holdings were folded*, an identity question --
+    while ``folded_labels`` is its display counterpart, built in the
+    same expression so the two never drift.
     """
 
     ticker: str
@@ -580,10 +592,27 @@ class _Row:
     logo_aspect: float = _DEFAULT_LOGO_ASPECT
     logo_density: float = _LOGO_REFERENCE_DENSITY
     folded_tickers: tuple[str, ...] = ()
+    folded_labels: tuple[str, ...] = ()
+    short_label: str = ""
+    listings: tuple[str, ...] = ()
 
     @property
     def is_aggregated(self) -> bool:
         return bool(self.folded_tickers)
+
+    @property
+    def display_label(self) -> str:
+        """Compact tile text: the group's label, else the bare symbol."""
+        return self.short_label or strip_exchange(self.ticker)
+
+    @property
+    def display_tickers(self) -> str:
+        """Every listing behind this row, for tooltips / aria-labels.
+
+        Joined with ``+`` so a combined position reads as one position
+        assembled from two lines rather than as two separate entries.
+        """
+        return " + ".join(self.listings) if self.listings else self.ticker
 
 
 def _layout_rows(rows: Sequence[_Row]) -> list[tuple[_Row, _Tile]]:
@@ -730,6 +759,7 @@ def _merge_small_into_other_at_canvas(
         existing_other = next((row for row in rows_list if row.is_aggregated), None)
         batch_weight = sum(row.weight for row in to_fold)
         batch_tickers = tuple(row.ticker for row in to_fold)
+        batch_labels = tuple(row.display_label for row in to_fold)
         if existing_other is None:
             rows_list.append(
                 _Row(
@@ -739,6 +769,7 @@ def _merge_small_into_other_at_canvas(
                     weight=batch_weight,
                     logo_url="",
                     folded_tickers=batch_tickers,
+                    folded_labels=batch_labels,
                 )
             )
         else:
@@ -750,6 +781,7 @@ def _merge_small_into_other_at_canvas(
                     weight=existing_other.weight + batch_weight,
                     logo_url=existing_other.logo_url,
                     folded_tickers=existing_other.folded_tickers + batch_tickers,
+                    folded_labels=existing_other.folded_labels + batch_labels,
                 )
                 if row.is_aggregated
                 else row
@@ -793,6 +825,7 @@ def _merge_small_into_other(rows: Sequence[_Row]) -> list[_Row]:
         existing_other = next((row for row in rows_list if row.is_aggregated), None)
         batch_weight = sum(row.weight for row in to_fold)
         batch_tickers = tuple(row.ticker for row in to_fold)
+        batch_labels = tuple(row.display_label for row in to_fold)
         if existing_other is None:
             rows_list.append(
                 _Row(
@@ -802,6 +835,7 @@ def _merge_small_into_other(rows: Sequence[_Row]) -> list[_Row]:
                     weight=batch_weight,
                     logo_url="",
                     folded_tickers=batch_tickers,
+                    folded_labels=batch_labels,
                 )
             )
         else:
@@ -814,6 +848,7 @@ def _merge_small_into_other(rows: Sequence[_Row]) -> list[_Row]:
                     weight=existing_other.weight + batch_weight,
                     logo_url="",
                     folded_tickers=existing_other.folded_tickers + batch_tickers,
+                    folded_labels=existing_other.folded_labels + batch_labels,
                 )
             )
     return rows_list
@@ -843,6 +878,10 @@ def _rows_from_holdings(
                 logo_url=logo_url_for(ticker),
                 logo_aspect=logo_aspect_for(ticker),
                 logo_density=logo_coverage_for(ticker),
+                # Both keys are absent on single-listing holdings, and
+                # the ``_Row`` accessors fall back to ``ticker``.
+                short_label=(holding.get("short_label") or "").strip(),
+                listings=tuple(holding.get("tickers") or ()),
             )
         )
     rows.sort(key=lambda row: row.weight, reverse=True)
@@ -887,7 +926,8 @@ def build_payload_json(
                 "logoWFactor": round(w_factor, 3),
                 "logoHFactor": round(h_factor, 3),
                 "anchor": holding_anchor(row.ticker),
-                "shortTicker": strip_exchange(row.ticker),
+                "shortTicker": row.display_label,
+                "tickers": row.display_tickers,
             }
         )
     payload = {
@@ -1133,7 +1173,7 @@ def _ticker_tile(*, row: _Row, tile: _Tile) -> str:
         # hover / SR contexts aren't space-constrained, and the
         # extra word disambiguates the bucket from a real sector
         # named "Other" that yfinance might one day surface.
-        tickers_blurb = ", ".join(strip_exchange(t) for t in row.folded_tickers)
+        tickers_blurb = ", ".join(row.folded_labels)
         tooltip = (
             f"{_OTHER_DISPLAY_LABEL} ({count} smaller holding"
             f"{'' if count == 1 else 's'}): "
@@ -1184,8 +1224,12 @@ def _ticker_tile(*, row: _Row, tile: _Tile) -> str:
             "</div>"
         )
 
-    short_ticker = strip_exchange(row.ticker)
-    tooltip = f"{row.ticker} - {row.name} ({row.sector}): {label_pct}%"
+    short_ticker = row.display_label
+    # The tile text is compact by necessity; the tooltip is not, so it
+    # spells out every listing behind a combined position ("DUS:SSU.DU
+    # + IOB:SMSN.IL - Samsung Electronics ...") rather than repeating
+    # the abbreviated label.
+    tooltip = f"{row.display_tickers} - {row.name} ({row.sector}): {label_pct}%"
     href = f"#{holding_anchor(row.ticker)}"
 
     if row.logo_url:

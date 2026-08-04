@@ -190,6 +190,75 @@ class TestEquitySectorTreemap:
         assert 'aria-label="NMS:AAA - Alpha Inc. (Technology): 100%"' in block
         assert 'title="NMS:AAA - Alpha Inc. (Technology): 100%"' in block
 
+    def test_combined_position_tile_uses_short_label_and_names_every_listing(
+        self,
+        stub_logo_lookup,
+    ):
+        # A position backed by several listings (see
+        # ``investing.positions``) has no single symbol to print on a
+        # space-constrained tile, so the maintainer-supplied
+        # ``short_label`` is used there. The tooltip is not
+        # space-constrained, so it spells out every constituent
+        # listing rather than repeating the abbreviation.
+        combined = _holding(
+            ticker="DUS:SSU.DU",
+            name="Samsung Electronics",
+            weight=100.0,
+            sector="Technology",
+        )
+        combined["short_label"] = "Samsung"
+        combined["tickers"] = ["DUS:SSU.DU", "IOB:SMSN.IL"]
+        block = treemap_layout_block([combined])
+
+        tooltip = "DUS:SSU.DU + IOB:SMSN.IL - Samsung Electronics (Technology): 100%"
+        assert f'title="{tooltip}"' in block
+        assert f'aria-label="{tooltip}"' in block
+        # The tile text itself stays compact.
+        assert ">Samsung<" in block
+        assert ">SSU.DU<" not in block
+
+    def test_combined_position_keys_survive_add_holding(
+        self,
+        stub_logo_lookup,
+        chdir_tmp,
+        freeze_today,
+    ):
+        # ``Webpage.add_holding`` copies a reduced dict into the
+        # treemap payload rather than forwarding the summary whole, so
+        # a new key reaches the chart only if it is copied explicitly.
+        # This asserts against the fully rendered page rather than
+        # calling the treemap renderer directly -- testing the
+        # renderer in isolation passes even when ``add_holding`` drops
+        # the keys on the floor, which is exactly how that bug got in.
+        freeze_today(datetime(2025, 6, 1))
+        combined = _holding(
+            ticker="DUS:SSU.DU",
+            name="Samsung Electronics",
+            weight=100.0,
+            sector="Technology",
+        )
+        combined["short_label"] = "Samsung"
+        combined["tickers"] = ["DUS:SSU.DU", "IOB:SMSN.IL"]
+        w = Webpage()
+        w.add_return(_total_return(), [])
+        w.add_holding(combined)
+        w.save()
+
+        out = (chdir_tmp / "index.html").read_text()
+        assert '"shortTicker":"Samsung"' in out
+        assert '"tickers":"DUS:SSU.DU + IOB:SMSN.IL"' in out
+
+    def test_single_listing_tile_falls_back_to_the_bare_symbol(
+        self,
+        stub_logo_lookup,
+    ):
+        # Ordinary holdings carry neither key and keep the historical
+        # behaviour: tile text is the exchange-stripped symbol.
+        block = treemap_layout_block(
+            [_holding(ticker="NMS:AAA", name="Alpha Inc.", weight=100.0, sector="Technology")]
+        )
+        assert ">AAA<" in block
+
     def test_tiles_emit_both_logo_and_ticker_for_css_swap(
         self,
         stub_logo_lookup,
