@@ -55,6 +55,22 @@ class TestTicker:
         # decoded.
         assert 'loading="lazy"' not in out
 
+    def test_combined_position_tooltip_names_every_listing(self, stub_logo_lookup):
+        # A multi-listing position gets one logo cell (it is one
+        # position), and its tooltip names both lines rather than
+        # silently picking the primary -- matching the treemap
+        # tooltip's contract. The ``href`` still slugs the primary,
+        # so the click target stays the combined capsule.
+        combined = _holding(ticker="DUS:SSU.DU", name="Samsung Electronics")
+        combined["tickers"] = ["DUS:SSU.DU", "IOB:SMSN.IL"]
+        combined["short_label"] = "Samsung"
+        w = Webpage()
+        w.add_holding(combined)
+        out = w._build_ticker()
+        assert out.count('class="ticker__logo"') == 2  # 1 logo x 2 copies
+        assert 'title="DUS:SSU.DU + IOB:SMSN.IL - Samsung Electronics"' in out
+        assert 'href="#holding-DUS-SSU-DU"' in out
+
     def test_excludes_historical_holdings(self, stub_logo_lookup):
         w = Webpage()
         w.add_holding(_holding(ticker="NMS:LIVE", is_current=True))

@@ -117,13 +117,18 @@ class Webpage:
         # tests can pass a plain function that resolves against a
         # synthetic source without monkey-patching the class.
         self._logo_resolver: LogoResolver = logo_cache if logo_cache is not None else LogoCache()
-        # ``(ticker, name, logo_url)`` tuples for current *equity*
-        # holdings, in the order they were added. Drives the marquee
-        # ticker, which is an equity-only surface -- fixed-income
-        # holdings are excluded upstream in ``add_holding`` so the
-        # moving logo strip stays consistent with the equity-only OG
-        # image and sector treemap.
-        self._current_logos: list[tuple[str, str, str]] = []
+        # ``(anchor_ticker, listings, name, logo_url)`` tuples for
+        # current *equity* holdings, in the order they were added.
+        # Drives the marquee ticker, which is an equity-only surface
+        # -- fixed-income holdings are excluded upstream in
+        # ``add_holding`` so the moving logo strip stays consistent
+        # with the equity-only OG image and sector treemap.
+        #
+        # ``anchor_ticker`` is the identity ticker the ``#href`` slug
+        # is built from; ``listings`` is what the hover tooltip shows,
+        # which for a multi-listing position names every constituent
+        # line rather than just the primary.
+        self._current_logos: list[tuple[str, str, str, str]] = []
         # Minimal payload for the sector treemap: one entry per
         # current equity holding, carrying the four fields the
         # treemap renderer needs (ticker / name / sector / weight).
@@ -179,6 +184,11 @@ class Webpage:
             self._current_logos.append(
                 (
                     holding["ticker"],
+                    # Same contract as the treemap tooltip: a combined
+                    # position names every listing behind it, joined
+                    # with ``+`` so it reads as one position assembled
+                    # from two lines rather than two entries.
+                    " + ".join(holding.get("tickers") or [holding["ticker"]]),
                     holding["name"],
                     self._get_logo_url(holding["ticker"]),
                 )
@@ -523,10 +533,10 @@ class Webpage:
             f'href="#{html.escape(self._holding_anchor(ticker))}" '
             f'tabindex="-1" aria-hidden="true">'
             f'<img class="ticker__logo" src="{html.escape(url)}" alt="" '
-            f'title="{html.escape(f"{ticker} - {name}")}" '
+            f'title="{html.escape(f"{listings} - {name}")}" '
             f'decoding="async" width="56" height="28">'
             f"</a>"
-            for ticker, name, url in self._current_logos
+            for ticker, listings, name, url in self._current_logos
         )
         return (
             '<div class="ticker" aria-hidden="true">'

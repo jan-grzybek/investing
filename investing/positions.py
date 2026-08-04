@@ -25,7 +25,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 from .errors import InvariantError
-from .holdings import Holding, PositionLedger, ledger_metrics, merge_ledgers
+from .holdings import Holding, ledger_metrics, merge_ledgers
 from .position_groups import PositionGroup, resolve_groups
 from .types import HoldingSummary, TradeEvent
 
@@ -46,7 +46,7 @@ def _short_symbol(ticker: str) -> str:
 
 def _combined_summary(
     group: PositionGroup,
-    legs: list[tuple[HoldingSummary, PositionLedger]],
+    legs: list[Holding],
 ) -> HoldingSummary:
     """Fold one group's legs into a single summary.
 
@@ -55,23 +55,31 @@ def _combined_summary(
     -- an equity grouped with a bond ETF would land in one of the
     renderer's two sections while its cashflows came from both, so
     the mismatch is raised rather than silently resolved.
+
+    Only the primary's :meth:`~investing.holdings.Holding.summary` is
+    built. The other legs contribute a ledger and nothing else: their
+    name, website and sector are all discarded in favour of the
+    primary's, so summarising them would redo the cashflow walk *and*
+    record maintenance hints (e.g. "no sector for IOB:SMSN.IL") for
+    values this position never reads -- hints the notifier would then
+    turn into GitHub issues nobody can act on.
     """
-    by_ticker = {summary["ticker"]: (summary, ledger) for summary, ledger in legs}
+    by_ticker = {holding.canonical_ticker: holding for holding in legs}
     primary = by_ticker.get(group.primary)
     if primary is None:
         raise InvariantError(
             f"position group {group.key!r} has no held leg matching its primary {group.primary!r}",
         )
-    primary_summary, _ = primary
 
-    asset_classes = {summary.get("asset_class") or "equity" for summary, _ in legs}
+    asset_classes = {holding.asset_class for holding in legs}
     if len(asset_classes) > 1:
         raise InvariantError(
             f"position group {group.key!r} mixes asset classes "
             f"{sorted(asset_classes)} -- every leg of a position must share one",
         )
 
-    merged = merge_ledgers([ledger for _, ledger in legs])
+    primary_summary = primary.summary()
+    merged = merge_ledgers([holding.ledger() for holding in legs])
     tsr_pct, cagr_pct = ledger_metrics(merged)
     if merged.latest_buy is None:
         raise InvariantError(
@@ -116,36 +124,36 @@ def build_position_summaries(
     leaves it ``None`` and reads ``position_groups.toml`` from the repo
     root.
 
-    Each holding's ``summary()`` and ``ledger()`` are computed exactly
-    once. Ungrouped holdings emit their summary unchanged, so a
-    portfolio with no config file (or no applicable group) produces
-    byte-identical output to the pre-grouping pipeline.
+    Group membership is resolved from the cheap
+    :attr:`~investing.holdings.Holding.canonical_ticker` before any
+    summary is built, so an ungrouped holding is summarised exactly
+    once and a merged-away leg is never summarised at all. A portfolio
+    with no config file (or no applicable group) therefore produces
+    byte-identical output, and the same maintenance hints, as the
+    pre-grouping pipeline.
     """
-    legs: list[tuple[HoldingSummary, PositionLedger]] = []
-    for holding in holdings:
-        legs.append((holding.summary(), holding.ledger()))
-
-    held = {summary["ticker"] for summary, _ in legs}
+    legs = list(holdings)
+    held = {holding.canonical_ticker for holding in legs}
     groups = resolve_groups(held, path=groups_path)
     if not groups:
-        return [summary for summary, _ in legs]
+        return [holding.summary() for holding in legs]
 
     group_by_ticker: dict[str, PositionGroup] = {}
     for group in groups:
         for ticker in group.tickers:
             group_by_ticker[ticker] = group
-    legs_by_group: dict[str, list[tuple[HoldingSummary, PositionLedger]]] = {}
-    for summary, ledger in legs:
-        owner = group_by_ticker.get(summary["ticker"])
+    legs_by_group: dict[str, list[Holding]] = {}
+    for holding in legs:
+        owner = group_by_ticker.get(holding.canonical_ticker)
         if owner is not None:
-            legs_by_group.setdefault(owner.key, []).append((summary, ledger))
+            legs_by_group.setdefault(owner.key, []).append(holding)
 
     summaries: list[HoldingSummary] = []
     emitted: set[str] = set()
-    for summary, _ in legs:
-        owner = group_by_ticker.get(summary["ticker"])
+    for holding in legs:
+        owner = group_by_ticker.get(holding.canonical_ticker)
         if owner is None:
-            summaries.append(summary)
+            summaries.append(holding.summary())
             continue
         if owner.key in emitted:
             # A later leg of a group already folded into the combined

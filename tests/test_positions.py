@@ -456,20 +456,107 @@ class TestBuildPositionSummaries:
                 groups_path=_write_groups(tmp_path, TWO_LEG_CONFIG),
             )
 
-    def test_missing_primary_leg_raises_when_combining(self):
+    def test_missing_primary_leg_raises_when_combining(
+        self,
+        patch_yf_ticker,
+        make_ticker_mock,
+        stub_exchange_rate,
+    ):
         # Guards the internal contract directly: ``resolve_groups``
         # already filters this case out, so reaching the combiner
         # without the primary means the two have drifted apart.
+        from investing.holdings import Holding
+        from investing.positions import _combined_summary
+        from investing.trades import Trade
+
+        patch_yf_ticker(
+            {
+                "SMSN.IL": make_ticker_mock(
+                    exchange="IOB",
+                    symbol="SMSN.IL",
+                    long_name="Samsung Electronics Co., Ltd.",
+                    price=200.0,
+                )
+            }
+        )
+        leg = Holding("SMSN.IL", fx=stub_exchange_rate, now=lambda: datetime(2025, 6, 1))
+        leg.buy(
+            Trade(
+                date=datetime(2024, 1, 1),
+                ticker="SMSN.IL",
+                quantity=5,
+                price=180.0,
+                action="BUY",
+            )
+        )
         group = PositionGroup(
             key="samsung",
             primary="DUS:SSU.DU",
             members=("DUS:SSU.DU", "IOB:SMSN.IL"),
         )
-        from investing.positions import _combined_summary
-
-        summary = {"ticker": "IOB:SMSN.IL", "name": "Other", "asset_class": "equity"}
         with pytest.raises(InvariantError, match="primary"):
-            _combined_summary(group, [(summary, _ledger(cashflows=[], invested=1, returned=1))])
+            _combined_summary(group, [leg])
+
+    def test_member_legs_do_not_record_maintenance_hints(
+        self,
+        patch_yf_ticker,
+        make_ticker_mock,
+        stub_exchange_rate,
+        at_datetime,
+        tmp_path,
+    ):
+        # A merged-away leg's sector is discarded in favour of the
+        # primary's, so summarising it would only spam the build
+        # summary (and the GitHub-issue notifier) with a hint asking
+        # for a sector override that nothing will ever read.
+        from investing.sector_overrides import consume_hints, reset_hints
+
+        _two_leg_world(patch_yf_ticker, make_ticker_mock)
+        reset_hints()
+        get_holdings(
+            [
+                _txn("SSU.DU", "01-01-2024", 10, 90.0),
+                _txn("SMSN.IL", "01-02-2024", 5, 180.0),
+            ],
+            fx=stub_exchange_rate,
+            now=at_datetime(datetime(2025, 6, 1)),
+            groups_path=_write_groups(tmp_path, TWO_LEG_CONFIG),
+        )
+        hints = consume_hints()
+        assert "IOB:SMSN.IL" not in hints.missing_sector
+
+    def test_ungrouped_legs_still_record_maintenance_hints(
+        self,
+        patch_yf_ticker,
+        make_ticker_mock,
+        stub_exchange_rate,
+        at_datetime,
+        tmp_path,
+    ):
+        # The flip side, and the guard that the suppression above is
+        # scoped to merged-away legs rather than silencing the hint
+        # registry outright: with no group applied, ``SMSN.IL`` is an
+        # ordinary holding and its gap must still be reported.
+        #
+        # Asserted on the member alone: the primary carries a real
+        # ``"DUS:SSU.DU" = "Technology"`` entry in the repo's
+        # ``sector_overrides.toml``, which this path reads, so it
+        # legitimately never raises a missing-sector hint either way.
+        from investing.sector_overrides import consume_hints, reset_hints
+
+        _two_leg_world(patch_yf_ticker, make_ticker_mock)
+        reset_hints()
+        get_holdings(
+            [
+                _txn("SSU.DU", "01-01-2024", 10, 90.0),
+                _txn("SMSN.IL", "01-02-2024", 5, 180.0),
+            ],
+            fx=stub_exchange_rate,
+            now=at_datetime(datetime(2025, 6, 1)),
+            groups_path=str(tmp_path / "absent.toml"),
+        )
+        hints = consume_hints()
+        assert "IOB:SMSN.IL" in hints.missing_sector
 
     def test_grouped_and_ungrouped_positions_coexist(
         self,
@@ -577,6 +664,100 @@ class TestBuildPositionSummaries:
 
         assert _short_symbol("NMS:NVDA") == "NVDA"
         assert _short_symbol("NVDA") == "NVDA"
+
+    def test_one_leg_closed_one_open_stays_a_current_position(
+        self,
+        patch_yf_ticker,
+        make_ticker_mock,
+        stub_exchange_rate,
+        at_datetime,
+        tmp_path,
+    ):
+        # Rotating out of one listing while keeping the other is still
+        # holding the company: the position stays current, its value
+        # counts only the open leg, and the closed leg's stint remains
+        # visible as its own span.
+        _two_leg_world(patch_yf_ticker, make_ticker_mock)
+        rollup = get_holdings(
+            [
+                _txn("SSU.DU", "01-01-2022", 10, 90.0),
+                _txn("SSU.DU", "01-06-2022", 10, 95.0, action="SELL"),
+                _txn("SMSN.IL", "01-02-2024", 5, 180.0),
+            ],
+            fx=stub_exchange_rate,
+            now=at_datetime(datetime(2025, 6, 1)),
+            groups_path=_write_groups(tmp_path, TWO_LEG_CONFIG),
+        )
+        assert rollup["historical"] == []
+        (position,) = rollup["current"]
+        assert position["is_current"] is True
+        # Only the open London leg is marked to market: 5 shares at
+        # the mocked 200.0 USD price.
+        assert position["current_value_usd"] == pytest.approx(1000.0)
+        # Two disjoint stints -- the closed Düsseldorf one and the
+        # open London one -- newest first.
+        assert [(p["start"], p["end"]) for p in position["periods"]] == [
+            (datetime(2024, 2, 1), None),
+            (datetime(2022, 1, 1), datetime(2022, 6, 1)),
+        ]
+
+    def test_both_legs_closed_becomes_one_historical_position(
+        self,
+        patch_yf_ticker,
+        make_ticker_mock,
+        stub_exchange_rate,
+        at_datetime,
+        tmp_path,
+    ):
+        _two_leg_world(patch_yf_ticker, make_ticker_mock)
+        rollup = get_holdings(
+            [
+                _txn("SSU.DU", "01-01-2022", 10, 90.0),
+                _txn("SSU.DU", "01-06-2022", 10, 95.0, action="SELL"),
+                _txn("SMSN.IL", "01-02-2023", 5, 180.0),
+                _txn("SMSN.IL", "01-09-2023", 5, 190.0, action="SELL"),
+            ],
+            fx=stub_exchange_rate,
+            now=at_datetime(datetime(2025, 6, 1)),
+            groups_path=_write_groups(tmp_path, TWO_LEG_CONFIG),
+        )
+        assert rollup["current"] == []
+        (position,) = rollup["historical"]
+        assert position["is_current"] is False
+        assert position["current_value_usd"] == 0.0
+        # ``latest_sell`` drives the historical sort, so it must be
+        # the most recent exit across both legs.
+        assert position["latest_sell"] == datetime(2023, 9, 1)
+        # A fully-closed position is excluded from the equity-only
+        # marquee and treemap, exactly like a single-listing one.
+        assert rollup["historical"][0]["tickers"] == ["DUS:SSU.DU", "IOB:SMSN.IL"]
+
+    def test_fixed_income_legs_combine_into_the_fixed_income_bucket(
+        self,
+        patch_yf_ticker,
+        make_ticker_mock,
+        stub_exchange_rate,
+        at_datetime,
+        tmp_path,
+    ):
+        # Grouping is not equity-only: two listings of the same bond
+        # ETF combine and land in the fixed-income section, provided
+        # both legs agree on the asset class.
+        _two_leg_world(patch_yf_ticker, make_ticker_mock)
+        rollup = get_holdings(
+            [],
+            fixed_income=[
+                _txn("SSU.DU", "01-01-2024", 10, 90.0),
+                _txn("SMSN.IL", "01-02-2024", 5, 180.0),
+            ],
+            fx=stub_exchange_rate,
+            now=at_datetime(datetime(2025, 6, 1)),
+            groups_path=_write_groups(tmp_path, TWO_LEG_CONFIG),
+        )
+        assert rollup["current"] == []
+        (position,) = rollup["current_fixed_income"]
+        assert position["asset_class"] == "fixed_income"
+        assert position["tickers"] == ["DUS:SSU.DU", "IOB:SMSN.IL"]
 
     def test_empty_portfolio(self, tmp_path):
         assert build_position_summaries([], groups_path=str(tmp_path / "absent.toml")) == []

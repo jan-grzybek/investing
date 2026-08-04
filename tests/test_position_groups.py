@@ -187,6 +187,44 @@ class TestResolveGroups:
         assert resolve_groups({"NMS:AAA"}, path=str(tmp_path / "absent.toml")) == ()
 
 
+class TestShippedConfig:
+    """Validate the repo's real ``position_groups.toml``.
+
+    Every other test in this file uses a temp fixture. These assert on
+    the committed file, so an authoring mistake fails CI on the PR that
+    introduces it rather than silently mis-rendering a position months
+    later when the second leg is finally bought.
+    """
+
+    def test_repo_config_loads(self):
+        # Also exercises the duplicate-ticker guard against the real
+        # file: ``load_groups`` raises if any ticker is claimed twice.
+        load_groups()
+
+    def test_every_ticker_key_has_an_exchange_prefix(self):
+        # ``EXCHANGE:SYMBOL`` is the shape the rest of the pipeline
+        # uses. A bare symbol would silently never match a holding.
+        for group in load_groups():
+            for ticker in group.tickers:
+                assert ":" in ticker, f"{group.key}: {ticker!r} has no exchange prefix"
+                exchange, _, symbol = ticker.partition(":")
+                assert exchange and symbol, f"{group.key}: {ticker!r} is malformed"
+
+    def test_every_primary_has_a_logo_file(self):
+        # The combined position inherits the primary's logo, so a
+        # primary without one would fall through to the ``courage``
+        # placeholder the moment the group activates.
+        from investing.paths import _REPO_LOGOS_DIR, LOGO_EXTENSIONS
+
+        for group in load_groups():
+            candidates = [
+                Path(_REPO_LOGOS_DIR) / f"{group.primary}{ext}" for ext in LOGO_EXTENSIONS
+            ]
+            assert any(path.exists() for path in candidates), (
+                f"{group.key}: no logo under logos/ for primary {group.primary!r}"
+            )
+
+
 class TestPositionGroupShape:
     def test_tickers_puts_primary_first_regardless_of_member_order(self):
         group = PositionGroup(

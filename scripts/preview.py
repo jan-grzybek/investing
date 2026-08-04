@@ -167,8 +167,10 @@ def _holding(
     website: str | None = None,
     sector: str = "",
     asset_class: str = "equity",
+    tickers: list[str] | None = None,
+    short_label: str = "",
 ) -> dict:
-    return {
+    holding = {
         "ticker": ticker,
         "name": name,
         "tsr%": tsr,
@@ -198,6 +200,14 @@ def _holding(
         # Income sub-section so the preview exercises that path.
         "asset_class": asset_class,
     }
+    # Multi-listing positions (``investing.positions``) carry two extra
+    # keys. They are added only when set so the rest of the dataset
+    # keeps the exact shape an ordinary single-listing summary has --
+    # the renderer's fallbacks are part of what the preview verifies.
+    if tickers:
+        holding["tickers"] = tickers
+        holding["short_label"] = short_label or ticker.rsplit(":", 1)[-1]
+    return holding
 
 
 def _build_dataset() -> dict:
@@ -337,7 +347,27 @@ def _build_dataset() -> dict:
         # the safety-net branch by inspection. Sector is also left
         # blank so the treemap's "Other" fallback bucket is
         # exercised end-to-end in the preview render.
-        _holding("DUS:SSU.DU", "SAP SE", 46.9, 19.1, 3.5, datetime(2026, 4, 1)),
+        # Samsung is the multi-listing case: one position backed by a
+        # Düsseldorf line and a London IOB GDR. It carries ``tickers``
+        # and ``short_label`` so the preview -- and the Playwright
+        # suite that drives it -- exercises the real client-side
+        # treemap path for a combined tile, which is otherwise only
+        # covered by the server-side parity helper.
+        #
+        # No explicit ``website`` here, so this row doubles as the
+        # renderer-side Google-search fallback case; the sector is
+        # left blank so the treemap's "Other" bucket is exercised
+        # end-to-end too.
+        _holding(
+            "DUS:SSU.DU",
+            "Samsung Electronics",
+            46.9,
+            19.1,
+            3.5,
+            datetime(2026, 4, 1),
+            tickers=["DUS:SSU.DU", "IOB:SMSN.IL"],
+            short_label="Samsung",
+        ),
     ]
     # Two current fixed-income holdings exercise the dedicated
     # sub-section: header + sort toolbar (>1 row gates the toolbar)

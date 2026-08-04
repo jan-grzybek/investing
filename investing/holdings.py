@@ -656,6 +656,32 @@ class Holding:
         return float(self._info["regularMarketPrice"])
 
     @property
+    def canonical_ticker(self) -> str:
+        """This holding's ``EXCHANGE:SYMBOL`` id.
+
+        The same string :meth:`summary` puts in its ``"ticker"`` key,
+        exposed on its own so :mod:`investing.positions` can decide
+        which listings belong to a group *before* deciding whose
+        summary it actually needs. Reading it off the cached ``info``
+        snapshot costs nothing, whereas ``summary()`` walks the whole
+        cashflow timeline and records maintenance hints as a side
+        effect -- neither of which is wanted for a leg that will be
+        merged into another position's identity.
+        """
+        return f"{self._info['exchange']}:{self._info['symbol']}"
+
+    @property
+    def asset_class(self) -> str:
+        """``"equity"`` or ``"fixed_income"``.
+
+        Exposed for the same reason as :attr:`canonical_ticker`:
+        :mod:`investing.positions` validates that a group's legs agree
+        on asset class, and doing so should not require building a
+        summary for every leg.
+        """
+        return self._asset_class
+
+    @property
     def info(self) -> dict:
         """Read-only view of the cached ``get_info`` snapshot.
 
