@@ -141,6 +141,76 @@ class TestLogoCacheMaintenanceHints:
         assert consume_hints().missing_logos == ["NMS:NOLOGO"]
 
 
+class TestParseSvgAspectRatio:
+    """The parser behind the OG card's equal-area logo strip.
+
+    Every cell in that strip is sized from the ratio this returns, so
+    a wrong answer letterboxes one brand's wordmark against another's.
+    It is a pure function over SVG source, which makes it cheap to pin
+    directly rather than through a rendered card."""
+
+    @staticmethod
+    def _parse(text):
+        from investing.logos import _parse_svg_aspect_ratio
+
+        return _parse_svg_aspect_ratio(text)
+
+    def test_reads_viewbox_width_and_height(self):
+        # viewBox is "min-x min-y width height", so the ratio comes
+        # from the third and fourth numbers, not the first two.
+        assert self._parse('<svg viewBox="0 0 300 100">') == pytest.approx(3.0)
+        assert self._parse('<svg viewBox="-10 -20 200 100">') == pytest.approx(2.0)
+
+    def test_viewbox_wins_over_width_and_height(self):
+        # viewBox is the canonical sizing source; the attribute pair
+        # is only a fallback for documents that omit it.
+        svg = '<svg viewBox="0 0 300 100" width="50" height="50">'
+        assert self._parse(svg) == pytest.approx(3.0)
+
+    def test_falls_back_to_width_and_height_attributes(self):
+        assert self._parse('<svg width="120" height="60">') == pytest.approx(2.0)
+        assert self._parse("<svg width='120' height='60'>") == pytest.approx(2.0)
+        # Unquoted and unit-suffixed values still yield their numbers.
+        assert self._parse('<svg width="120px" height="60px">') == pytest.approx(2.0)
+
+    def test_accepts_decimal_dimensions(self):
+        assert self._parse('<svg viewBox="0 0 264.58 132.29">') == pytest.approx(2.0, rel=1e-4)
+
+    def test_short_or_unparseable_viewbox_falls_through(self):
+        # A viewBox that can't yield two positive numbers must not
+        # swallow the document -- the attribute pair is still there.
+        assert self._parse('<svg viewBox="0 0 300" width="80" height="40">') == pytest.approx(2.0)
+        assert self._parse('<svg viewBox="a b c d" width="80" height="40">') == pytest.approx(2.0)
+
+    def test_non_positive_dimensions_are_rejected(self):
+        assert self._parse('<svg viewBox="0 0 0 100">') is None
+        assert self._parse('<svg viewBox="0 0 100 0">') is None
+        assert self._parse('<svg width="0" height="10">') is None
+
+    def test_missing_dimensions_return_none(self):
+        assert self._parse("<svg>") is None
+        assert self._parse('<svg width="100">') is None
+        assert self._parse("") is None
+
+    def test_matches_past_a_declaration_or_comment_prologue(self):
+        # The parser is regex-based precisely so an XML declaration,
+        # DOCTYPE or leading comment needs no special-casing.
+        svg = (
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            "<!-- Created with Inkscape -->\n"
+            '<svg viewBox="0 0 400 100">'
+        )
+        assert self._parse(svg) == pytest.approx(4.0)
+
+    def test_committed_favicon_parses(self):
+        # The site's own mark is the one SVG guaranteed to be on disk,
+        # so it doubles as a fixture that can't drift out of date.
+        from pathlib import Path as _Path
+
+        source = _Path(__file__).resolve().parents[1] / "favicon.svg"
+        assert self._parse(source.read_text(encoding="utf-8")) == pytest.approx(1.0)
+
+
 class TestHoldingAnchor:
     def test_strips_punctuation_to_a_dash_form(self):
         # Tickers carry exchange prefixes and dotted suffixes

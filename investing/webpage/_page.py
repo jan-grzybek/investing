@@ -459,7 +459,7 @@ class Webpage:
     # ``Webpage._load_logo_for_og`` / ``Webpage._top_holdings_for_og`` /
     # ``Webpage._draw_top_holdings_strip`` call surface still works
     # for any test or external caller that reached for it.
-    _FONT_CANDIDATES = _og_image._FONT_CANDIDATES
+    _FONT_FILES = _og_image._FONT_FILES
     _NON_TICKER_TOP10_KEYS = _og_image.NON_TICKER_TOP10_KEYS
 
     @staticmethod

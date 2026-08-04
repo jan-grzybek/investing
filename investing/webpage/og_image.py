@@ -60,39 +60,51 @@ from ..types import BenchmarkSummary, TotalReturn
 NON_TICKER_TOP10_KEYS: frozenset[str] = frozenset({"Other equities"})
 
 
-# Search order for sans-serif fonts. Picks the first installed
-# candidate; falls back to Pillow's bitmap default if none exist
-# (still readable, just less crisp).
-_FONT_CANDIDATES: dict[str, tuple[tuple[str, int], ...]] = {
-    "regular": (
-        ("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 0),
-        ("/usr/share/fonts/dejavu/DejaVuSans.ttf", 0),
-        ("/Library/Fonts/Arial.ttf", 0),
-        ("/System/Library/Fonts/Supplemental/Arial.ttf", 0),
-        ("/System/Library/Fonts/Helvetica.ttc", 0),
-        ("C:/Windows/Fonts/arial.ttf", 0),
-    ),
-    "bold": (
-        ("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 0),
-        ("/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf", 0),
-        ("/Library/Fonts/Arial Bold.ttf", 0),
-        ("/System/Library/Fonts/Supplemental/Arial Bold.ttf", 0),
-        ("/System/Library/Fonts/Helvetica.ttc", 1),
-        ("C:/Windows/Fonts/arialbd.ttf", 0),
-    ),
+# Committed typeface. The card used to probe the host for a face --
+# DejaVu, then Arial, then Helvetica, then Pillow's bitmap default --
+# which meant its type was whatever the runner happened to have
+# installed. A local render came out in Helvetica and the CI render of
+# the identical inputs came out in DejaVu: different metrics,
+# different line breaks, a different card. For an asset whose whole
+# job is to be one recognisable image wherever it is pasted, that is
+# not a detail.
+#
+# Roboto is the choice for three reasons: it is already named in the
+# page's own ``font-family`` stack, so the card and the page agree on
+# any machine that falls through to it; it is Apache-2.0, so
+# redistributing it in a public repo is unambiguous; and it is a UI
+# face designed to hold up at the small sizes the foot line lands at
+# once a feed scales the card down.
+#
+# Vendored at ``fonts/`` from the official Google release (v2.138,
+# ``googlefonts/roboto-2``), alongside the upstream LICENSE. The
+# directory is deliberately *not* in ``stage_site._SITE_DIRS``: these
+# are build-time inputs for Pillow, not bytes the browser ever asks
+# for, so publishing them to Pages would be a megabyte of dead weight.
+_FONT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "fonts")
+_FONT_FILES: dict[str, str] = {
+    "regular": "Roboto-Regular.ttf",
+    "bold": "Roboto-Bold.ttf",
 }
 
 
 def load_font(weight: str, size: int):
-    """Pick the first installed candidate for the requested weight/size."""
+    """Load the committed Roboto face for the requested weight/size.
+
+    Falls back to Pillow's bitmap default only if the vendored file is
+    missing or unreadable -- an installation so broken that a wrong
+    typeface is the least of its problems, but the card still draws
+    rather than taking the page build down with it.
+    """
     from PIL import ImageFont
 
-    for path, idx in _FONT_CANDIDATES.get(weight, ()):
-        if os.path.exists(path):
-            try:
-                return ImageFont.truetype(path, size, index=idx)
-            except Exception:
-                continue
+    name = _FONT_FILES.get(weight)
+    if name is not None:
+        path = os.path.join(_FONT_DIR, name)
+        try:
+            return ImageFont.truetype(path, size)
+        except OSError:
+            logger.warning("og-image: vendored font %s unreadable, using default", name)
     return ImageFont.load_default()
 
 

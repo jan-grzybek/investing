@@ -745,6 +745,60 @@ class TestOgImageHeroCopy:
         assert not self._copy(-12.0, None).positive
 
 
+class TestOgImageFont:
+    """The card's typeface is committed, not discovered.
+
+    It used to probe the host -- DejaVu, then Arial, then Helvetica,
+    then Pillow's bitmap default -- so a local render and the CI
+    render of identical inputs came out in different faces. These
+    tests pin the fix: the file ships in the repo, and ``load_font``
+    actually loads it rather than silently falling back."""
+
+    def test_vendored_font_files_are_committed(self):
+        from pathlib import Path as _Path
+
+        from investing.webpage import og_image
+
+        for name in og_image._FONT_FILES.values():
+            path = _Path(og_image._FONT_DIR) / name
+            assert path.is_file(), f"missing vendored font {name}"
+        # The upstream licence ships beside them; redistributing the
+        # binaries without it is the one thing Apache-2.0 asks.
+        assert (_Path(og_image._FONT_DIR) / "LICENSE").is_file()
+
+    def test_load_font_returns_the_vendored_face_not_the_fallback(self):
+        from investing.webpage.og_image import load_font
+
+        for weight in ("regular", "bold"):
+            font = load_font(weight, 32)
+            # Pillow's bitmap default has no ``path``; a real
+            # FreeType face does, and it has to be ours.
+            assert getattr(font, "path", "").endswith("Roboto-Regular.ttf") or getattr(
+                font, "path", ""
+            ).endswith("Roboto-Bold.ttf"), f"{weight} fell back to a host font"
+            assert font.size == 32
+
+    def test_the_two_weights_are_actually_different_faces(self):
+        # A bold that silently resolves to the regular file would make
+        # every emphasis on the card a no-op.
+        from investing.webpage.og_image import load_font
+
+        assert load_font("regular", 32).path != load_font("bold", 32).path
+
+    def test_unknown_weight_falls_back_rather_than_raising(self):
+        # Best-effort is the contract for the whole OG path: never
+        # take the page build down over a missing glyph set.
+        from investing.webpage.og_image import load_font
+
+        assert load_font("ultralight", 32) is not None
+
+    def test_no_host_font_probing_survives(self):
+        # The candidate ladder is what made the card non-deterministic.
+        from investing.webpage import og_image
+
+        assert not hasattr(og_image, "_FONT_CANDIDATES")
+
+
 class TestSave:
     def test_writes_index_html_with_key_sections(self, stub_logo_lookup, chdir_tmp, freeze_today):
         freeze_today(datetime(2025, 6, 1))
