@@ -101,6 +101,53 @@ def test_holdings_numeric_sort_starts_high_to_low(preview_page: Page):
     assert values == sorted(values, reverse=True)
 
 
+def test_numeric_columns_align_with_their_headers(preview_page: Page):
+    """Right-aligned columns have to right-align with their headers.
+
+    A blanket ``.holdings__row td { text-align: left }`` reset once sat
+    at specificity (0,1,1) in front of ``.holdings__num`` at (0,1,0),
+    which silently discarded both the alignment and the 700/500 weight
+    pair -- the figures rendered left-aligned at 400, out of line with
+    the headers above them. Nothing about that is visible in the
+    markup, and it survived several rounds of looking at screenshots,
+    so it is asserted geometrically instead.
+    """
+    for scope in ("open", "closed"):
+        table = preview_page.locator(f'table[data-holdings-table="{scope}"]')
+        expect(table).to_be_visible()
+        edges = table.evaluate(
+            """t => {
+                const R = el => {
+                    const r = document.createRange();
+                    r.selectNodeContents(el);
+                    return Math.round(r.getBoundingClientRect().right);
+                };
+                const row = t.querySelector('.holdings__row');
+                const out = [];
+                [...t.querySelectorAll('thead th')].forEach((th, i) => {
+                    const key = th.getAttribute('data-sort-key');
+                    if (key !== 'tsr' && key !== 'cagr') return;
+                    const btn = th.querySelector('.holdings__sort');
+                    const cell = row.children[i];
+                    out.push({key, header: R(btn), value: R(cell),
+                              align: getComputedStyle(cell).textAlign,
+                              weight: getComputedStyle(cell).fontWeight});
+                });
+                return out;
+            }"""
+        )
+        assert len(edges) == 2, f"{scope}: expected a Return and an IRR column"
+        for col in edges:
+            assert col["align"] == "right", f"{scope}/{col['key']} is {col['align']}"
+            assert abs(col["header"] - col["value"]) <= 1, (
+                f"{scope}/{col['key']}: header right edge {col['header']} vs value {col['value']}"
+            )
+        # Return carries the emphasis, IRR is the secondary reading.
+        by_key = {c["key"]: c["weight"] for c in edges}
+        assert by_key["tsr"] == "700", by_key
+        assert by_key["cagr"] == "500", by_key
+
+
 def test_metrics_note_discloses_the_long_explanation(preview_page: Page):
     toggle = preview_page.locator(".metrics-note__toggle")
     panel = preview_page.locator("#metrics-note")

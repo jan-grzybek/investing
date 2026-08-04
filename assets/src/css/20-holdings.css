@@ -122,6 +122,16 @@
   padding: 9px 12px;
   border-top: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
   vertical-align: middle;
+}
+/* Only the row-header cell needs resetting: ``<th>`` defaults to
+   centred and bold, ``<td>`` does not.
+   Resetting both on every cell put a (0,1,1) selector ahead of every
+   (0,1,0) modifier below it, so ``.holdings__num``'s ``text-align:
+   right`` and its 700 / 500 weight pair were both silently
+   discarded -- the Return and IRR columns rendered left-aligned at
+   400, out of line with the headers above them and with the design's
+   emphasis between the two metrics gone. */
+.holdings__row th {
   text-align: left;
   font-weight: 400;
 }
