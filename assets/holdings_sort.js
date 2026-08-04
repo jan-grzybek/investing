@@ -3,8 +3,11 @@ function compare(a,b,name,kind,dir){var av=key(a,name);var bv=key(b,name);var c;
 return dir==="desc"?-c:c;}
 function setup(table){var sections=table.querySelectorAll("tbody.holdings__section");var heads=table.querySelectorAll("th[data-sort-key]");if(!sections.length||!heads.length)return;var original=[];for(var s=0;s<sections.length;s++){original.push(Array.prototype.slice.call(sections[s].querySelectorAll(".holdings__row")));}
 var state={key:null,dir:null};function apply(name,kind,dir){for(var i=0;i<sections.length;i++){var rows=original[i].slice();rows.sort(function(a,b){var c=compare(a,b,name,kind,dir);if(c!==0)return c;return original[i].indexOf(a)-original[i].indexOf(b);});for(var r=0;r<rows.length;r++)sections[i].appendChild(rows[r]);}}
-function activate(th){var name=th.getAttribute("data-sort-key");var kind=th.getAttribute("data-sort-kind");var dir;if(state.key===name){dir=state.dir==="ascending"?"descending":"ascending";}else{dir=kind==="number"?"descending":"ascending";}
-apply(name,kind,dir==="descending"?"desc":"asc");state.key=name;state.dir=dir;for(var i=0;i<heads.length;i++){heads[i].setAttribute("aria-sort",heads[i]===th?dir:"none");}}
-for(var h=0;h<heads.length;h++){(function(th){var btn=th.querySelector(".holdings__sort");if(!btn)return;btn.addEventListener("click",function(){activate(th);});})(heads[h]);}}
+function select(th,dir){var name=th.getAttribute("data-sort-key");apply(name,th.getAttribute("data-sort-kind"),dir==="descending"?"desc":"asc");state.key=name;state.dir=dir;for(var i=0;i<heads.length;i++){heads[i].setAttribute("aria-sort",heads[i]===th?dir:"none");}}
+function activate(th){var name=th.getAttribute("data-sort-key");var dir;if(state.key===name){dir=state.dir==="ascending"?"descending":"ascending";}else{dir=th.getAttribute("data-sort-kind")==="number"?"descending":"ascending";}
+select(th,dir);}
+function adopt(){var wanted=table.getAttribute("data-sort-default");if(!wanted)return;for(var i=0;i<heads.length;i++){if(heads[i].getAttribute("data-sort-key")===wanted){select(heads[i],table.getAttribute("data-sort-default-dir")==="asc"?"ascending":"descending");return;}}}
+for(var h=0;h<heads.length;h++){(function(th){var btn=th.querySelector(".holdings__sort");if(!btn)return;btn.addEventListener("click",function(){activate(th);});})(heads[h]);}
+adopt();}
 function boot(){var tables=document.querySelectorAll("table[data-holdings-table]");for(var i=0;i<tables.length;i++)setup(tables[i]);}
 if(document.readyState==="loading"){document.addEventListener("DOMContentLoaded",boot);}else{boot();}})();

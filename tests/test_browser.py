@@ -670,6 +670,64 @@ def test_sort_chips_are_evenly_spaced_and_hint_when_they_scroll(page: Page, prev
         assert data["layers"] == 4, (scope, data["layers"])
 
 
+def test_first_click_on_the_pre_sorted_column_reverses_it(page: Page, preview_index: Path):
+    """Clicking the column a table is *already* sorted by must reverse
+    it on the first click, not the second.
+
+    The script used to boot blind: ``state.key`` was null and every
+    ``aria-sort`` said "none", even though the open book arrives
+    ordered by weight. The first click on Weight therefore took the
+    "new column" branch, picked ``descending`` -- the direction a
+    number column opens in -- and re-applied the order the table was
+    already in. Nothing moved, and it took a second click to reach
+    ascending. The table also showed no sort indicator at all until
+    something was clicked.
+
+    Both tables now declare the order they are in and the script
+    adopts it, so the indicator is right from first paint and the
+    first click is a reversal.
+    """
+    for width in (1000, 390):
+        page.set_viewport_size({"width": width, "height": 900})
+        for scope, column in (("open", "weight"), ("closed", "held")):
+            page.goto(preview_index.as_uri())
+            table = f'table[data-holdings-table="{scope}"]'
+
+            def snapshot(sel: str = table):
+                return page.evaluate(
+                    """(sel) => {
+                        const t = document.querySelector(sel);
+                        return {
+                            names: [...t.querySelectorAll('.holdings__row .holdings__name')]
+                                .map(e => e.textContent.trim()),
+                            active: [...t.querySelectorAll('thead th[data-sort-key]')]
+                                .filter(th => th.getAttribute('aria-sort') !== 'none')
+                                .map(th => th.dataset.sortKey + '=' + th.getAttribute('aria-sort')),
+                        };
+                    }""",
+                    sel,
+                )
+
+            start = snapshot()
+            # The indicator is present before any interaction.
+            assert start["active"] == [f"{column}=descending"], (scope, width, start)
+            assert len(start["names"]) >= 2, (scope, start)
+
+            chip = f'{table} .holdings__col[data-sort-key="{column}"] .holdings__sort'
+            page.click(chip)
+            page.wait_for_timeout(80)
+            first = snapshot()
+            assert first["active"] == [f"{column}=ascending"], (scope, width, first)
+            # The visible order actually moved -- the whole complaint.
+            assert first["names"] != start["names"], (scope, width, first["names"])
+
+            page.click(chip)
+            page.wait_for_timeout(80)
+            second = snapshot()
+            assert second["active"] == [f"{column}=descending"], (scope, width, second)
+            assert second["names"] == start["names"], (scope, width, second["names"])
+
+
 def test_metrics_note_discloses_the_long_explanation(preview_page: Page):
     toggle = preview_page.locator(".metrics-note__toggle")
     panel = preview_page.locator("#metrics-note")

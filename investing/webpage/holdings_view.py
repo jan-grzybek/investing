@@ -316,6 +316,8 @@ def build_table(
     columns: tuple[tuple[str, str, str, str, str], ...] = OPEN_COLUMNS,
     caption: str,
     weight_scale: float = 0.0,
+    default_key: str = "",
+    default_dir: str = "desc",
 ) -> str:
     """Assemble the header + groups into one sortable table.
 
@@ -333,6 +335,17 @@ def build_table(
     if not body:
         return ""
     scale_attr = f' style="--holdings-weight-scale: {weight_scale:.2f}"' if weight_scale > 0 else ""
+    # The order the table is in, declared so the sort script can adopt
+    # it instead of booting blind. Blind, its first click on the column
+    # the rows were already ordered by re-applied that same order and
+    # looked like a dead control -- and the table showed no indicator
+    # at all until something was clicked.
+    default_attr = (
+        f' data-sort-default="{html.escape(default_key)}" '
+        f'data-sort-default-dir="{html.escape(default_dir)}"'
+        if default_key
+        else ""
+    )
     # ``+ 1`` for the logo column, which is decorative and carries no
     # sort affordance of its own.
     header_cells = [
@@ -358,7 +371,8 @@ def build_table(
         )
     return (
         '<div class="holdings__wrap">'
-        f'<table class="holdings" role="table" data-holdings-table="{html.escape(scope)}"{scale_attr}>'
+        f'<table class="holdings" role="table" '
+        f'data-holdings-table="{html.escape(scope)}"{default_attr}{scale_attr}>'
         f'<caption class="visually-hidden">{html.escape(caption)}</caption>'
         f'<thead role="rowgroup"><tr role="row">{"".join(header_cells)}</tr></thead>'
         f"{body}"

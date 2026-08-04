@@ -71,20 +71,51 @@
       }
     }
 
-    function activate(th) {
+    function select(th, dir) {
       var name = th.getAttribute("data-sort-key");
-      var kind = th.getAttribute("data-sort-kind");
-      var dir;
-      if (state.key === name) {
-        dir = state.dir === "ascending" ? "descending" : "ascending";
-      } else {
-        dir = kind === "number" ? "descending" : "ascending";
-      }
-      apply(name, kind, dir === "descending" ? "desc" : "asc");
+      apply(name, th.getAttribute("data-sort-kind"), dir === "descending" ? "desc" : "asc");
       state.key = name;
       state.dir = dir;
       for (var i = 0; i < heads.length; i++) {
         heads[i].setAttribute("aria-sort", heads[i] === th ? dir : "none");
+      }
+    }
+
+    function activate(th) {
+      var name = th.getAttribute("data-sort-key");
+      var dir;
+      if (state.key === name) {
+        dir = state.dir === "ascending" ? "descending" : "ascending";
+      } else {
+        dir = th.getAttribute("data-sort-kind") === "number" ? "descending" : "ascending";
+      }
+      select(th, dir);
+    }
+
+    // Adopt the sort the table says it is already in.
+    //
+    // Without this the script booted blind: `state.key` was null and
+    // every `aria-sort` said "none" even though the rows arrived
+    // ordered by weight. The first click on Weight therefore computed
+    // "descending" -- the direction a number column opens in -- and
+    // re-applied the order the table was already in, so the click did
+    // nothing visible. It took a second click to reach ascending.
+    //
+    // Seeding from the table's own declaration fixes that and pays for
+    // itself twice over: the active column now carries its indicator
+    // from first paint instead of the table looking unsorted, and
+    // applying the sort rather than merely recording it means the
+    // stated order and the real one cannot drift apart.
+    function adopt() {
+      var wanted = table.getAttribute("data-sort-default");
+      if (!wanted) return;
+      for (var i = 0; i < heads.length; i++) {
+        if (heads[i].getAttribute("data-sort-key") === wanted) {
+          select(heads[i], table.getAttribute("data-sort-default-dir") === "asc"
+            ? "ascending"
+            : "descending");
+          return;
+        }
       }
     }
 
@@ -97,6 +128,8 @@
         });
       })(heads[h]);
     }
+
+    adopt();
   }
 
   function boot() {

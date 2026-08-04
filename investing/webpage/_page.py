@@ -759,6 +759,10 @@ class Webpage:
             columns=_holdings_view.OPEN_COLUMNS,
             caption="Current holdings",
             weight_scale=self._max_weight,
+            # The order the rows arrive in, and the one a reader
+            # expects of an open book: biggest position first.
+            default_key="weight",
+            default_dir="desc",
         )
 
     def _fixed_income_label(self) -> str:
@@ -795,6 +799,11 @@ class Webpage:
             groups=groups,
             columns=_holdings_view.CLOSED_COLUMNS,
             caption="Closed positions",
+            # Most recently closed first. The rows arrive in no
+            # particular order, which read as a shuffled list; the
+            # design's chip row leads with Dates for the same reason.
+            default_key="held",
+            default_dir="desc",
         )
 
     def _render_allocation(self) -> str:
