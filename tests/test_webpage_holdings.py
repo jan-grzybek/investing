@@ -218,23 +218,36 @@ class TestRowContract:
         assert 'width="34"' in row
         assert 'height="22"' in row
 
-    def test_fallback_logo_opts_out_of_the_dark_mode_inversion(self, stub_logo_lookup):
-        # The placeholder is a coloured illustration, not a single-hue
-        # wordmark, so negating its luminance destroys it. The opt-out
-        # is a class rather than a match on the URL's suffix, which
-        # stops matching the moment the URL changes shape.
+    def test_dark_mode_plates_every_logo_instead_of_inverting_it(self):
+        # Logos used to be run through ``invert(1) hue-rotate(180deg)``
+        # on the dark surface, which flips luminance while preserving
+        # hue. That works for a flat single-hue wordmark and fails for
+        # any mark carrying its own light plate or a mid-tone gradient
+        # -- Applied Materials, Lam Research and UnitedHealth came out
+        # as low-contrast smudges at the 34x22 the table draws.
+        #
+        # A white plate keeps every mark in its published colours, so
+        # nothing needs to opt out of it any more: the ``--literal``
+        # class the coloured fallback used to carry is gone from both
+        # the stylesheet and the renderer.
+        from investing.assets import _PAGE_STYLES
         from investing.paths import COURAGE_LOGO
         from investing.webpage.holdings_view import _logo_cell
+        from tests._css_helpers import at_rule_body, blocks_for, has_declaration
 
-        fallback = _logo_cell(logo_url=COURAGE_LOGO, website_url="#", company_name="X")
-        assert "holdings__logo--literal" in fallback
+        for url in (COURAGE_LOGO, "https://example.test/logos/tight/NMS%3AAAA.svg"):
+            assert "--literal" not in _logo_cell(logo_url=url, website_url="#", company_name="X")
+        assert "--literal" not in _PAGE_STYLES
 
-        real = _logo_cell(
-            logo_url="https://example.test/logos/tight/NMS%3AAAA.svg",
-            website_url="#",
-            company_name="X",
-        )
-        assert "holdings__logo--literal" not in real
+        dark = at_rule_body(_PAGE_STYLES, "@media (prefers-color-scheme:dark)")
+        assert dark
+        assert "invert(" not in dark
+        plate = blocks_for(dark, ".holdings__logo")
+        assert plate
+        assert has_declaration(plate[0], "background", "#fff")
+        # ``content-box`` keeps the padding outside the reserved
+        # 34x22 box, so plating a logo does not move the row.
+        assert has_declaration(plate[0], "box-sizing", "content-box")
 
     def test_weight_grid_is_inside_the_cell_not_on_it(self, stub_logo_lookup):
         # A ``display: grid`` table cell leaves the table's formatting

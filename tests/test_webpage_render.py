@@ -166,7 +166,7 @@ class TestRenderReturnChart:
         # rather than the index itself.
         assert ">S&amp;P 500<" in out
         assert ">S&amp;P<" not in out
-        assert ">JG<" in out
+        assert ">Portfolio<" in out
 
     def test_only_the_redundant_index_suffix_is_dropped(self):
         history = [(datetime(2024, 1, 1), 1.0), (datetime(2024, 6, 1), 1.1)]

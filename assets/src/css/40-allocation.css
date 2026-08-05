@@ -82,18 +82,19 @@
 @container allocation-segment (max-width: 46px) {
   .allocation__segment-value { display: none; }
 }
-/* Segment labels sit on saturated fills, so they take a fixed white
-   rather than ``--fg``: the ink has to clear every hue in the
-   sector palette, and the page's body slate does not clear the
-   darker ones. The text-shadow buys the last of the contrast on the
-   lightest fills without painting a chip behind every number. */
+/* The label takes the ink its own fill declares -- see the
+   ``--ink-on-*`` tokens in 00-base.css, which sit beside the fills so
+   the two flip together for dark mode.
+   There is no ``text-shadow`` any more. It was there to prop up white
+   on fills that could not carry it (2.48:1 on Tiger Orange), and a
+   shadow under a label is what you reach for when the colour is
+   wrong rather than when it is right. */
 .allocation__segment-value {
   font-size: 0.75rem;
   font-weight: 700;
-  color: #ffffff;
+  color: var(--seg-ink, #ffffff);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
 }
 .allocation__key {
   display: flex;

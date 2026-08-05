@@ -35,7 +35,6 @@ from datetime import date
 from ..errors import InvariantError
 from ..formatting import _fmt_date, _fmt_pct, _format_sort_number, _value_class
 from ..holdings import CAGR_TBA_THRESHOLD, google_search_url
-from ..paths import COURAGE_LOGO
 from .anchors import holding_anchor
 
 # Column spec: ``(key, label, kind, css_modifier)``.
@@ -75,6 +74,21 @@ CLOSED_COLUMNS: tuple[tuple[str, str, str, str, str], ...] = (
     ("tsr", "Return", "", "number", "num"),
     ("cagr", "IRR", "", "number", "num"),
 )
+
+
+# A note that hangs under a column header on the wide frame.
+#
+# The weight bars are normalised to the largest position, not to 100%
+# -- which is the right normalisation, since scaling ten holdings
+# against the whole portfolio leaves most of them as slivers. But it
+# means NVIDIA's bar runs the full track while the figure beside it
+# reads 21.4%, and a bar that disagrees with its own number needs one
+# line of explanation. It belongs on the column, where the reader is
+# looking, rather than in a footnote four screens down.
+#
+# The phone frame drops it: there the header is a sort chip, and a
+# chip is a control, not a place for prose.
+_COLUMN_NOTES: dict[str, str] = {"weight": "relative to largest"}
 
 
 def _weight_bar(weight: float, *, muted: bool) -> str:
@@ -119,24 +133,12 @@ def _logo_cell(*, logo_url: str, website_url: str, company_name: str) -> str:
     decodes, so a table of 12 logos settles at zero layout shift.
     """
     label = f"Open {company_name or 'company'} website"
-    # Dark mode negates each wordmark's luminance so brand artwork
-    # authored for a white page stays legible on the dark one. The
-    # fallback placeholder is a coloured illustration, not a wordmark,
-    # so that transform destroys it -- it opts out by class. The
-    # opt-out used to be an ``[src$="courage.png"]`` attribute match,
-    # which quietly stops matching the moment the URL gains a
-    # cache-busting query, changes host, or is inlined as a data URI.
-    # What the renderer knows is *which image this is*, so that is
-    # what it says.
-    classes = "holdings__logo"
-    if logo_url == COURAGE_LOGO:
-        classes += " holdings__logo--literal"
     return (
         '<td class="holdings__logo-cell" role="cell">'
         f'<a class="holdings__logo-link" href="{html.escape(website_url)}" '
         'target="_blank" rel="noopener noreferrer" '
         f'aria-label="{html.escape(label)}" title="{html.escape(label)}">'
-        f'<img class="{classes}" src="{html.escape(logo_url)}" alt="" '
+        f'<img class="holdings__logo" src="{html.escape(logo_url)}" alt="" '
         'loading="lazy" decoding="async" width="34" height="22">'
         "</a>"
         "</td>"
@@ -360,6 +362,8 @@ def build_table(
             )
         else:
             caption_html = html.escape(label)
+        note = _COLUMN_NOTES.get(key, "")
+        note_html = f'<span class="holdings__col-note">{html.escape(note)}</span>' if note else ""
         header_cells.append(
             f'<th class="holdings__col holdings__col--{modifier}" role="columnheader" '
             f'data-sort-key="{key}" data-sort-kind="{kind}" aria-sort="none">'
@@ -367,6 +371,7 @@ def build_table(
             f"{caption_html}"
             '<span class="holdings__indicator" aria-hidden="true"></span>'
             "</button>"
+            f"{note_html}"
             "</th>"
         )
     return (

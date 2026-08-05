@@ -137,7 +137,7 @@ class TestReturnChartAxes:
         assert "return-chart__end-dot--bench" in chart
         assert "return-chart__end-value--jg" in chart
         assert "return-chart__end-value--bench" in chart
-        assert ">JG<" in chart
+        assert ">Portfolio<" in chart
 
     def test_alpha_is_the_filled_area_not_a_bracket(self, stub_logo_lookup):
         w = Webpage()

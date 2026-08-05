@@ -68,7 +68,7 @@ def render(
     header_cells = [
         '<th scope="col">Year</th>',
         '<th scope="col"><span class="visually-hidden">Relative size</span></th>',
-        '<th scope="col" class="yearly__num">JG</th>',
+        '<th scope="col" class="yearly__num">Portfolio</th>',
     ]
     if has_benchmark:
         header_cells.append(
@@ -108,12 +108,20 @@ def render(
                 )
         body.append(f'<tr class="yearly__row">{"".join(cells)}</tr>')
 
+    # The heading sits *above* the card, not inside it.
+    #
+    # At 17px/700 within the card it read as a seventh page section --
+    # the same weight as "Cumulative return" and "Holdings" -- so the
+    # page showed six headings of section rank where the nav counted
+    # four. Every other heading of that size sits above its card, and
+    # lifting this one makes Performance read as chart, then table:
+    # the same shape Holdings already has.
     return (
-        '<section class="yearly">'
         '<div class="yearly__head">'
         f'<h2 class="yearly__heading">{heading}</h2>'
         '<span class="yearly__caption">Time-weighted return, per calendar year</span>'
         "</div>"
+        '<section class="yearly">'
         f'<p class="yearly__summary">{_summary_line(yearly_returns, has_benchmark)}</p>'
         '<table class="yearly__table">'
         f"<thead><tr>{''.join(header_cells)}</tr></thead>"

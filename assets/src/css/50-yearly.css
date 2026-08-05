@@ -4,7 +4,9 @@
    most of the evidence for the page's central claim was one click
    away by default. Nothing here collapses. */
 .yearly {
-  margin-top: 26px;
+  /* The head above it carries the section gap now; the card only has
+     to clear its own heading. */
+  margin-top: 14px;
   padding: 22px 24px 20px;
   background: var(--card-bg);
   border: 1px solid var(--line);
@@ -17,6 +19,17 @@
   gap: 16px;
   flex-wrap: wrap;
 }
+/* The head is a sibling above the card now, not its first child --
+   see ``yearly_view.render``. It carries the same shape as every
+   ``.section__head``: title left, note right, across the measure. */
+.yearly__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin: 26px 0 4px;
+}
 .yearly__heading {
   margin: 0;
   font-size: 1.0625rem;
@@ -28,7 +41,7 @@
   color: var(--muted);
 }
 .yearly__summary {
-  margin: 2px 0 16px;
+  margin: 0 0 14px;
   font-size: 0.8125rem;
   color: var(--muted);
 }

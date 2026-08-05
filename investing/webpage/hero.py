@@ -142,7 +142,6 @@ def render(
         '<section class="hero" aria-labelledby="hero-claim">'
         '<p class="hero__eyebrow">'
         f'<span class="hero__metric">{html.escape(eyebrow_metric)}</span>'
-        '<span class="hero__eyebrow-sep" aria-hidden="true"></span>'
         '<span class="hero__updated" title="The page is rebuilt a few times a day '
         '&mdash; it does not tick during market hours">Updated '
         f'<time datetime="{html.escape(update_iso)}">{html.escape(update_date)}</time>'

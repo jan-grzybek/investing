@@ -52,6 +52,25 @@ _ASSET_CLASS_VARS: tuple[tuple[str, str], ...] = (
 )
 _ASSET_CLASS_COLORS: dict[str, str] = dict(_ASSET_CLASS_VARS)
 
+
+def _ink_var(fill_var: str) -> str:
+    """Name the ink token that pairs with a fill token.
+
+    Every fill in the deck has a companion ``--ink-on-*`` declared
+    beside it in ``00-base.css``, because the label sitting on a
+    segment has to be legible against *that* segment. White on Tiger
+    Orange is 2.48:1 and on the cash grey 2.56:1; the segment values
+    used to paint white on all of them and reach for a
+    ``text-shadow`` to cope, which is what you do when the colour is
+    not working rather than when it is.
+
+    The pairing lives in CSS rather than being computed here because
+    the fills flip for dark mode -- so the inks have to flip with
+    them, and a colour chosen once at render time cannot.
+    """
+    return "--ink-on-" + fill_var.removeprefix("--treemap-color-").removeprefix("--")
+
+
 # Sector swatches, keyed off the canonical sector name yfinance
 # reports. Kept byte-identical to the treemap's palette so the
 # colour vocabulary the page taught its readers survives the chart
@@ -147,7 +166,8 @@ def _bar(
         value = f"{_fmt_pct(pct)}%"
         parts.append(
             f'<div class="allocation__segment" style="width: {pct:.2f}%; '
-            f'background: var({color})" title="{html.escape(f"{label} {value}")}">'
+            f'background: var({color}); --seg-ink: var({_ink_var(color)})" '
+            f'title="{html.escape(f"{label} {value}")}">'
             f'<span class="allocation__segment-value">{html.escape(value)}</span>'
             "</div>"
         )

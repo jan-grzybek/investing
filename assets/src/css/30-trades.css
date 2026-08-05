@@ -36,6 +36,14 @@
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
+  /* Pin the layout algorithm here, not only from the sort script.
+     On ``auto`` this table's min-content is wider than the card it
+     sits in, so any moment it is handed back to auto layout it
+     overflows -- which is what happened on every resize, and what
+     would happen permanently with JS off. ``fixed`` plus the baseline
+     percentages below means the no-JS path cannot overflow either;
+     the script then refines the same proportions from measurement. */
+  table-layout: fixed;
   /* 13.5px, the design's row size -- a full 15px made the log the
      loudest table on a page where it is the supporting detail. */
   font-size: 0.84375rem;
@@ -53,7 +61,24 @@
   white-space: nowrap;
   vertical-align: middle;
 }
-.trades__col--price { text-align: right; }
+/* Baseline proportions for the fixed layout, sized from the narrowest
+   width the table layout is ever used at (~620px, where the container
+   query hands over to cards).
+   Five of the six columns hold something unbreakable -- a listing, a
+   badge, a quarter, a price with its currency code -- so they get what
+   they measured there and the company name, the one column that can
+   wrap, takes the remainder. Sized the other way round the price
+   clipped its currency code, which is the failure this whole finding
+   is about.
+   The sort script replaces these with percentages measured from the
+   real content once it runs; these are what the no-JS path and the
+   first frame get. */
+.trades__col--ticker { width: 13%; }
+.trades__col--name { width: 28.5%; }
+.trades__col--action { width: 15%; }
+.trades__col--detail { width: 13%; }
+.trades__col--date { width: 13%; }
+.trades__col--price { width: 17.5%; text-align: right; }
 .trades__col--price .trades__sort { justify-content: flex-end; }
 /* Sort buttons: visually identical to the surrounding header text
    so the table reads as a tight grid -- the interactive affordance
@@ -228,13 +253,19 @@
   vertical-align: 0.06em;
 }
 /* The four semantic categories collapse onto a single buy-vs-sell
-   axis: green marks any move INTO a position, red marks any move
-   OUT. Direction lands at a glance from the colour; the magnitude
-   (and the lifecycle distinction between "open" and "top-up", or
-   between "trim" and "exit") lives in the adjacent "Details"
-   column instead of being squeezed onto the badge. */
-.trade__badge--buy  { color: var(--positive); }
-.trade__badge--sell { color: var(--negative); }
+   axis. What that axis is *not* is a gain/loss axis, which is why the
+   badges no longer borrow ``--positive`` / ``--negative``: those two
+   colours mean profit and drawdown everywhere else on the page, and
+   painting SOLD in the loss colour says a disposal went badly.
+   Selling a winner is the opposite of a loss.
+   Buying is the page's own accent -- the colour of the portfolio
+   curve and the weight bars, i.e. of the position itself growing.
+   Selling steps back onto the neutral ramp: the same move, ended.
+   The magnitude, and the lifecycle distinction between "open" and
+   "top-up" or between "trim" and "exit", lives in the adjacent
+   Details column rather than being squeezed onto the badge. */
+.trade__badge--buy  { color: var(--accent); }
+.trade__badge--sell { color: var(--muted-deep); }
 /* "Details" column. Both kinds of detail -- ``--label`` (Initiated /
    Divested) and ``--pct`` (+30% / -25%) -- render identically: same
    size, same weight, same neutral tone. "+32%" and "Initiated"
@@ -318,14 +349,22 @@
    then Action entirely. The header row becomes the design's sort
    chips. */
 @container trades (max-width: 620px) {
-  .trades { display: block; font-size: 0.84375rem; }
+  /* The card layout is not a table any more, so the fixed algorithm
+     and its column percentages have nothing to act on and would only
+     constrain the chips. */
+  .trades {
+    display: block;
+    table-layout: auto;
+    font-size: 0.84375rem;
+  }
+  .trades__col { width: auto; }
   .trades tbody { display: block; }
 
   .trades thead { display: block; }
   .trades thead tr {
     display: flex;
-    gap: 6px;
-    padding: 10px 14px;
+    gap: 8px;
+    padding: 8px 14px;
     background: none;
     border-bottom: 1px solid var(--line);
     overflow-x: auto;
@@ -353,14 +392,15 @@
     border: 0;
     flex: 0 0 auto;
   }
+  /* Same 40px target as the holdings chips -- see 20-holdings.css. */
   .trades__sort {
     width: auto;
     justify-content: center;
-    padding: 4px 10px;
+    padding: 10px 13px;
     background: var(--card-bg);
     border: 1px solid color-mix(in srgb, var(--line) 90%, transparent);
     border-radius: 999px;
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     font-weight: 600;
     letter-spacing: 0;
     text-transform: none;

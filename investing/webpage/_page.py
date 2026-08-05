@@ -266,7 +266,11 @@ class Webpage:
         allocation_html = self._render_allocation()
         if allocation_html:
             parts.append('<section id="allocation" class="section">')
-            parts.append('<h2 class="section__title">Allocation</h2>')
+            # Allocation was the only section whose title was a bare
+            # <h2> rather than a .section__head, so it sat off the
+            # page's rhythm and had nowhere to put a note -- despite
+            # having one to give.
+            parts.append(self._section_head("Allocation", "Share of portfolio"))
             parts.append(allocation_html)
             parts.append("</section>")
 
@@ -375,8 +379,17 @@ class Webpage:
     # names: the link is emitted iff at least one of the named
     # attributes is truthy. "Method" is unconditional -- the
     # disclaimer renders on every page, whatever the portfolio holds.
+    # ``(anchor, label, attributes that must be non-empty for it to
+    # appear)``. Order follows the page.
+    #
+    # Allocation used to be missing: six blocks carry an id and a
+    # scroll offset and only four were listed, so a full section with
+    # its own heading had no way to be reached from the bar. Closed
+    # stays unlisted deliberately -- it sits directly under Holdings,
+    # and a sixth pill would push the bar onto a second line.
     _NAV_ITEMS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
         ("performance", "Performance", ("return_html",)),
+        ("allocation", "Allocation", ("allocation_pct",)),
         ("holdings", "Holdings", ("current", "current_fixed_income")),
         ("activity", "Activity", ("trades",)),
         ("method", "Method", ()),

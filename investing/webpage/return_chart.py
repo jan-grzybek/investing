@@ -513,9 +513,14 @@ def _end_label_svg(
 def _short_label(kind: str, label: str) -> str:
     """A series token for the right inset.
 
-    The portfolio's own curve is initialled: "Portfolio" has no
-    shorter form that is still a word, and the inset cannot hold the
-    whole of it.
+    The portfolio's curve is named, not initialled. It used to read
+    "JG" here and in the year table's first numeric column, and
+    nowhere else: the hero, the legend and the tooltip all say
+    "Portfolio". An internal shorthand that appears twice on a page
+    that otherwise spells the word out reads as a third series to
+    anyone meeting the chart cold. The inset holds it -- and the phone
+    frame hides the end labels entirely, so the extra width costs
+    nothing where width is tight.
 
     The benchmark keeps its index number. "S&P" alone is not a
     shorter way of writing "S&P 500" on this page -- S&P Global is a
@@ -526,7 +531,7 @@ def _short_label(kind: str, label: str) -> str:
     it intact.
     """
     if kind == "jg":
-        return "JG"
+        return "Portfolio"
     compact = label.replace(" Index", "").strip()
     return compact if len(compact) <= 12 else compact[:12]
 

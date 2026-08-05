@@ -50,6 +50,19 @@
    so each fixed column carries the design's content width plus the
    24px of cell padding that stands in for the gutter -- which lands
    the flexible name column within a few pixels of the design's 288. */
+/* A note under a column header -- see ``_COLUMN_NOTES``. Set in
+   sentence case at a smaller size so it reads as a gloss on the
+   header rather than as a second header. */
+.holdings__col-note {
+  display: block;
+  margin-top: 3px;
+  font-size: 0.625rem;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--muted-soft);
+  white-space: nowrap;
+}
 .holdings__col-logo { width: 58px; }
 /* Column headers carry both captions; each frame shows one. See
    ``holdings_view.OPEN_COLUMNS``. */
@@ -207,7 +220,13 @@
   display: block;
   height: 7px;
   border-radius: 2px;
-  background: color-mix(in srgb, var(--fg) 14%, transparent);
+  /* Mixed from ``--line``, not ``--fg``. ``--fg`` flips to a
+     near-white in dark mode, so a track mixed from it went from a
+     faint grey on the light page to a bright one on the navy -- and a
+     3.5% position read as a mostly-filled bar. ``--line`` is already
+     the page's surface-aware hairline, so the track keeps the same
+     weight against both. */
+  background: color-mix(in srgb, var(--line) 82%, transparent);
   overflow: hidden;
 }
 /* The row publishes its own weight as ``--w``; the table publishes
@@ -288,8 +307,8 @@
   .holdings thead { display: block; }
   .holdings thead tr {
     display: flex;
-    gap: 6px;
-    padding: 10px 14px;
+    gap: 8px;
+    padding: 8px 14px;
     background: none;
     border-bottom: 1px solid var(--line);
     overflow-x: auto;
@@ -332,6 +351,8 @@
      a zero-width flex item -- invisible, but still charged a 6px gap
      before the first real chip. */
   .holdings thead .holdings__col-logo { display: none; }
+  /* The header is a sort chip here; a chip is a control, not prose. */
+  .holdings__col-note { display: none; }
   /* The chips take the short caption so five of them fit 358px
      without a scroll, which is how the design's phone frame reads. */
   .holdings__col-wide { display: none; }
@@ -352,14 +373,19 @@
   .holdings__col--num { order: 3; }
   .holdings__col--num:last-child { order: 4; }
   .holdings__col--weight { order: 5; }
+  /* 40px, not 26.5px. On the wide frame these are column headers and
+     the whole cell is clickable; on the phone they *become* the sort
+     UI, and they were shrinking at exactly the moment they stopped
+     being reachable with a mouse. Both platform guidelines ask for
+     44px; 40px plus the strip's 8px row gap clears it. */
   .holdings__sort {
     width: auto;
     justify-content: center;
-    padding: 4px 10px;
+    padding: 10px 13px;
     background: var(--card-bg);
     border: 1px solid color-mix(in srgb, var(--line) 90%, transparent);
     border-radius: 999px;
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     font-weight: 600;
     letter-spacing: 0;
     text-transform: none;
@@ -428,13 +454,25 @@
      leaving the cell intact and every sibling auto-placed around it.
      Same collision that flattened the Return column earlier. */
   .holdings__row .holdings__name-cell { display: contents; }
+  /* Two lines for the name, because the name is what identifies the
+     row. Truncated to one, the two bond ETFs and the dual-listed
+     Samsung all cut off -- while the card underneath them had a whole
+     empty line. The card layout was chosen for its vertical room;
+     spending that room on the ticker and the weight bar but not on
+     the name inverts the priority.
+     The listing line keeps its ellipsis: that one is a code, and half
+     a code is no worse than none. */
   .holdings__name {
     grid-column: 2 / 4;
     grid-row: 1;
     font-size: 0.8125rem;
-    white-space: nowrap;
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
     overflow: hidden;
-    text-overflow: ellipsis;
+    line-height: 1.25;
   }
   .holdings__ticker {
     grid-column: 2;

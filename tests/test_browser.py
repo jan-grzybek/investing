@@ -651,6 +651,14 @@ def test_sort_chips_are_evenly_spaced_and_hint_when_they_scroll(page: Page, prev
                         return Math.round(c.getBoundingClientRect().width
                             - (btn ? btn.getBoundingClientRect().width : 0));
                     }),
+                    heights: cells.map(c => {
+                        const b = c.querySelector('.holdings__sort');
+                        const r = (b || c).getBoundingClientRect();
+                        // The gap between chips is part of the target's
+                        // separation, not of the target itself; the row
+                        // gap adds to the reachable band.
+                        return Math.round(r.height + 8);
+                    }),
                     scrolls: tr.scrollWidth > tr.clientWidth + 1,
                     layers: getComputedStyle(tr).backgroundImage.split('gradient').length - 1,
                 };
@@ -664,7 +672,12 @@ def test_sort_chips_are_evenly_spaced_and_hint_when_they_scroll(page: Page, prev
         # Every chip carries a caption -- the logo header is gone, not
         # lingering as an empty item.
         assert all(data["labels"]), (scope, data["labels"])
-        assert set(data["gaps"]) == {6}, (scope, data["gaps"])
+        # Every chip clears the 44px touch target both platform
+        # guidelines ask for. They used to compute to 26.5px -- and
+        # they shrank at exactly the width where they stop being
+        # reachable with a mouse and become the only sort UI.
+        assert min(data["heights"]) >= 44, (scope, data["heights"])
+        assert set(data["gaps"]) == {8}, (scope, data["gaps"])
         assert max(data["dead"]) <= 1, (scope, data["dead"])
         # Four gradient layers: two that scroll with the content and
         # two that stay put, so the shadow shows only on the side that
@@ -728,6 +741,188 @@ def test_first_click_on_the_pre_sorted_column_reverses_it(page: Page, preview_in
             second = snapshot()
             assert second["active"] == [f"{column}=descending"], (scope, width, second)
             assert second["names"] == start["names"], (scope, width, second["names"])
+
+
+def test_every_text_step_and_segment_label_clears_wcag_aa(page: Page, preview_index: Path):
+    """The neutral ramp and the allocation labels both have to be
+    legible against the surface they are drawn on, in both themes.
+
+    The palette's own comment claimed luminance was rotated so
+    "contrast lands within WCAG AA". That was true on the dark surface
+    and false on the light one, where every step came in under 4.5:1 --
+    with the 11.5px ticker and the 10px group band sitting at the
+    bottom of it. The segment labels had the same problem from the
+    other direction: white on Tiger Orange is 2.48:1, propped up by a
+    text-shadow, which is what you reach for when a colour is wrong.
+    """
+
+    def luminance(css_colour: str) -> float:
+        parts = [float(x) for x in re.findall(r"[\d.]+", css_colour)][:3]
+        if css_colour.startswith("color("):
+            parts = [x * 255 for x in parts]
+        channels = []
+        for raw in parts:
+            c = raw / 255
+            channels.append(c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4)
+        return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2]
+
+    def contrast(a: str, b: str) -> float:
+        la, lb = luminance(a), luminance(b)
+        return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
+
+    for scheme in ("light", "dark"):
+        page.emulate_media(color_scheme=scheme)
+        page.set_viewport_size({"width": 880, "height": 1000})
+        page.goto(preview_index.as_uri())
+        samples = page.evaluate(
+            """() => {
+                const surface = el => {
+                    let n = el;
+                    while (n) {
+                        const c = getComputedStyle(n).backgroundColor;
+                        if (c && c !== 'rgba(0, 0, 0, 0)') return c;
+                        n = n.parentElement;
+                    }
+                    return null;
+                };
+                const out = [];
+                document.querySelectorAll(
+                    '.holdings__ticker, .holdings__band td, .section__note, '
+                    + '.holdings__since, .holdings__col-note'
+                ).forEach(e => {
+                    if (!e.textContent.trim()) return;
+                    out.push({what: e.className.split(' ')[0],
+                              fg: getComputedStyle(e).color, bg: surface(e)});
+                });
+                document.querySelectorAll('.allocation__segment').forEach(seg => {
+                    const v = seg.querySelector('.allocation__segment-value');
+                    const cs = getComputedStyle(v);
+                    if (cs.display === 'none') return;
+                    out.push({what: 'segment-label', fg: cs.color,
+                              bg: getComputedStyle(seg).backgroundColor,
+                              shadow: cs.textShadow});
+                });
+                return out;
+            }"""
+        )
+        assert samples, scheme
+        for sample in samples:
+            got = contrast(sample["fg"], sample["bg"])
+            assert got >= 4.5, (scheme, sample, round(got, 2))
+            # The shadow existed only to prop up an ink that could not
+            # carry the fill; with a per-fill ink it has no job.
+            assert sample.get("shadow", "none") == "none", (scheme, sample)
+
+
+def test_the_nav_reaches_every_anchored_section_and_says_where_you_are(
+    page: Page, preview_index: Path
+):
+    """Six blocks carry an id; the bar listed four, so Allocation was
+    a full section with no way to reach it. And a sticky bar over one
+    long document that never marks the section under the reader is a
+    map with no marker.
+
+    Both edges matter: above the first heading the bar defaults to the
+    first pill rather than to nothing, and at the foot of the document
+    the last section wins outright -- it is shorter than the viewport,
+    so its top never crosses the offset line on its own.
+    """
+    page.set_viewport_size({"width": 1000, "height": 900})
+    page.goto(preview_index.as_uri())
+
+    labels = page.evaluate(
+        """() => [...document.querySelectorAll('.site-nav a')].map(a => a.textContent.trim())"""
+    )
+    assert labels == ["Performance", "Allocation", "Holdings", "Activity", "Method"], labels
+    # Five pills and the brand still hold one line -- a wrapped nav is
+    # what put every anchor under the sticky header.
+    lines = page.evaluate(
+        """() => new Set([...document.querySelectorAll('.site-nav a')]
+            .map(a => Math.round(a.getBoundingClientRect().top))).size"""
+    )
+    assert lines == 1, lines
+
+    def current():
+        return page.evaluate(
+            """() => {
+                const a = document.querySelector('.site-nav a[aria-current="true"]');
+                return a ? a.textContent.trim() : null;
+            }"""
+        )
+
+    assert current() == "Performance"
+    for label in labels:
+        page.evaluate("(a) => document.querySelector(a).scrollIntoView()", f"#{label.lower()}")
+        page.mouse.wheel(0, 1)
+        page.wait_for_timeout(80)
+        assert current() == label, (label, current())
+    page.evaluate("() => window.scrollTo(0, document.body.scrollHeight)")
+    page.wait_for_timeout(120)
+    assert current() == "Method"
+    assert page.evaluate("""() => document.querySelectorAll('[aria-current="true"]').length""") == 1
+
+
+def test_the_activity_table_never_escapes_its_card(page: Page, preview_index: Path):
+    """The sort script used to freeze six column widths in absolute
+    pixels, and unfreeze them on every resize -- which cleared
+    ``table-layout`` and handed the table back to auto layout for
+    150ms. On auto its min-content is wider than the card: the columns
+    jumped, a scrollbar appeared inside the card and Price clipped its
+    currency code.
+
+    Percentages hold the same proportions through any width, so the
+    freeze survives a resize and the unfreeze cycle is gone. The CSS
+    declares the algorithm and a baseline split too, so the no-JS path
+    cannot overflow either.
+    """
+    page.goto(preview_index.as_uri())
+    page.wait_for_timeout(250)
+    for width in (1000, 940, 860, 780, 720, 690, 1000):
+        page.set_viewport_size({"width": width, "height": 900})
+        for pause in (0, 40, 160, 320):
+            page.wait_for_timeout(pause or 15)
+            state = page.evaluate(
+                """() => {
+                    const t = document.querySelector('.trades');
+                    if (getComputedStyle(t).display !== 'table') return null;
+                    const wrap = document.querySelector('.trades__wrap');
+                    const clipped = [];
+                    t.querySelectorAll('td,th').forEach(c => {
+                        if (c.scrollWidth - c.clientWidth > 1) {
+                            clipped.push(c.className);
+                        }
+                    });
+                    return {
+                        layout: getComputedStyle(t).tableLayout,
+                        overflow: wrap.scrollWidth - wrap.clientWidth,
+                        clipped: [...new Set(clipped)],
+                        units: [...t.querySelectorAll('thead th')]
+                            .map(th => th.style.width).join('|'),
+                    };
+                }"""
+            )
+            if state is None:
+                continue
+            assert state["layout"] == "fixed", (width, pause, state)
+            assert state["overflow"] == 0, (width, pause, state)
+            assert not state["clipped"], (width, pause, state)
+            if state["units"].strip("|"):
+                assert "px" not in state["units"], (width, pause, state["units"])
+
+
+def test_phone_cards_show_the_whole_holding_name(page: Page, preview_index: Path):
+    """The name is what identifies the row. Clamped to one line the two
+    bond ETFs and the dual-listed Samsung all cut off -- while the card
+    beneath them had a whole empty line. Two lines are allowed now; the
+    listing keeps its ellipsis, since that one is a code."""
+    page.set_viewport_size({"width": 390, "height": 844})
+    page.goto(preview_index.as_uri())
+    truncated = page.evaluate(
+        """() => [...document.querySelectorAll('.holdings__name')]
+            .filter(n => n.scrollHeight > n.clientHeight + 1)
+            .map(n => n.textContent.trim())"""
+    )
+    assert not truncated, truncated
 
 
 def test_metrics_note_discloses_the_long_explanation(preview_page: Page):

@@ -20,6 +20,64 @@ function boot(){
   try{new ResizeObserver(publish).observe(header);}catch(e){window.addEventListener('resize',publish);}
   window.addEventListener('orientationchange',publish);
 
+  /* Current-section state.
+     The bar is sticky over one long document, so without this it is a
+     map with no "you are here": a reader can jump but cannot tell
+     where a jump landed, or where they have scrolled to since.
+     The active section is the last one whose top has passed under the
+     header -- the same offset the anchor scroll uses, so the pill
+     lights exactly when the heading arrives rather than when the
+     section's midpoint does.
+     ``aria-current`` carries it, so the announcement and the paint
+     come from one attribute. Reads are batched into a frame: this
+     runs on every scroll event, and `getBoundingClientRect` in that
+     loop is the one thing here that can cost a frame. */
+  var spyNav=header.querySelector('.site-nav');
+  if(spyNav){
+    var links=[].slice.call(spyNav.querySelectorAll('a[href^="#"]'));
+    var targets=links.map(function(a){
+      try{return document.querySelector(a.getAttribute('href'));}catch(e){return null;}
+    });
+    var queued=false;
+    var mark=function(){
+      queued=false;
+      var raw=getComputedStyle(document.documentElement).getPropertyValue('--header-h');
+      var offset=(parseInt(raw,10)||52)+24;
+      /* Default to the first section rather than to nothing: above
+         every heading the reader is at the start of the document, and
+         a bar with no pill lit reads as a broken feature rather than
+         as "you are above the first section". */
+      var best=0;
+      targets.forEach(function(t,i){
+        if(t&&t.getBoundingClientRect().top-offset<=0)best=i;
+      });
+      /* At the bottom of the document, the last section wins outright.
+         The final section is shorter than the viewport, so its top
+         never travels far enough up to cross the offset line -- scroll
+         runs out first, and without this it could never be marked no
+         matter how far the reader scrolled. */
+      var doc=document.documentElement;
+      if(window.innerHeight+window.scrollY>=doc.scrollHeight-2)best=links.length-1;
+      links.forEach(function(a,i){
+        if(i===best)a.setAttribute('aria-current','true');
+        else a.removeAttribute('aria-current');
+      });
+    };
+    if(links.length){
+      mark();
+      window.addEventListener('scroll',function(){
+        if(queued)return;
+        queued=true;
+        requestAnimationFrame(mark);
+      },{passive:true});
+      window.addEventListener('resize',function(){
+        if(queued)return;
+        queued=true;
+        requestAnimationFrame(mark);
+      },{passive:true});
+    }
+  }
+
   var toggle=header.querySelector('.site-nav__toggle');
   var nav=header.querySelector('.site-nav');
   if(!toggle||!nav)return;

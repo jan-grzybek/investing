@@ -8,10 +8,22 @@
   padding: 40px 0 32px;
   border-bottom: 1px solid var(--line);
 }
+/* The eyebrow spans the measure, the way every ``.section__head`` on
+   the page does: metric on the left, freshness date on the right.
+   It used to clump both at the left with ~450px of empty measure
+   beside them while the stat strip underneath ran the full width --
+   the first line a reader meets, laid out unlike every line after it.
+
+   Holding the two ends apart with the measure also retires the 1px
+   rule that used to sit between them: with a column of white in the
+   middle there is nothing left for it to separate, and on a phone,
+   where the row wraps, it was left dangling off the end of the first
+   line looking like a rendering fault. */
 .hero__eyebrow {
   display: flex;
   align-items: center;
-  gap: 10px;
+  justify-content: space-between;
+  gap: 10px 24px;
   flex-wrap: wrap;
   margin: 0 0 18px;
   font-size: 0.6875rem;
@@ -19,12 +31,6 @@
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--muted);
-}
-.hero__eyebrow-sep {
-  width: 1px;
-  height: 12px;
-  background: var(--line);
-  flex: 0 0 auto;
 }
 /* The freshness date rides in the eyebrow, not the footer. For a
    page built on live market data it is part of the claim. The
