@@ -213,19 +213,28 @@
      because a luminance flip turns their light plate dark and leaves
      the glyph nowhere to sit.
      
-     A 2px white plate is the cheaper answer and a truthful one: every
+     A white plate is the cheaper answer and a truthful one: every
      mark stays in the colours its owner published, at the size the
-     table needs them legible. ``content-box`` keeps the padding
-     outside the 34x22 image box so the row's geometry does not move.
-     
+     table needs them legible.
+
+     The plate is a ``box-shadow`` spread, not padding. Padding was
+     the first attempt and it reserved space: ``content-box`` keeps
+     the *image* at 34x22 but the element grows to 40x26, so the dark
+     row needed 6px more logo column than the light one. The card
+     layout's logo track is sized in px, so the dark plate overflowed
+     it and ``img { max-width: 100% }`` shrank the mark to fit --
+     every logo in dark mode came out a different size from its light
+     counterpart, and from its neighbours. A spread shadow paints the
+     same plate outside the border box without reserving a pixel, so
+     both themes lay out identically.
+
      It also retires the ``--literal`` opt-out. That class existed so
      the coloured fallback illustration could escape the filter;
      nothing needs to escape a plate. */
   .holdings__logo {
     background: #ffffff;
     border-radius: 4px;
-    padding: 2px 3px;
-    box-sizing: content-box;
+    box-shadow: 0 0 0 3px #ffffff;
   }
 }
 @media print {

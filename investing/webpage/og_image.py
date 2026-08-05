@@ -408,47 +408,54 @@ class HeroCopy:
 
 
 def _hero_copy(
-    twr: float,
-    twr_delta: float | None,
+    cagr: float,
+    cagr_delta: float | None,
     bench_label: str | None,
 ) -> HeroCopy:
     """Return the hero's copy for a given headline pair.
 
-    The contract:
+    The comparison is **annualised**, on both sides.
 
-    * with a benchmark -> the hero is the **time-weighted return
-      delta** in percentage points, captioned "ahead of {bench}" or
-      "behind {bench}" with the sign. This is the same claim, in the
-      same unit, that the page leads with. The previous card led with
-      the *CAGR* delta instead, so the two assets argued for different
-      numbers (+1.3 pp on the card against +6.7 pp on the page) and
-      the smaller of the two was the one that travelled.
-    * without a benchmark -> the hero falls back to the portfolio's
-      own total return, captioned "total return since inception", so
-      it reads as a standalone metric rather than a comparison with
-      nothing on the other side.
+    A total-return gap is a function of how long the portfolio has
+    been open as much as of how it has been run: seven years of a
+    slender annual edge compounds into a headline that sounds like a
+    single spectacular year. Annualising divides that back out, so
+    the number on the card is the one that generalises -- what this
+    portfolio does in a year against what the index does in a year.
+    It is also the only form in which two runs of different lengths
+    can be set beside each other at all.
+
+    The card reads smaller for it, and that is the point: a card seen
+    cold in a feed should not claim more than the underlying edge.
+
+    * with a benchmark -> the annualised delta in percentage points,
+      captioned "ahead of {bench}" or "behind {bench}" with the sign.
+    * without a benchmark -> the portfolio's own annualised return,
+      captioned "annualised since inception", so it reads as a
+      standalone metric rather than a comparison with nothing on the
+      other side.
 
     ``bench_label`` falls back to "S&P 500" when present-but-empty so
     the claim never collapses to "ahead of the ".
     """
-    if twr_delta is None:
+    if cagr_delta is None:
         return HeroCopy(
-            eyebrow="Time-weighted return",
-            number=_fmt_pct(twr),
+            eyebrow="Annualised return",
+            number=_fmt_pct(cagr),
             unit="%",
-            claim="total return since inception",
-            positive=twr >= 0,
+            claim="annualised since inception",
+            positive=cagr >= 0,
         )
     bench = bench_label or "S&P 500"
     return HeroCopy(
-        eyebrow=f"Time-weighted return vs {bench}",
-        number=_fmt_pct(twr_delta, signed=True),
+        eyebrow=f"Annualised return vs {bench}",
+        number=_fmt_pct(cagr_delta, signed=True),
         unit="pp",
         # "ahead of" / "behind" rather than "outperformance of":
         # in a feed the reader gets no scale for "pp", so the
         # sentence has to do the work the abbreviation cannot.
-        claim=f"{'ahead of' if twr_delta >= 0 else 'behind'} the {bench}",
-        positive=twr_delta >= 0,
+        claim=f"{'ahead of' if cagr_delta >= 0 else 'behind'} the {bench}",
+        positive=cagr_delta >= 0,
     )
 
 
@@ -469,6 +476,36 @@ def _resolve_output_dir(output_dir: Path | None) -> Path:
     return output_dir if output_dir is not None else Path.cwd()
 
 
+def _foot_copy(
+    start_date: date,
+    duration: str,
+    equity_count: int | None,
+) -> str:
+    """Return the credibility line under the logo strip.
+
+    Split out for the same reason as :func:`_hero_copy`: the rendered
+    text is not round-trippable out of the raster, so the only way to
+    hold this to a contract is to test the string before it is drawn.
+
+    The count is the *portfolio's*, not the strip's. It used to read
+    ``len(tickers)``, and ``tickers`` is capped at ten because that is
+    how many logos fit the strip -- so a twenty-equity portfolio
+    announced "10 equities" underneath a row of ten logos, which looks
+    like a caption on the row and is a false statement about the
+    portfolio. Anything the card says about the holdings has to be
+    true of the holdings.
+
+    With no count supplied there is nothing to say, so the clause is
+    dropped rather than guessed at from the strip -- a card that says
+    less is fine, a card that says something untrue is not.
+    """
+    line = f"Since {_fmt_date_long(start_date)}  \u00b7  {duration}"
+    if equity_count:
+        plural = "y" if equity_count == 1 else "ies"
+        line += f"  \u00b7  {equity_count} equit{plural}"
+    return line
+
+
 def _input_digest(
     *,
     total_return: TotalReturn,
@@ -476,6 +513,7 @@ def _input_digest(
     top_10: dict[str, float] | None,
     benchmark_display_names: dict[str, str],
     now: datetime,
+    equity_count: int | None = None,
 ) -> str:
     """Return a stable SHA-256 over the OG image's pixel inputs.
 
@@ -490,9 +528,16 @@ def _input_digest(
     daily TWR re-fix that doesn't change anything in the headline
     shouldn't force a rerender.
 
-    ``cagr%`` left the payload along with the CAGR hero: the card no
-    longer draws an annualised figure anywhere, so hashing one would
-    invalidate the cache on a quantity that cannot change a pixel.
+    The card compares annualised returns, so ``cagr%`` is what gets
+    hashed and ``twr%`` / ``tsr%`` do not: a cache key has to name the
+    quantities that reach the canvas and only those. Keyed on the
+    totals it would have gone both ways at once -- re-rendering on a
+    total-return move that changes no pixel, and serving a stale card
+    when the annualised figure moved on its own.
+
+    ``equity_count`` is in for the same reason: it prints in the foot,
+    so a position opening or closing has to invalidate the card even
+    when every other figure rounds to the same string.
 
     ``now`` is rounded to the calendar day: the foot caption renders
     a date-precision duration ("3 years, 4 months"), so two runs on
@@ -503,8 +548,9 @@ def _input_digest(
     history = total_return.get("history") or []
     start_from_history = history[0][0] if history else None
     payload = {
-        "twr": _round(total_return.get("twr%")),
-        "bench_tsr": _round(bench.get("tsr%") if bench else None),
+        "cagr": _round(total_return.get("cagr%")),
+        "bench_cagr": _round(bench.get("cagr%") if bench else None),
+        "equity_count": equity_count,
         "bench_label": _benchmark_label(bench, benchmark_display_names),
         "tickers": top_holdings_for_og(top_10, limit=10),
         "start_date": _iso_day(total_return.get("start_date") or start_from_history),
@@ -576,6 +622,7 @@ def render(
     top_10: dict[str, float] | None,
     benchmark_display_names: dict[str, str],
     now: datetime,
+    equity_count: int | None = None,
     output_dir: Path | None = None,
 ) -> None:
     """Render a 1200x630 PNG with the headline numbers for sharing.
@@ -606,6 +653,7 @@ def render(
         top_10=top_10,
         benchmark_display_names=benchmark_display_names,
         now=now,
+        equity_count=equity_count,
     )
     output_path = out_dir / OUTPUT_FILENAME
     if output_path.is_file() and _read_sidecar(out_dir) == digest:
@@ -618,6 +666,7 @@ def render(
             top_10=top_10,
             benchmark_display_names=benchmark_display_names,
             now=now,
+            equity_count=equity_count,
             output_dir=out_dir,
         )
     except Exception:
@@ -753,16 +802,17 @@ def _render_unsafe(
     top_10: dict[str, float] | None,
     benchmark_display_names: dict[str, str],
     now: datetime,
+    equity_count: int | None = None,
     output_dir: Path | None = None,
 ) -> None:
     from PIL import Image, ImageDraw
 
     bench = benchmarks[0] if benchmarks else None
-    twr = float(total_return.get("twr%", 0.0))
-    bench_tsr = float(bench["tsr%"]) if bench else None
-    twr_delta = (twr - bench_tsr) if bench_tsr is not None else None
+    cagr = float(total_return.get("cagr%", 0.0))
+    bench_cagr = float(bench["cagr%"]) if bench and bench.get("cagr%") is not None else None
+    cagr_delta = (cagr - bench_cagr) if bench_cagr is not None else None
     bench_label = _benchmark_label(bench, benchmark_display_names)
-    hero = _hero_copy(twr, twr_delta, bench_label)
+    hero = _hero_copy(cagr, cagr_delta, bench_label)
     history = list(total_return.get("history") or [])
     start_date = total_return.get("start_date") or (history[0][0] if history else now)
     duration = _format_duration(relativedelta(now, start_date))
@@ -814,10 +864,7 @@ def _render_unsafe(
 
     # ---- foot + logo strip, measured up from the bottom edge ---------
     f_foot = load_font("regular", 22)
-    equities = f"{len(tickers)} equit{'y' if len(tickers) == 1 else 'ies'}"
-    foot_left = f"Since {_fmt_date_long(start_date)}  \u00b7  {duration}"
-    if tickers:
-        foot_left += f"  \u00b7  {equities}"
+    foot_left = _foot_copy(start_date, duration, equity_count)
     # Anchored by its ink bottom, not its box top. The design bottoms
     # the foot's line box against the 34px padding, so what sits a
     # fixed distance from the canvas edge is the last row of pixels --
@@ -855,15 +902,19 @@ def _render_unsafe(
     mid_bottom = (strip_top - _STRIP_PAD_Y if tickers else foot_top) - 30
     f_total_label = load_font("bold", 22)
     f_total_value = load_font("bold", 72)
+    # Annualised on both sides, matching the hero. Two figures in
+    # different units beside one another -- a total on the left of a
+    # per-year delta -- would invite exactly the arithmetic that does
+    # not work between them.
     totals: list[tuple[tuple[int, int, int], str, str, tuple[int, int, int]]] = [
-        (_OG_ACCENT, "PORTFOLIO", f"{_fmt_pct(twr)}%", _OG_FG),
+        (_OG_ACCENT, "PORTFOLIO", f"{_fmt_pct(cagr)}%", _OG_FG),
     ]
-    if bench_tsr is not None:
+    if bench_cagr is not None:
         totals.append(
             (
                 _OG_BENCH,
                 (bench_label or "BENCHMARK").upper(),
-                f"{_fmt_pct(bench_tsr)}%",
+                f"{_fmt_pct(bench_cagr)}%",
                 _OG_MUTED,
             )
         )

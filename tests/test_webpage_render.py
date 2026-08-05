@@ -3,8 +3,9 @@ pointer interaction styles, and the end-to-end ``save()`` flow."""
 
 from __future__ import annotations
 
+import inspect
 import re
-from datetime import datetime
+from datetime import date, datetime
 
 import pytest
 
@@ -729,25 +730,26 @@ class TestOgImageHeroCopy:
 
     Lives at unit-helper granularity rather than driving the full PNG
     renderer because the rendered text isn't round-trippable out of
-    the raster output. Two contracts are pinned here. The card leads
-    with the same claim the page leads with -- the *time-weighted*
-    delta, not the CAGR delta, which is what let the two assets argue
-    for different numbers (+1.3 pp on the card against +6.7 pp on the
-    page). And the wording flips with the sign, so a losing window
-    never ships a card claiming a lead."""
+    the raster output. Two contracts are pinned here. The comparison
+    is *annualised* on both sides -- a total-return gap is a function
+    of how long the portfolio has been open as much as of how it has
+    been run, and seven years of a slender annual edge compounds into
+    a headline that sounds like one spectacular year. And the wording
+    flips with the sign, so a losing window never ships a card
+    claiming a lead."""
 
     @staticmethod
-    def _copy(twr, delta, label="S&P 500"):
+    def _copy(cagr, delta, label="S&P 500"):
         from investing.webpage.og_image import _hero_copy
 
-        return _hero_copy(twr, delta, label)
+        return _hero_copy(cagr, delta, label)
 
     def test_positive_delta_reads_as_ahead(self):
-        copy = self._copy(48.4, 6.7)
-        assert copy.number == "+6.7"
+        copy = self._copy(5.3, 0.6)
+        assert copy.number == "+0.6"
         assert copy.unit == "pp"
         assert copy.claim == "ahead of the S&P 500"
-        assert copy.eyebrow == "Time-weighted return vs S&P 500"
+        assert copy.eyebrow == "Annualised return vs S&P 500"
         assert copy.positive
 
     def test_zero_delta_still_reads_as_ahead(self):
@@ -778,15 +780,109 @@ class TestOgImageHeroCopy:
     def test_no_benchmark_reads_as_a_standalone_metric(self):
         # With nothing to compare against, leading with a smaller true
         # claim beats inventing a comparison the page cannot draw.
-        copy = self._copy(48.4, None)
-        assert copy.number == "48.4"
+        copy = self._copy(5.3, None)
+        assert copy.number == "5.3"
         assert copy.unit == "%"
-        assert copy.claim == "total return since inception"
-        assert copy.eyebrow == "Time-weighted return"
+        assert copy.claim == "annualised since inception"
+        assert copy.eyebrow == "Annualised return"
         assert copy.positive
 
     def test_negative_standalone_return_is_not_positive(self):
         assert not self._copy(-12.0, None).positive
+
+    def test_the_card_and_the_page_are_both_annualised(self):
+        """The two assets must not headline different numbers.
+
+        The card used to lead with the *total* return delta while the
+        page's hero leads with the annualised one, so the same
+        portfolio argued +6.7 pp in a feed and +0.6 pp on the page it
+        linked to. Whichever form is chosen, both have to choose it.
+
+        This pins the card's half; ``test_preview_html`` pins that the
+        page's own two figures are arithmetically consistent.
+        """
+        from investing.webpage import og_image
+
+        source = inspect.getsource(og_image._render_unsafe)
+        hero_call = re.search(r"_hero_copy\(([^)]*)\)", source)
+        assert hero_call, "no _hero_copy call in _render_unsafe"
+        args = hero_call.group(1)
+        assert "cagr" in args and "twr" not in args, (
+            f"the hero is fed {args!r} -- it has to be the annualised pair"
+        )
+
+
+class TestOgImageFootCopy:
+    """Direct unit tests on :func:`investing.webpage.og_image._foot_copy`
+    -- the credibility line beneath the logo strip.
+
+    Unit-helper granularity for the same reason as the hero copy: the
+    text is drawn into a raster and cannot be read back out. The one
+    contract worth pinning is that the count describes the portfolio
+    and not the strip of logos it sits under.
+    """
+
+    @staticmethod
+    def _foot(count, when=date(2019, 1, 1), duration="7 years, 7 months"):
+        from investing.webpage.og_image import _foot_copy
+
+        return _foot_copy(when, duration, count)
+
+    def test_the_count_is_the_portfolios_not_the_strips(self):
+        # The strip holds at most ten logos. A portfolio of seventeen
+        # says seventeen, or the line reads as a caption on the row
+        # above it and states something false about the holdings.
+        assert self._foot(17).endswith("17 equities")
+
+    def test_singular_count_reads_as_one_equity(self):
+        assert self._foot(1).endswith("1 equity")
+        assert "equities" not in self._foot(1)
+
+    def test_absent_count_drops_the_clause_entirely(self):
+        # Not "0 equities", and not a guess from the strip: with
+        # nothing to say, the line says nothing.
+        assert self._foot(None) == "Since Jan 1, 2019  \u00b7  7 years, 7 months"
+        assert self._foot(0) == self._foot(None)
+
+    def test_the_inception_half_survives_either_way(self):
+        for count in (None, 1, 17):
+            line = self._foot(count)
+            assert line.startswith("Since Jan 1, 2019")
+            assert "7 years, 7 months" in line
+
+
+class TestOgImageEquityCount:
+    """Where the count the card prints comes from.
+
+    :class:`TestOgImageFootCopy` pins what the string does with a
+    count; this pins that the count handed to it is the number of
+    equities held, which is the claim the word "equities" makes.
+    """
+
+    def test_the_page_counts_equities_not_every_line_item(self):
+        # ``current`` is the equity sleeve; bond ETFs are tracked
+        # separately in ``current_fixed_income``. Counting rows
+        # instead would file two Treasury ETFs under "equities".
+        from investing.webpage import _page
+
+        source = inspect.getsource(_page.Webpage._render_og_image)
+        assert "equity_count=len(self.current)" in "".join(source.split())
+
+    def test_a_changed_count_busts_the_render_cache(self):
+        # The render short-circuits on a digest of its inputs. If the
+        # count were left out of that digest, selling out of a
+        # position would leave yesterday's number on the card until
+        # some *other* input happened to move.
+        from investing.webpage.og_image import _input_digest
+
+        kwargs = {
+            "total_return": {"twr%": 48.4, "cagr%": 5.3},
+            "benchmarks": [],
+            "top_10": {"NMS:AAA": 100.0},
+            "benchmark_display_names": {},
+            "now": datetime(2026, 8, 4, 12, 0, 0),
+        }
+        assert _input_digest(**kwargs, equity_count=10) != _input_digest(**kwargs, equity_count=11)
 
 
 class TestOgImageFont:
