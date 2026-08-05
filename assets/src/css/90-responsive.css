@@ -252,6 +252,21 @@
   .yearly__alpha { width: 66px; }
   .yearly__year { width: 46px; }
   .yearly__bars { padding-right: 6px; padding-left: 6px; }
+}
+
+/* Below this the paired bars stop being a chart.
+   The four numeric columns are pinned to the widths their figures
+   need, so the bars column gets whatever is left -- and on a 320px
+   screen that is 14px, which renders the best year as a 5px stub and
+   the worst as a sliver. Two bars that cannot be told apart say
+   nothing about the shape of the record, which is the only reason
+   they are there; the figures beside them say it exactly. So the
+   column goes and the numbers take the space back. */
+@media (max-width: 359px) {
+  .yearly__bars,
+  .yearly__table thead th:nth-child(2) {
+    display: none;
+  }
   /* The tooltip steps down with everything else on the phone: the
      design runs it a size smaller throughout so it can sit over a
      149px-tall chart without covering the curve it is reading. */

@@ -759,7 +759,10 @@ class TestOgImageHeroCopy:
 
     def test_negative_delta_reads_as_behind(self):
         copy = self._copy(35.0, -3.4)
-        assert copy.number == "-3.4"
+        # U+2212 MINUS SIGN, not the ASCII hyphen: the card sets this
+        # beside signed positives and the two have to share an advance
+        # width. The vendored Roboto carries the glyph in both weights.
+        assert copy.number == "\u22123.4"
         assert copy.claim == "behind the S&P 500"
         assert not copy.positive
 

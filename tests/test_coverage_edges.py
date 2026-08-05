@@ -1070,3 +1070,164 @@ class TestPipelineInvariants:
         bench._dates = [date(2024, 1, 1), date(2024, 6, 1)]
         with pytest.raises(InvariantError, match="start price is zero"):
             bench.period_return_pct(date(2024, 1, 1), date(2024, 6, 1))
+
+
+class TestPaletteInvariants:
+    def test_every_allocation_fill_declares_the_ink_that_sits_on_it(self):
+        """A fill with no paired ink fails silently, and white.
+
+        ``--seg-ink: var(--ink-on-whatever)`` for a token that does not
+        exist makes the custom property invalid, so ``color:
+        var(--seg-ink, #fff)`` takes its fallback -- white. That is
+        exactly the state F2 was raised to fix: white on Tiger Orange
+        is 2.48:1. Nothing would raise, nothing would look obviously
+        broken, and the label would just quietly stop being legible.
+
+        So the pairing is asserted rather than trusted: a new sector
+        added to the palette without its ink fails here instead.
+        """
+        import re
+        from pathlib import Path
+
+        from investing.webpage.allocation import (
+            _ASSET_CLASS_VARS,
+            _SECTOR_VARS,
+            _ink_var,
+        )
+
+        css = Path(__file__).resolve().parents[1] / "assets/src/css/00-base.css"
+        text = css.read_text(encoding="utf-8")
+        light, dark = text.split("@media (prefers-color-scheme: dark)", 1)
+        declared_light = set(re.findall(r"(--ink-on-[\w-]+)\s*:", light))
+        declared_dark = set(re.findall(r"(--ink-on-[\w-]+)\s*:", dark))
+
+        fills = {var for _label, var in (*_ASSET_CLASS_VARS, *_SECTOR_VARS)}
+        assert fills, "no fills declared"
+        for fill in sorted(fills):
+            assert _ink_var(fill) in declared_light, fill
+            assert _ink_var(fill) in declared_dark, fill
+        # And no ink left behind by a fill that was removed.
+        assert (declared_light | declared_dark) == {_ink_var(f) for f in fills}
+
+
+class TestMinusSign:
+    def test_negatives_use_the_minus_sign_not_the_hyphen(self):
+        """U+2212, not U+002D.
+
+        Every figure ``_fmt_pct`` renders lands in a column of tabular
+        figures beside a signed positive, and ``font-variant-numeric:
+        tabular-nums`` cannot rescue the sign: it equalises digits, and
+        a sign is punctuation. In the page's own face at the return
+        column's size the ASCII hyphen advances 6.63px against the
+        plus's 9.25px, so a negative row's digits sat 2.6px off from
+        the row above. U+2212 is drawn to the plus's width.
+        """
+        from investing.formatting import _fmt_pct
+
+        for value in (-0.1, -4.0, -11.8, -99.94, -120.5):
+            rendered = _fmt_pct(value)
+            assert rendered.startswith("\u2212"), (value, rendered)
+            assert "-" not in rendered, (value, rendered)
+        # Positives are untouched, signed or not.
+        assert _fmt_pct(4.0) == "4.0"
+        assert _fmt_pct(4.0, signed=True) == "+4.0"
+        assert _fmt_pct(-4.0, signed=True) == "\u22124.0"
+        # Only the leading sign is replaced -- nothing else in the
+        # string can be a hyphen, but the guard is cheap.
+        assert _fmt_pct(-120.5) == "\u2212120"
+
+    def test_the_og_font_can_draw_the_minus_sign(self):
+        """The card is drawn with Pillow, not by a browser, so a glyph
+        the vendored face lacks renders as tofu rather than falling
+        back. Roboto carries U+2212; this stops a future font swap from
+        silently breaking the one headline that can be negative."""
+        from PIL import Image, ImageDraw
+
+        from investing.webpage.og_image import load_font
+
+        draw = ImageDraw.Draw(Image.new("RGB", (10, 10)))
+        for weight in ("regular", "bold"):
+            font = load_font(weight, 40)
+            minus = draw.textlength("\u2212", font=font)
+            plus = draw.textlength("+", font=font)
+            assert minus > 0, weight
+            # Drawn to the same advance as the plus, which is the whole
+            # reason for preferring it.
+            assert abs(minus - plus) < 0.51, (weight, minus, plus)
+
+
+class TestDataDependentRenderPaths:
+    """Rows the synthetic fixture never produces.
+
+    The preview portfolio is ahead every year, holds nothing too young
+    to annualise, and has no benchmark gaps -- so several render paths
+    ship without ever being drawn. Each is exercised here.
+    """
+
+    def _yearly(self, rows):
+        from investing.webpage import yearly_view
+
+        return yearly_view.render(
+            rows,
+            [{"ticker": "B", "name": "Bench", "tsr%": 5.0}],
+            benchmark_label="S&P 500",
+        )
+
+    def test_a_losing_year_draws_its_bar_in_the_loss_colour(self):
+        html = self._yearly([{"year": 2024, "jg%": -4.0, "bench%": 2.0}])
+        assert "yearly__bar--neg" in html
+        assert "\u22124.0%" in html
+
+    def test_a_year_without_a_benchmark_figure_renders_an_em_dash(self):
+        # Not a zero, and not a blank cell: the benchmark has no value
+        # for that year, which is a different statement from "flat".
+        html = self._yearly(
+            [
+                {"year": 2023, "jg%": 5.0, "bench%": 3.0},
+                {"year": 2024, "jg%": 6.0, "bench%": None},
+            ]
+        )
+        assert html.count("yearly__empty") == 2, "both the benchmark and the alpha cell"
+        assert "&mdash;" in html
+
+    def test_the_current_year_is_marked_year_to_date(self):
+        # An incomplete year sitting unlabelled beside seven complete
+        # ones invites a comparison that is not available yet.
+        html = self._yearly([{"year": 2026, "jg%": 3.0, "bench%": 1.0, "is_ytd": True}])
+        assert "yearly__ytd" in html
+        assert "(YTD)" in html
+
+    def test_an_unrepresentable_irr_says_tba_rather_than_a_headline(self, stub_logo_lookup):
+        # A near-zero starter position that 10x'd before a large
+        # top-up produces an XIRR in the millions of percent. It is
+        # arithmetically correct and completely meaningless, so the
+        # column declines to print it -- and, having no sign worth
+        # colouring, takes no value colour either.
+        from datetime import datetime
+
+        from investing.holdings import CAGR_TBA_THRESHOLD
+        from investing.webpage.holdings_view import build_row
+
+        def row_for(cagr: float) -> str:
+            return build_row(
+                {
+                    "ticker": "NMS:AAA",
+                    "name": "Alpha",
+                    "is_current": True,
+                    "tsr%": 3.0,
+                    "cagr%": cagr,
+                    "current_weight%": 5.0,
+                    "period_start": datetime(2026, 7, 20),
+                    "periods": [{"start": datetime(2026, 7, 20), "end": None}],
+                },
+                logo_url_for=lambda _t: "logo.svg",
+            )
+
+        absurd = row_for(CAGR_TBA_THRESHOLD * 2)
+        assert "holdings__num--tba" in absurd
+        assert "TBA" in absurd
+        assert "value--positive" not in absurd.split("holdings__num--tba")[1]
+
+        ordinary = row_for(12.5)
+        assert "holdings__num--tba" not in ordinary
+        assert "+12.5%" in ordinary

@@ -189,11 +189,22 @@ def _fmt_pct(value: float, *, signed: bool = False) -> str:
     ``signed=True`` prefixes a leading ``+`` for non-negative
     values, matching the existing ``:+.1f`` behaviour at delta
     sites.
+
+    Negatives take U+2212 MINUS SIGN, not the ASCII hyphen-minus
+    ``format`` produces. Every figure this renders lands in a column
+    of tabular figures beside a signed positive, and ``tabular-nums``
+    cannot help: it equalises *digits*, and the sign is punctuation.
+    Measured in the page's own face at the return column's size, the
+    ASCII hyphen advances 6.63px against the plus's 9.25px, so a
+    negative row's digits sat 2.6px off from the row above it. U+2212
+    is drawn to the same 9.25px as the plus, which is what it is for.
     """
     sign_spec = "+" if signed else ""
     if round(abs(value), 1) >= 100:
-        return format(value, f"{sign_spec}.0f")
-    return format(value, f"{sign_spec}.1f")
+        text = format(value, f"{sign_spec}.0f")
+    else:
+        text = format(value, f"{sign_spec}.1f")
+    return text.replace("-", "\u2212", 1) if text.startswith("-") else text
 
 
 def _sha256_b64(payload: str) -> str:
