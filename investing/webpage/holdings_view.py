@@ -379,7 +379,7 @@ def build_table(
         f'<table class="holdings" role="table" '
         f'data-holdings-table="{html.escape(scope)}"{default_attr}{scale_attr}>'
         f'<caption class="visually-hidden">{html.escape(caption)}</caption>'
-        f'<thead role="rowgroup"><tr role="row">{"".join(header_cells)}</tr></thead>'
+        f'<thead role="rowgroup"><tr role="row" data-scroll-hint>{"".join(header_cells)}</tr></thead>'
         f"{body}"
         "</table>"
         "</div>"

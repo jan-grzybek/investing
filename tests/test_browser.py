@@ -660,7 +660,8 @@ def test_sort_chips_are_evenly_spaced_and_hint_when_they_scroll(page: Page, prev
                         return Math.round(r.height + 8);
                     }),
                     scrolls: tr.scrollWidth > tr.clientWidth + 1,
-                    layers: getComputedStyle(tr).backgroundImage.split('gradient').length - 1,
+                    hint: tr.getAttribute('data-scroll'),
+                    masked: getComputedStyle(tr).maskImage !== 'none',
                 };
             });
             return out;
@@ -679,10 +680,17 @@ def test_sort_chips_are_evenly_spaced_and_hint_when_they_scroll(page: Page, prev
         assert min(data["heights"]) >= 44, (scope, data["heights"])
         assert set(data["gaps"]) == {8}, (scope, data["gaps"])
         assert max(data["dead"]) <= 1, (scope, data["dead"])
-        # Four gradient layers: two that scroll with the content and
-        # two that stay put, so the shadow shows only on the side that
-        # still has chips to reach. See 00-base.css.
-        assert data["layers"] == 4, (scope, data["layers"])
+        # The hint is a fade over the strip's own rendering, so a chip
+        # travelling toward the edge dissolves instead of being sliced
+        # flat by it. It appears only on the side that still has chips
+        # to reach, and not at all on a strip that fits -- which is why
+        # it is asserted against ``scrolls`` rather than unconditionally.
+        if data["scrolls"]:
+            assert data["hint"] in {"start", "end", "both"}, (scope, data)
+            assert data["masked"], (scope, data)
+        else:
+            assert data["hint"] is None, (scope, data)
+            assert not data["masked"], (scope, data)
 
 
 def test_first_click_on_the_pre_sorted_column_reverses_it(page: Page, preview_index: Path):
@@ -923,6 +931,59 @@ def test_phone_cards_show_the_whole_holding_name(page: Page, preview_index: Path
             .map(n => n.textContent.trim())"""
     )
     assert not truncated, truncated
+
+
+def test_the_scroll_hint_fades_the_chip_itself(page: Page, preview_index: Path):
+    """The hint has to act on the chips, not just on the gaps between
+    them.
+
+    It began as four background layers -- two riding the content, two
+    pinned -- which is elegant and self-managing, and wrong in one
+    way: a background paints *behind* content. The chips are opaque
+    pills, so they slid over the shadow instead of under it. The
+    shadow darkened the gaps and left every chip crisp, sliced flat at
+    the container edge, which is the opposite of what a shadow claims.
+
+    Measured here as pixels: sample a column inside the fade and the
+    same column's worth of chip ink well clear of it, and the edge
+    sample has to be the paler of the two.
+    """
+    page.set_viewport_size({"width": 390, "height": 844})
+    page.goto(preview_index.as_uri())
+    strip = page.locator('table[data-holdings-table="open"] thead tr')
+    strip.scroll_into_view_if_needed()
+    page.evaluate(
+        """() => {
+            const tr = document.querySelector(
+                'table[data-holdings-table="open"] thead tr');
+            tr.scrollLeft = (tr.scrollWidth - tr.clientWidth) / 2;
+        }"""
+    )
+    page.wait_for_timeout(150)
+    assert strip.get_attribute("data-scroll") == "both"
+
+    shot = strip.screenshot()
+    from io import BytesIO
+
+    from PIL import Image
+
+    image = Image.open(BytesIO(shot)).convert("L")
+    width, height = image.size
+
+    def darkest(x0: int, x1: int) -> int:
+        """Darkest pixel in a vertical band -- i.e. the strongest ink."""
+        band = image.crop((x0, 0, x1, height))
+        return min(band.getdata())
+
+    # The mask ramps over the outermost 26 CSS px; the screenshot is at
+    # the page's own scale, so work in fractions of the strip width.
+    edge = darkest(0, max(2, int(width * 0.02)))
+    middle = darkest(int(width * 0.35), int(width * 0.65))
+    # Ink at the very edge must be lighter than ink in the clear.
+    assert edge > middle + 40, (edge, middle)
+    # And the clear region must still carry real ink, or the assertion
+    # above would pass on an empty strip.
+    assert middle < 120, middle
 
 
 def test_metrics_note_discloses_the_long_explanation(preview_page: Page):

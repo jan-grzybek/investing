@@ -208,7 +208,9 @@ def build_table(rows: list[str]) -> str:
             '<span class="trades__sort-indicator" aria-hidden="true"></span>'
             "</button></th>"
         )
-    thead = f'<thead role="rowgroup"><tr role="row">{"".join(headers)}</tr></thead>'
+    thead = (
+        f'<thead role="rowgroup"><tr role="row" data-scroll-hint>{"".join(headers)}</tr></thead>'
+    )
     tbody = f'<tbody role="rowgroup">{"".join(rows)}</tbody>'
     toggle_html = ""
     total = len(rows)

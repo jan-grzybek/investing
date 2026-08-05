@@ -19,6 +19,7 @@ from ..assets import (
     _NAV_SCROLL_SCRIPT,
     _PAGE_STYLES,
     _RETURN_CHART_SCRIPT,
+    _SCROLL_HINT_SCRIPT,
     _TRADES_SORT_SCRIPT,
 )
 from ..formatting import _sha256_b64
@@ -127,6 +128,7 @@ def build_csp(jsonld: SafeHtml) -> SafeHtml:
             _HASH_CLEAR_SCRIPT,
             _NAV_SCROLL_SCRIPT,
             _RETURN_CHART_SCRIPT,
+            _SCROLL_HINT_SCRIPT,
             _TRADES_SORT_SCRIPT,
             _METRICS_NOTE_SCRIPT,
             _HOLDINGS_SORT_SCRIPT,
@@ -201,6 +203,7 @@ def build_head(meta: SiteMeta) -> SafeHtml:
         f"<script>{_HASH_CLEAR_SCRIPT}</script>\n"
         f"<script>{_NAV_SCROLL_SCRIPT}</script>\n"
         f"<script>{_RETURN_CHART_SCRIPT}</script>\n"
+        f"<script>{_SCROLL_HINT_SCRIPT}</script>\n"
         f"<script>{_TRADES_SORT_SCRIPT}</script>\n"
         f"<script>{_METRICS_NOTE_SCRIPT}</script>\n"
         f"<script>{_HOLDINGS_SORT_SCRIPT}</script>\n"

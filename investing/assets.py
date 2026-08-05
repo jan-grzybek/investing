@@ -21,6 +21,7 @@ __all__ = [
     "_NAV_SCROLL_SCRIPT",
     "_PAGE_STYLES",
     "_RETURN_CHART_SCRIPT",
+    "_SCROLL_HINT_SCRIPT",
     "_TRADES_SORT_SCRIPT",
 ]
 
@@ -147,6 +148,7 @@ _NAV_SCROLL_SCRIPT = _read_asset("nav_scroll.js")
 # Kept as a tight ES5-flavoured IIFE so the inline payload stays
 # small and gets a single stable SHA-256 hash (pinned in CSP).
 _RETURN_CHART_SCRIPT = _read_asset("return_chart.js")
+_SCROLL_HINT_SCRIPT = _read_asset("scroll_hint.js")
 
 
 # Click-to-sort behaviour for the "Trades" table.

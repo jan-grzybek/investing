@@ -1,0 +1,5 @@
+(function(){function boot(){var strips=[].slice.call(document.querySelectorAll("[data-scroll-hint]"));if(!strips.length)return;strips.forEach(function(strip){var queued=false;function measure(){queued=false;var max=strip.scrollWidth-strip.clientWidth;if(max<=1){strip.removeAttribute("data-scroll");return;}
+var more_before=strip.scrollLeft>1;var more_after=strip.scrollLeft<max-1;strip.setAttribute("data-scroll",more_before&&more_after?"both":more_before?"start":"end",);}
+function schedule(){if(queued)return;queued=true;requestAnimationFrame(measure);}
+measure();strip.addEventListener("scroll",schedule,{passive:true});try{new ResizeObserver(schedule).observe(strip);}catch(e){window.addEventListener("resize",schedule);}});}
+if(document.readyState==="loading"){document.addEventListener("DOMContentLoaded",boot);}else{boot();}})();

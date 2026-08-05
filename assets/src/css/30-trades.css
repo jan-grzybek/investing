@@ -369,20 +369,37 @@
     border-bottom: 1px solid var(--line);
     overflow-x: auto;
     scrollbar-width: none;
-    /* Painted by ``.scroll-hint``; see 00-base.css. */
-    background:
-      linear-gradient(to right, var(--card-bg) 40%, transparent) left center / 28px 100% no-repeat
-        local,
-      linear-gradient(to left, var(--card-bg) 40%, transparent) right center / 28px 100% no-repeat
-        local,
-      linear-gradient(
-          to right,
-          color-mix(in srgb, var(--fg) 22%, transparent),
-          transparent
-        )
-        left center / 20px 100% no-repeat scroll,
-      linear-gradient(to left, color-mix(in srgb, var(--fg) 22%, transparent), transparent) right
-        center / 20px 100% no-repeat scroll;
+    /* Fades the strip's own rendering, chips included -- see
+       ``scroll_hint.js`` for why this is a mask rather than the
+       background shadow it replaced, and why the side is set from JS.
+       The mask is positioned against the padding box, i.e. the visible
+       window, not the scrolled content, so the fade stays pinned to
+       the edges while the chips travel under it. */
+    --hint: 26px;
+  }
+  [data-scroll-hint][data-scroll="end"] {
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - var(--hint)), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - var(--hint)), transparent);
+  }
+  [data-scroll-hint][data-scroll="start"] {
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 var(--hint));
+    mask-image: linear-gradient(to right, transparent, #000 var(--hint));
+  }
+  [data-scroll-hint][data-scroll="both"] {
+    -webkit-mask-image: linear-gradient(
+      to right,
+      transparent,
+      #000 var(--hint),
+      #000 calc(100% - var(--hint)),
+      transparent
+    );
+    mask-image: linear-gradient(
+      to right,
+      transparent,
+      #000 var(--hint),
+      #000 calc(100% - var(--hint)),
+      transparent
+    );
   }
   .trades thead tr::-webkit-scrollbar { display: none; }
   .trades thead th {
