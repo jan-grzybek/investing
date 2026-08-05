@@ -90,14 +90,22 @@ VISIBLE_DEFAULT: int = 10
 def _detail_text(event: TradeEvent) -> str:
     """Human-facing text for the "Details" column.
 
-    OPEN / CLOSE return the static lifecycle labels (the
-    position came into existence / was disposed of,
-    respectively). INCREASE / DECREASE return a signed
-    whole-number percentage of the burst's magnitude relative
-    to the prior position -- ``+30%`` reads as "this BUY grew
-    the existing stake by 30%", ``-25%`` as "this SELL trimmed
-    it by 25%". The minus glyph is the typographically
-    correct ``\u2212`` (U+2212), not the ASCII hyphen-minus.
+    OPEN / CLOSE return the static lifecycle labels: the position came
+    into existence, or was disposed of.
+
+    INCREASE / DECREASE name what changed and by how much -- "Increased
+    by 30%", "Decreased by 25%" -- as a percentage of the position
+    *before* the trade.
+
+    They used to render as a bare signed percentage, ``+30%`` and
+    ``\u221225%``. On this page that is ambiguous in the worst way: every
+    other percentage in view is a *return*, and the two columns of
+    returns sit a few hundred pixels above. A reader has no way to tell
+    from "+30%" alone whether the position grew by a third or made a
+    third, and those are very different claims. Spelling out the verb
+    costs a few characters of column and removes the question -- and it
+    is also what retires the signed glyph, since "Decreased" carries
+    the direction that the minus used to.
     """
     category = event["category"]
     if category in _TRADE_DETAIL_LABELS:
@@ -105,8 +113,8 @@ def _detail_text(event: TradeEvent) -> str:
     delta_pct = event.get("delta_pct")
     if delta_pct is None:
         return _TRADE_ACTION_DISPLAY[category][0]
-    sign = "+" if category == "INCREASE" else "\u2212"
-    return f"{sign}{delta_pct:.0f}%"
+    verb = "Increased" if category == "INCREASE" else "Decreased"
+    return f"{verb} by {delta_pct:.0f}%"
 
 
 def build_row(event: TradeEvent) -> str:

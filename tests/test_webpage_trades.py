@@ -165,16 +165,22 @@ class TestAddTrades:
             # percentage or minus glyph is rendered.
             assert "trades__detail--label" in row
             assert "%" not in row.split("trades__cell--detail")[1].split("</td>")[0]
-        # INCREASE / DECREASE: signed-percent readouts with the
-        # ``--pct`` modifier, which buys tabular figures and nothing
-        # else.
-        assert ">+30%<" in inc_row
+        # INCREASE / DECREASE name what changed and by how much. They
+        # used to render as a bare signed percentage, which on this
+        # page is ambiguous in the worst way: every other percentage in
+        # view is a *return*, and two columns of them sit a few hundred
+        # pixels above. "+30%" cannot tell a reader whether the
+        # position grew by a third or made a third.
+        assert ">Increased by 30%<" in inc_row
         assert "trades__detail--pct" in inc_row
-        # The minus is the typographically correct U+2212 sign,
-        # not the ASCII hyphen-minus, so it aligns with ``+`` in
-        # tabular-numbers fonts.
-        assert ">\u221225%<" in dec_row
+        assert ">Decreased by 25%<" in dec_row
         assert "trades__detail--pct" in dec_row
+        # The verb carries the direction, so there is no signed glyph
+        # left to get wrong.
+        for row in (inc_row, dec_row):
+            detail = row.split("trades__cell--detail")[1].split("</td>")[0]
+            assert "+" not in detail
+            assert "\u2212" not in detail
         # No direction colour anywhere in the column. The row already
         # states its direction twice -- in the Action badge and in the
         # sign on the percentage -- and painting a third of the log
@@ -341,15 +347,13 @@ class TestAddTrades:
                 _trade_event(category="INCREASE", delta_pct=42.4),
             ]
         )
-        assert ">+30%<" in w.trades[0]
-        assert ">+100%<" in w.trades[1]
+        assert ">Increased by 30%<" in w.trades[0]
+        assert ">Increased by 100%<" in w.trades[1]
         # 99.5 rounds up to 100; 42.4 rounds down to 42 -- standard
-        # banker's-rounding-adjacent ``{:.0f}`` behaviour, which is
-        # close enough to "round half to even" that the rendering
-        # convention is uncontroversial for the values that show up
-        # in practice. The minus sign is U+2212.
-        assert ">\u2212100%<" in w.trades[2]
-        assert ">+42%<" in w.trades[3]
+        # ``{:.0f}`` behaviour, uncontroversial for the values that
+        # show up in practice.
+        assert ">Decreased by 100%<" in w.trades[2]
+        assert ">Increased by 42%<" in w.trades[3]
 
     def test_table_has_no_logo_cell(self, stub_logo_lookup):
         # Logos were removed from the trades table -- the ticker

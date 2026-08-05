@@ -630,9 +630,10 @@ def test_sort_chips_are_evenly_spaced_and_hint_when_they_scroll(page: Page, prev
     result = page.evaluate(
         """() => {
             const out = {};
-            ['open', 'closed'].forEach(id => {
-                const tr = document.querySelector(
-                    'table[data-holdings-table="' + id + '"] thead tr');
+            [['open', 'table[data-holdings-table="open"] thead tr'],
+             ['closed', 'table[data-holdings-table="closed"] thead tr'],
+             ['activity', '.trades thead tr']].forEach(([id, sel]) => {
+                const tr = document.querySelector(sel);
                 const cells = [...tr.children]
                     .filter(th => getComputedStyle(th).display !== 'none')
                     .sort((a, b) => a.getBoundingClientRect().left
@@ -647,10 +648,11 @@ def test_sort_chips_are_evenly_spaced_and_hint_when_they_scroll(page: Page, prev
                     gaps,
                     // Cell wider than the chip inside it == dead space.
                     dead: cells.map(c => {
-                        const btn = c.querySelector('.holdings__sort');
+                        const btn = c.querySelector('button');
                         return Math.round(c.getBoundingClientRect().width
                             - (btn ? btn.getBoundingClientRect().width : 0));
                     }),
+                    frozen: cells.map(c => c.style.width || ''),
                     heights: cells.map(c => {
                         const b = c.querySelector('.holdings__sort');
                         const r = (b || c).getBoundingClientRect();
@@ -680,11 +682,24 @@ def test_sort_chips_are_evenly_spaced_and_hint_when_they_scroll(page: Page, prev
         assert min(data["heights"]) >= 44, (scope, data["heights"])
         assert set(data["gaps"]) == {8}, (scope, data["gaps"])
         assert max(data["dead"]) <= 1, (scope, data["dead"])
+        # And no chip may be *narrower* than the button inside it.
+        #
+        # The Activity strip regressed here: its sort script freezes
+        # column widths, and once those became percentages the freeze
+        # started running in card mode too -- where a percentage is a
+        # share of the *strip*, and the strip is narrower than the chips
+        # it scrolls. Every chip was squeezed to about 70% of its label
+        # and the buttons overlapped their neighbours, which is exactly
+        # what the horizontal scroll exists to avoid.
+        assert min(data["dead"]) >= -1, (scope, data["dead"])
         # The hint is a fade over the strip's own rendering, so a chip
         # travelling toward the edge dissolves instead of being sliced
         # flat by it. It appears only on the side that still has chips
         # to reach, and not at all on a strip that fits -- which is why
         # it is asserted against ``scrolls`` rather than unconditionally.
+        # No frozen column width survives into the card layout: a width
+        # meant for a table column has no meaning on a chip.
+        assert not any(data["frozen"]), (scope, data["frozen"])
         if data["scrolls"]:
             assert data["hint"] in {"start", "end", "both"}, (scope, data)
             assert data["masked"], (scope, data)

@@ -65,20 +65,21 @@
    width the table layout is ever used at (~620px, where the container
    query hands over to cards).
    Five of the six columns hold something unbreakable -- a listing, a
-   badge, a quarter, a price with its currency code -- so they get what
-   they measured there and the company name, the one column that can
-   wrap, takes the remainder. Sized the other way round the price
+   badge, a quarter, a price with its currency code, and now a spelled
+   out "Decreased by 25%" where a bare signed percentage used to fit --
+   so they get what they measured there and the company name, the one
+   column that can wrap, takes the remainder. Sized the other way round the price
    clipped its currency code, which is the failure this whole finding
    is about.
    The sort script replaces these with percentages measured from the
    real content once it runs; these are what the no-JS path and the
    first frame get. */
-.trades__col--ticker { width: 13%; }
-.trades__col--name { width: 28.5%; }
+.trades__col--ticker { width: 14%; }
+.trades__col--name { width: 17%; }
 .trades__col--action { width: 15%; }
-.trades__col--detail { width: 13%; }
+.trades__col--detail { width: 23%; }
 .trades__col--date { width: 13%; }
-.trades__col--price { width: 17.5%; text-align: right; }
+.trades__col--price { width: 18%; text-align: right; }
 .trades__col--price .trades__sort { justify-content: flex-end; }
 /* Sort buttons: visually identical to the surrounding header text
    so the table reads as a tight grid -- the interactive affordance
