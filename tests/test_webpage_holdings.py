@@ -245,9 +245,78 @@ class TestRowContract:
         plate = blocks_for(dark, ".holdings__logo")
         assert plate
         assert has_declaration(plate[0], "background", "#fff")
-        # ``content-box`` keeps the padding outside the reserved
-        # 34x22 box, so plating a logo does not move the row.
-        assert has_declaration(plate[0], "box-sizing", "content-box")
+        # The plate is a spread shadow, and it has to stay one.
+        #
+        # Padding was the first attempt. ``content-box`` keeps the
+        # *image* at 34x22, but the element still grows to 40x26, so
+        # the dark row asked for 6px more logo column than the light
+        # one. The card layout sizes that column in px, so the dark
+        # plate overflowed it and ``img { max-width: 100% }`` shrank
+        # the mark to fit -- dark-mode logos came out at three
+        # different widths, none of them the design's.
+        #
+        # A spread shadow paints the same plate outside the border box
+        # and reserves nothing, so both themes lay out identically.
+        assert has_declaration(plate[0], "box-shadow", "0 0 0 3px #fff")
+        assert not has_declaration(plate[0], "box-sizing", "content-box")
+        assert "padding" not in plate[0]
+
+    def test_logos_are_centred_in_their_reserved_box(self):
+        """The box is fixed; the marks inside it are not.
+
+        Every logo gets the same 34x22 (28x18 on a card) and is drawn
+        ``contain``ed inside it, so a wide wordmark fills the width and
+        a square glyph fills only the height. Anchored ``left center``,
+        the narrow ones hugged the left edge while the wide ones ran
+        the full width, and the column read as a ragged left margin
+        rather than a column of marks.
+
+        Centring is what makes a mixed set of aspect ratios sit on one
+        optical axis.
+        """
+        from investing.assets import _PAGE_STYLES
+        from tests._css_helpers import blocks_for, has_declaration
+
+        # ``.holdings__logo`` is declared more than once (the dark
+        # plate is its own block); the sizing block is the one that
+        # sets the fit.
+        sizing = [
+            b
+            for b in blocks_for(_PAGE_STYLES, ".holdings__logo")
+            if has_declaration(b, "object-fit", "contain")
+        ]
+        assert sizing, "no .holdings__logo block sets object-fit: contain"
+        # ``contain`` is what leaves slack for the anchor to act on --
+        # under ``cover`` or ``fill`` there is nothing to centre.
+        assert has_declaration(sizing[0], "object-position", "center")
+
+    def test_the_logo_box_cannot_be_shrunk_by_the_global_img_rule(self):
+        """A box stated in px is not a candidate for shrinking.
+
+        ``img { max-width: 100% }`` exists so a content image cannot
+        overflow its column. Applied to the logo it does something
+        else: the logo is a flex item inside
+        ``.holdings__logo-link``, so ``max-width`` makes it
+        shrinkable, and the browser shrinks it toward the mark's own
+        aspect ratio. The boxes then come out at different widths --
+        measured at 34px, 37.5px and 40px in the same column -- which
+        is precisely the raggedness centring is meant to remove.
+
+        It surfaced in dark mode first, because the plate made the
+        element wide enough to trip the clamp, but nothing about the
+        mechanism is dark-specific: it also bit in light mode at the
+        width where the table is at its narrowest.
+        """
+        from investing.assets import _PAGE_STYLES
+        from tests._css_helpers import blocks_for, has_declaration
+
+        sizing = [
+            b
+            for b in blocks_for(_PAGE_STYLES, ".holdings__logo")
+            if has_declaration(b, "object-fit", "contain")
+        ]
+        assert sizing
+        assert has_declaration(sizing[0], "max-width", "none")
 
     def test_weight_grid_is_inside_the_cell_not_on_it(self, stub_logo_lookup):
         # A ``display: grid`` table cell leaves the table's formatting
@@ -517,7 +586,12 @@ class TestHoldingsStyles:
         # no cell for the date, so it was pinned to the far end of the
         # row and read as a caption on the IRR rather than on the
         # ticker it belongs to.
-        assert "grid-template-columns:30px minmax(0,auto)minmax(0,1fr)auto" in normalize(
+        #
+        # 40px on the logo track, not 30: the cell spends 10px of it
+        # as the gap to the name, so a 30px track left 20px of cell
+        # and ``img { max-width: 100% }`` shrank every logo from the
+        # 28px the design draws to 20px.
+        assert "grid-template-columns:40px minmax(0,auto)minmax(0,1fr)auto" in normalize(
             body
         ).replace(" auto", "auto").replace("auto ", "auto")
         assert "display:none" not in normalize(body).split(".holdings__row")[1][:400]

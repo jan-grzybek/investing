@@ -513,6 +513,9 @@ class Webpage:
             top_10=self.top_10,
             benchmark_display_names=_BENCHMARK_DISPLAY_NAMES,
             now=self._now(),
+            # The real number of equities held, not the ten the logo
+            # strip has room for.
+            equity_count=len(self.current),
             output_dir=output_dir,
         )
 

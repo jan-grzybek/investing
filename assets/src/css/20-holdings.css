@@ -147,14 +147,29 @@
 }
 /* A landscape cell rather than a square one: most holding logos are
    wordmarks, and a square box letterboxes them down to a third of
-   the visual weight of the icon-style marks beside them.
-   ``object-position: left`` keeps every mark on a common left edge
-   so the column reads as a column. 34x22 is the design's box. */
+   the visual weight of the icon-style marks beside them. 34x22 is
+   the design's box.
+
+   Centred, not left-aligned. ``contain`` fits each mark inside the
+   box, so a wide wordmark fills the full 34px while a squarer icon
+   occupies rather less -- and left-aligning meant those narrow marks
+   hugged the left edge while their neighbours ran the whole width.
+   The column read as ragged. Centring puts every mark on a common
+   vertical axis, which is what makes a column of mixed-aspect logos
+   look like a column. */
 .holdings__logo {
   width: 34px;
   height: 22px;
   object-fit: contain;
-  object-position: left center;
+  object-position: center;
+  /* Opts out of the page-wide ``img { max-width: 100% }``. That rule
+     is there so a content image cannot overflow its column; this box
+     is stated in px and cannot. Left in, it makes the logo a
+     shrinkable flex item inside ``.holdings__logo-link``, and the
+     browser shrinks it toward the mark's own aspect ratio -- so the
+     boxes come out different widths and the column stops being a
+     column, which is exactly what centring is meant to fix. */
+  max-width: none;
 }
 .holdings__name-cell { min-width: 0; }
 .holdings__name {
@@ -429,7 +444,7 @@
      while the logo and the figures want the design's 10px. */
   .holdings__row {
     display: grid;
-    grid-template-columns: 30px minmax(0, auto) minmax(0, 1fr) auto;
+    grid-template-columns: 40px minmax(0, auto) minmax(0, 1fr) auto;
     column-gap: 0;
     row-gap: 5px;
     align-items: center;
@@ -441,6 +456,14 @@
     padding: 0;
     border: 0;
   }
+  /* 40px of track: 28px of image, 10px of gap to the name, 2px of
+     slack. The track used to be 30px with the same 10px margin taken
+     out of it, leaving 20px for a 28px image -- which overflowed, and
+     the page's ``img { max-width: 100% }`` duly shrank the logo to
+     fit, so every logo on the phone rendered a third smaller than the
+     design draws it, silently and at every row.
+     ``max-width: none`` now stops the shrinking, so what this track
+     buys is the row not overflowing in the first place. */
   .holdings__logo-cell {
     grid-column: 1;
     grid-row: 1 / span 2;
