@@ -6,6 +6,8 @@ from __future__ import annotations
 from datetime import datetime
 from unittest.mock import MagicMock
 
+import pytest
+
 from investing.logos import LogoCache
 from investing.paths import COURAGE_LOGO, LOGOS_ADDRESS
 from investing.webpage import Webpage
@@ -139,108 +141,74 @@ class TestLogoCacheMaintenanceHints:
         assert consume_hints().missing_logos == ["NMS:NOLOGO"]
 
 
-class TestLogoCoverageRatio:
-    """The treemap's equal-VISUAL-area sizing pass leans on
-    :meth:`LogoCache.coverage_ratio` -- the rasterised fraction of a
-    logo's bounding box that survives the SVG knockout filter. These
-    tests pin the contract at the cache boundary: missing files /
-    rasterisation failures fall back to the constant default, hits
-    are cached per ticker, and the measurement itself yields
-    plausible 0..1 numbers on synthetic inputs whose densities are
-    known by construction.
-    """
+class TestParseSvgAspectRatio:
+    """The parser behind the OG card's equal-area logo strip.
+
+    Every cell in that strip is sized from the ratio this returns, so
+    a wrong answer letterboxes one brand's wordmark against another's.
+    It is a pure function over SVG source, which makes it cheap to pin
+    directly rather than through a rendered card."""
 
     @staticmethod
-    def _write_svg(tmp_path, ticker, body):
-        path = tmp_path / f"{ticker}.svg"
-        path.write_text(body, encoding="utf-8")
-        return path
+    def _parse(text):
+        from investing.logos import _parse_svg_aspect_ratio
 
-    def test_missing_file_returns_default_density(self, tmp_path):
-        from investing.logos import _DEFAULT_LOGO_DENSITY
+        return _parse_svg_aspect_ratio(text)
 
-        cache = LogoCache(local_dir=str(tmp_path))
-        assert cache.coverage_ratio("NMS:NOTHERE") == _DEFAULT_LOGO_DENSITY
+    def test_reads_viewbox_width_and_height(self):
+        # viewBox is "min-x min-y width height", so the ratio comes
+        # from the third and fourth numbers, not the first two.
+        assert self._parse('<svg viewBox="0 0 300 100">') == pytest.approx(3.0)
+        assert self._parse('<svg viewBox="-10 -20 200 100">') == pytest.approx(2.0)
 
-    def test_no_local_dir_returns_default_density(self):
-        from investing.logos import _DEFAULT_LOGO_DENSITY
+    def test_viewbox_wins_over_width_and_height(self):
+        # viewBox is the canonical sizing source; the attribute pair
+        # is only a fallback for documents that omit it.
+        svg = '<svg viewBox="0 0 300 100" width="50" height="50">'
+        assert self._parse(svg) == pytest.approx(3.0)
 
-        cache = LogoCache(local_dir=None)
-        assert cache.coverage_ratio("NMS:ANY") == _DEFAULT_LOGO_DENSITY
+    def test_falls_back_to_width_and_height_attributes(self):
+        assert self._parse('<svg width="120" height="60">') == pytest.approx(2.0)
+        assert self._parse("<svg width='120' height='60'>") == pytest.approx(2.0)
+        # Unquoted and unit-suffixed values still yield their numbers.
+        assert self._parse('<svg width="120px" height="60px">') == pytest.approx(2.0)
 
-    def test_solid_black_square_yields_full_density(self, tmp_path):
-        # 100% opaque non-white pixels -> the knockout filter keeps
-        # the whole bounding box; density should round to ~1.0.
-        self._write_svg(
-            tmp_path,
-            "NMS:SOLID",
-            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">'
-            '<rect width="10" height="10" fill="#000000"/>'
-            "</svg>",
+    def test_accepts_decimal_dimensions(self):
+        assert self._parse('<svg viewBox="0 0 264.58 132.29">') == pytest.approx(2.0, rel=1e-4)
+
+    def test_short_or_unparseable_viewbox_falls_through(self):
+        # A viewBox that can't yield two positive numbers must not
+        # swallow the document -- the attribute pair is still there.
+        assert self._parse('<svg viewBox="0 0 300" width="80" height="40">') == pytest.approx(2.0)
+        assert self._parse('<svg viewBox="a b c d" width="80" height="40">') == pytest.approx(2.0)
+
+    def test_non_positive_dimensions_are_rejected(self):
+        assert self._parse('<svg viewBox="0 0 0 100">') is None
+        assert self._parse('<svg viewBox="0 0 100 0">') is None
+        assert self._parse('<svg width="0" height="10">') is None
+
+    def test_missing_dimensions_return_none(self):
+        assert self._parse("<svg>") is None
+        assert self._parse('<svg width="100">') is None
+        assert self._parse("") is None
+
+    def test_matches_past_a_declaration_or_comment_prologue(self):
+        # The parser is regex-based precisely so an XML declaration,
+        # DOCTYPE or leading comment needs no special-casing.
+        svg = (
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            "<!-- Created with Inkscape -->\n"
+            '<svg viewBox="0 0 400 100">'
         )
-        cache = LogoCache(local_dir=str(tmp_path))
-        density = cache.coverage_ratio("NMS:SOLID")
-        assert density > 0.95
+        assert self._parse(svg) == pytest.approx(4.0)
 
-    def test_pure_white_fill_collapses_to_zero_density(self, tmp_path):
-        # The whole bbox is opaque-near-white; the knockout filter
-        # would erase the whole logo, so the measured density
-        # collapses to ~0.
-        self._write_svg(
-            tmp_path,
-            "NMS:WHITE",
-            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">'
-            '<rect width="10" height="10" fill="#ffffff"/>'
-            "</svg>",
-        )
-        cache = LogoCache(local_dir=str(tmp_path))
-        density = cache.coverage_ratio("NMS:WHITE")
-        assert density < 0.05
+    def test_committed_favicon_parses(self):
+        # The site's own mark is the one SVG guaranteed to be on disk,
+        # so it doubles as a fixture that can't drift out of date.
+        from pathlib import Path as _Path
 
-    def test_half_covered_yields_intermediate_density(self, tmp_path):
-        # A 5x10 black strip on a 10x10 transparent canvas covers
-        # exactly half the bbox; the rasterised density should land
-        # near 0.5 modulo edge anti-aliasing.
-        self._write_svg(
-            tmp_path,
-            "NMS:HALF",
-            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">'
-            '<rect width="5" height="10" fill="#000000"/>'
-            "</svg>",
-        )
-        cache = LogoCache(local_dir=str(tmp_path))
-        density = cache.coverage_ratio("NMS:HALF")
-        assert 0.45 < density < 0.55
-
-    def test_results_are_cached_per_ticker(self, tmp_path):
-        # The cache must not re-rasterise the SVG on repeat lookups.
-        # We assert that by patching ``_measure_svg_density`` to a
-        # counter and checking it ran exactly once.
-        from investing import logos as logos_mod
-
-        self._write_svg(
-            tmp_path,
-            "NMS:CACHED",
-            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">'
-            '<rect width="10" height="10" fill="#000000"/>'
-            "</svg>",
-        )
-        cache = LogoCache(local_dir=str(tmp_path))
-        calls = {"n": 0}
-        original = logos_mod._measure_svg_density
-
-        def counting(path):
-            calls["n"] += 1
-            return original(path)
-
-        try:
-            logos_mod._measure_svg_density = counting  # type: ignore[assignment]
-            first = cache.coverage_ratio("NMS:CACHED")
-            second = cache.coverage_ratio("NMS:CACHED")
-        finally:
-            logos_mod._measure_svg_density = original  # type: ignore[assignment]
-        assert first == second
-        assert calls["n"] == 1
+        source = _Path(__file__).resolve().parents[1] / "favicon.svg"
+        assert self._parse(source.read_text(encoding="utf-8")) == pytest.approx(1.0)
 
 
 class TestHoldingAnchor:
@@ -274,263 +242,96 @@ class TestAddAllocations:
 
 
 class TestBuildSiteHeader:
-    def test_renders_title_and_links_to_existing_sections(self, stub_logo_lookup):
+    def test_renders_brand_and_links_to_existing_sections(self, stub_logo_lookup):
         w = Webpage()
         w.add_return(_total_return(), [])
         w.add_holding(_holding(is_current=True))
-        w.add_holding(
-            _holding(
-                ticker="NMS:OLD",
-                is_current=False,
-                weight=None,
-                periods=[{"start": datetime(2022, 1, 1), "end": datetime(2023, 1, 1)}],
-            )
-        )
+        w.add_trades([])
 
         out = w._build_site_header()
         assert '<header class="site-header">' in out
-        assert "Jan Grzybek Investment Portfolio" in out
-        # Three links, one per existing section, in document order.
+        # The brand lockup is name + section, not the old 30px title.
+        assert "Jan Grzybek" in out
+        assert "Investment Portfolio" in out
+        # Links appear in document order, one per reachable section.
         perf = out.index('href="#performance"')
-        curr = out.index('href="#current"')
-        hist = out.index('href="#historical"')
-        assert perf < curr < hist
+        hold = out.index('href="#holdings"')
+        method = out.index('href="#method"')
+        assert perf < hold < method
         # Nav exposes an aria-label so screen readers can identify it.
         assert 'aria-label="Page sections"' in out
 
+    def test_activity_link_only_when_trades_exist(self, stub_logo_lookup):
+        w = Webpage()
+        w.add_return(_total_return(), [])
+        assert 'href="#activity"' not in w._build_site_header()
+
     def test_omits_nav_when_only_one_section_exists(self):
-        # Bare Webpage -> only the (empty) performance slot is reachable;
-        # a single-link nav adds visual noise without value, so we drop it.
+        # A bare Webpage reaches only the unconditional Method link;
+        # a single-link nav is visual noise without value.
         w = Webpage()
         out = w._build_site_header()
-        assert "Jan Grzybek Investment Portfolio" in out
+        assert "Jan Grzybek" in out
         assert "site-nav" not in out
 
 
-class TestSectorTreemapLayout:
-    """The squarified algorithm has a couple of structural invariants
-    that are easier to assert at the helper-function level than via
-    the end-to-end ``Webpage`` flow: tile areas must sum to the canvas
-    area, no tile can fall outside the canvas, and degenerate inputs
-    (single item, all-zero weights, empty list) must short-circuit
-    without raising."""
+class TestAllocationSectors:
+    """``sector_totals`` re-bases equity weights onto the equity
+    sleeve, which is what lets the bar be captioned "share of
+    equities" honestly. The rest of the allocation module is plain
+    string assembly asserted against rendered HTML elsewhere."""
 
     @staticmethod
-    def _placed_tiles(values):
-        from investing.webpage.sector_treemap import _squarify, _Tile
+    def _totals(rows):
+        from investing.webpage.allocation import sector_totals
 
-        canvas = _Tile(0.0, 0.0, 100.0, 100.0)
-        return _squarify(values, canvas)
+        return sector_totals(rows)
 
-    def test_single_item_fills_the_canvas(self):
-        (tile,) = self._placed_tiles([42.0])
-        assert (tile.x, tile.y) == (0.0, 0.0)
-        assert tile.w == 100.0 and tile.h == 100.0
-
-    def test_areas_sum_to_canvas_area(self):
-        values = [50.0, 25.0, 15.0, 10.0]
-        tiles = self._placed_tiles(values)
-        total_area = sum(t.w * t.h for t in tiles)
-        # 100 x 100 canvas -> 10_000 square percentage-points;
-        # squarified layout must place every input atom and waste
-        # nothing.
-        assert abs(total_area - 10_000.0) < 1e-6
-
-    def test_all_tiles_stay_inside_the_canvas(self):
-        tiles = self._placed_tiles([10.0, 9.0, 8.0, 7.0, 6.0, 5.0, 4.0])
-        for tile in tiles:
-            assert 0.0 <= tile.x <= 100.0
-            assert 0.0 <= tile.y <= 100.0
-            assert 0.0 <= tile.w <= 100.0 + 1e-9
-            assert 0.0 <= tile.h <= 100.0 + 1e-9
-            assert tile.x + tile.w <= 100.0 + 1e-9
-            assert tile.y + tile.h <= 100.0 + 1e-9
-
-    def test_empty_input_returns_no_tiles(self):
-        assert self._placed_tiles([]) == []
-
-    def test_all_zero_weights_returns_collapsed_tiles(self):
-        # Defensive guard: a portfolio whose ``current_weight%``
-        # collapsed to zero everywhere (cash-only snapshot, before
-        # the treemap is gated upstream) must not divide by zero;
-        # the layout collapses to empty rectangles.
-        tiles = self._placed_tiles([0.0, 0.0])
-        assert all(t.w == 0.0 and t.h == 0.0 for t in tiles)
-
-    def test_largest_input_gets_the_largest_area(self):
-        values = [70.0, 20.0, 10.0]
-        tiles = self._placed_tiles(values)
-        areas = [t.w * t.h for t in tiles]
-        # Tile order matches the input order, so areas line up by index.
-        assert max(range(3), key=lambda i: areas[i]) == 0
-
-    def test_tile_empty_probe_catches_thin_strips(self):
-        from investing.webpage.sector_treemap import _Tile, _tile_must_fold_into_other
-
-        # Wide enough in canvas-% terms but too short on both reference
-        # canvases (classic squarify strip).
-        assert _tile_must_fold_into_other(_Tile(0.0, 0.0, 10.0, 8.0))
-        assert not _tile_must_fold_into_other(_Tile(0.0, 0.0, 25.0, 20.0))
-
-    def test_tile_empty_probe_checks_multiple_reference_widths(self):
-        from investing.webpage.sector_treemap import (
-            _Tile,
-            _tile_must_fold_into_other,
-            _tile_would_be_empty_on_canvas,
+    def test_weights_are_rebased_onto_the_equity_sleeve(self):
+        totals = self._totals(
+            [
+                {"sector": "Technology", "current_weight%": 30.0},
+                {"sector": "Healthcare", "current_weight%": 10.0},
+            ]
         )
-        from tests._webpage_support import (
-            DESKTOP_TREEMAP_CANVAS_H,
-            DESKTOP_TREEMAP_CANVAS_W,
-            MOBILE_TREEMAP_CANVAS_H,
-            MOBILE_TREEMAP_CANVAS_W,
-        )
+        assert [name for name, _ in totals] == ["Technology", "Healthcare"]
+        assert totals[0][1] == pytest.approx(75.0)
+        assert totals[1][1] == pytest.approx(25.0)
+        assert sum(pct for _, pct in totals) == pytest.approx(100.0)
 
-        # Legible on the wide desktop reference but unlabeled on phone
-        # and at the 541 px desktop breakpoint -- must fold.
-        narrow = _Tile(0.0, 0.0, 17.0, 14.0)
-        assert _tile_would_be_empty_on_canvas(
-            narrow, MOBILE_TREEMAP_CANVAS_W, MOBILE_TREEMAP_CANVAS_H
+    def test_same_sector_accumulates(self):
+        totals = self._totals(
+            [
+                {"sector": "Technology", "current_weight%": 20.0},
+                {"sector": "Technology", "current_weight%": 20.0},
+            ]
         )
-        assert not _tile_would_be_empty_on_canvas(
-            narrow, DESKTOP_TREEMAP_CANVAS_W, DESKTOP_TREEMAP_CANVAS_H
-        )
-        assert _tile_must_fold_into_other(narrow)
+        assert totals == [("Technology", pytest.approx(100.0))]
 
-    def test_merge_folds_tail_unlabeled_at_any_reference_width(self):
-        from investing.webpage.sector_treemap import _merge_small_into_other, _Row
+    def test_blank_sector_folds_into_other(self):
+        totals = self._totals([{"sector": "", "current_weight%": 5.0}])
+        assert totals[0][0] == "Other"
 
+    def test_ties_break_on_name_so_colours_do_not_reshuffle(self):
         rows = [
-            _Row(
-                ticker="NMS:FISV",
-                name="Fiserv",
-                sector="Financial Services",
-                weight=20.2,
-                logo_url="x",
-            ),
-            _Row(ticker="NMS:TSM", name="TSM", sector="Technology", weight=19.9, logo_url="x"),
-            _Row(ticker="NMS:IT", name="IT", sector="Technology", weight=15.1, logo_url="x"),
-            _Row(
-                ticker="NMS:KMX", name="KMX", sector="Consumer Cyclical", weight=9.0, logo_url="x"
-            ),
-            _Row(
-                ticker="NMS:GOOGL",
-                name="GOOGL",
-                sector="Communication Services",
-                weight=9.2,
-                logo_url="x",
-            ),
-            _Row(ticker="NMS:SSU", name="Samsung", sector="Technology", weight=4.6, logo_url="x"),
-            _Row(
-                ticker="NMS:AIRJ", name="AirJoule", sector="Industrials", weight=4.4, logo_url="x"
-            ),
-            _Row(ticker="NMS:QCOM", name="QCOM", sector="Technology", weight=4.3, logo_url="x"),
-            _Row(
-                ticker="NMS:META",
-                name="META",
-                sector="Communication Services",
-                weight=1.5,
-                logo_url="x",
-            ),
-            _Row(
-                ticker="NMS:BIDU",
-                name="BIDU",
-                sector="Communication Services",
-                weight=1.4,
-                logo_url="x",
-            ),
-            _Row(
-                ticker="NMS:BABA", name="BABA", sector="Consumer Cyclical", weight=0.3, logo_url="x"
-            ),
+            {"sector": "Healthcare", "current_weight%": 10.0},
+            {"sector": "Energy", "current_weight%": 10.0},
         ]
-        merged = _merge_small_into_other(rows)
-        other = next(row for row in merged if row.is_aggregated)
-        folded = set(other.folded_tickers)
-        assert folded == {
-            "NMS:BABA",
-            "NMS:BIDU",
-            "NMS:META",
-            "NMS:AIRJ",
-        }
-        assert len(merged) == 8
-        assert abs(other.weight - 7.6) < 1e-9
+        assert [name for name, _ in self._totals(rows)] == ["Energy", "Healthcare"]
+        assert [name for name, _ in self._totals(list(reversed(rows)))] == [
+            "Energy",
+            "Healthcare",
+        ]
 
-
-class TestEqualVisualAreaLogoFactors:
-    """The treemap's logo sizing pass combines aspect-ratio
-    normalisation with ink-density normalisation. Both halves are
-    pure math on per-logo scalars, so they're exercised directly at
-    the helper-function level here -- the end-to-end CSS plumbing is
-    asserted separately in
-    :class:`tests.test_webpage_treemap.TestEquitySectorTreemap` against
-    rendered HTML."""
-
-    @staticmethod
-    def _factors(aspect, density):
-        from investing.webpage.sector_treemap import _equal_area_factors
-
-        return _equal_area_factors(aspect, density)
-
-    def test_reference_density_lands_on_min_clamp_when_min_above_one(self):
-        from investing.webpage.sector_treemap import (
-            _LOGO_DENSITY_MIN_SCALE,
-            _LOGO_REFERENCE_ASPECT,
-            _LOGO_REFERENCE_DENSITY,
+    def test_missing_or_non_positive_weights_are_skipped(self):
+        totals = self._totals(
+            [
+                {"sector": "Technology", "current_weight%": 10.0},
+                {"sector": "Energy", "current_weight%": None},
+                {"sector": "Utilities", "current_weight%": 0.0},
+            ]
         )
+        assert totals == [("Technology", pytest.approx(100.0))]
 
-        # At the reference aspect and reference density the raw
-        # density scale collapses to ``sqrt(D_ref / D_ref) = 1.0``.
-        # When the MIN clamp is configured above 1.0 (the current
-        # "combination of overall size and density" stance: dense
-        # logos don't shrink, they grow by a uniform floor) the
-        # neutral-input case lands on that floor in both width and
-        # height -- the "no density data" callsites take a
-        # different code path through ``_default_logo_coverage_for``
-        # and are exercised separately below.
-        w, h = self._factors(_LOGO_REFERENCE_ASPECT, _LOGO_REFERENCE_DENSITY)
-        expected = max(1.0, _LOGO_DENSITY_MIN_SCALE)
-        assert abs(w - expected) < 1e-9
-        assert abs(h - expected) < 1e-9
-
-    def test_aspect_only_path_runs_when_density_is_missing(self):
-        # Zero / non-finite densities are the "no measurement
-        # available" sentinel; the density pass is skipped entirely
-        # and the bbox area falls back to the pre-density-correction
-        # equal-area invariant w_aspect * h_aspect = 1.
-        for sentinel in (0.0, -1.0, float("inf"), float("nan")):
-            w, h = self._factors(5.0, sentinel)
-            assert abs(w * h - 1.0) < 1e-9, (
-                f"density={sentinel}: expected aspect-only product=1, got {w * h}"
-            )
-            assert w > 1.0 > h  # wide logo -> wider-than-base, shorter-than-base.
-
-    def test_low_density_logo_grows_within_max_clamp(self):
-        from investing.webpage.sector_treemap import (
-            _LOGO_DENSITY_MAX_SCALE,
-            _LOGO_REFERENCE_ASPECT,
-        )
-
-        # A density well below the reference would naively grow the
-        # bbox by sqrt(D_ref / D); the max clamp caps the growth so
-        # very sparse logos can't blow up to dominate their tile.
-        w, h = self._factors(_LOGO_REFERENCE_ASPECT, 0.02)
-        assert abs(w - _LOGO_DENSITY_MAX_SCALE) < 1e-9
-        assert abs(h - _LOGO_DENSITY_MAX_SCALE) < 1e-9
-
-    def test_high_density_logo_shrinks_within_min_clamp(self):
-        from investing.webpage.sector_treemap import (
-            _LOGO_DENSITY_MIN_SCALE,
-            _LOGO_REFERENCE_ASPECT,
-        )
-
-        # The symmetric case: a very dense icon would otherwise
-        # shrink past the legible-on-mobile floor; the min clamp
-        # keeps it visible.
-        w, h = self._factors(_LOGO_REFERENCE_ASPECT, 0.9)
-        assert abs(w - _LOGO_DENSITY_MIN_SCALE) < 1e-9
-        assert abs(h - _LOGO_DENSITY_MIN_SCALE) < 1e-9
-
-    def test_degenerate_aspect_returns_unit_factors(self):
-        # A zero or non-finite aspect can't be normalised; the
-        # consumer treats (1, 1) as "use the CSS base size".
-        for bad in (0.0, -1.0, float("inf"), float("nan")):
-            assert self._factors(bad, 0.1) == (1.0, 1.0)
+    def test_no_positive_weights_renders_nothing(self):
+        assert self._totals([{"sector": "Technology", "current_weight%": 0.0}]) == []

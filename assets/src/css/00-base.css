@@ -3,36 +3,32 @@
      single design-system deck:
 
        * Tiger Orange    #FB8500 -> ``--accent`` (the JG signature).
-                                    Chart's JG curve, chapter rule
-                                    under every section title, top
-                                    border of the JG-vs-benchmark
-                                    capsule, skip-link border, focus
-                                    rings, OG-image accent rule.
+                                    The portfolio curve, the weight
+                                    bars, the equity slice of the
+                                    allocation bar, focus rings, the
+                                    OG card's accent rule.
        * Amber Flame     #FFB703 -> ``--accent-warm`` (the secondary
-                                    brand). Asset-allocation bars
-                                    and reserved for future active-
-                                    state highlights.
-       * Deep Space Blue #023047 -> the benchmark colour on the
-                                    chart in light mode. Anchors the
-                                    cool-blue family the page text
-                                    pulls from.
-       * Sky Blue Light  #8ECAE6 -> the benchmark colour on the
-                                    chart in dark mode (where the
-                                    deep navy would disappear into
-                                    the page surface).
+                                    brand), reserved for the
+                                    Industrials sector swatch.
+       * Deep Space Blue #023047 -> the benchmark colour in light
+                                    mode. Anchors the cool-blue
+                                    family the page text pulls from.
+       * Sky Blue Light  #8ECAE6 -> the benchmark colour in dark mode
+                                    (where the deep navy would
+                                    disappear into the page surface).
        * Blue Green      #219EBC -> the design-system primary.
-                                    Surfaces as the Technology
-                                    treemap tile and as the chart's
+                                    Surfaces as the Technology sector
+                                    swatch and the chart's
                                     interactive accents.
 
      Two semantic extensions complete the deck:
 
-       * Sea Green       #2A9D8F -> ``--positive`` (BOUGHT pill +
-                                    every TSR / CAGR readout that
+       * Sea Green       #2A9D8F -> ``--positive`` (the alpha band,
+                                    BOUGHT pills, every return that
                                     points up). Same teal family as
                                     Blue Green so the win-direction
                                     colour reads as a sibling.
-       * Rose Red        #E63970 -> ``--negative`` (SOLD pill +
+       * Rose Red        #E63970 -> ``--negative`` (SOLD pills and
                                     every drawdown readout). The
                                     design system's ``error`` token.
 
@@ -45,8 +41,39 @@
      same family of cool blues. */
   --bg: #f8fafc;
   --fg: #0f2430;
-  --muted: #6b8291;
+  --muted: #5a7182;
   --line: #d9e2ea;
+  /* Text reads on a five-step neutral ramp. Body copy sits a shade
+     above ``--muted``, secondary figures a shade below it, and
+     tickers / group labels a shade below that again -- so a holding's
+     name, its listing and its sector band separate by weight *and* by
+     tone instead of all landing on the same grey.
+
+     Every step below is a mix of two tokens that already flip for
+     dark mode rather than a literal hex, so the ramp inverts with the
+     palette and stays inside the same slate family on both surfaces.
+
+     The two anchors are tuned for the *light* surface, which is where
+     the ramp was failing. The comment above the dark block claimed
+     luminance was rotated so "contrast lands within WCAG AA"; that was
+     true on the dark surface and false on the light one, where every
+     step came in under 4.5:1 -- and the two smallest sizes on the
+     page, the 11.5px ticker and the 10px group band, sat at the
+     bottom of it. Measured on card white:
+
+       step          was      now
+       --fg-soft     7.42     8.42
+       --muted-deep  5.10     6.29
+       --muted       4.02  -> 5.10
+       --muted-soft  2.57  -> 4.62
+
+     ``--line-text`` is exempt: it paints the "/" between the brand and
+     the section name, which is a rule drawn with a glyph rather than a
+     word anyone reads. */
+  --fg-soft: color-mix(in srgb, var(--muted) 57%, var(--fg));
+  --muted-deep: color-mix(in srgb, var(--muted) 82%, var(--fg));
+  --muted-soft: #607889;
+  --line-text: color-mix(in srgb, var(--line) 72%, var(--muted));
   --accent: #fb8500;
   --accent-warm: #ffb703;
   --accent-bench: #023047;
@@ -55,30 +82,32 @@
   --card-bg: #ffffff;
   --link: #0077b6;
   --link-hover: #005f8f;
-  --max-width: 880px;
+  /* The design's frame is 880px wide with 32px gutters, so the
+     content column inside it is 816px. ``--max-width`` is the column,
+     not the frame, and the gutter is body padding either side -- at an
+     880px window the two reproduce the frame exactly, and past that
+     the column stops growing where the design stops it. */
+  --max-width: 816px;
   --radius: 12px;
-  /* Sector palette for the equities treemap. Light mode anchors on
-     the brand deck (Blue Green for Technology, Deep-Space-Blue
-     sibling for Financial, Sea Green for Defensive, Carmine Red
-     for Cyclical) and fills the remaining sectors with hues spaced
-     ~30 deg around the colour wheel so adjacent tiles stay
-     distinct without one screaming louder than its neighbours.
-     Three deliberate exclusions:
+  /* Sector palette for the equity-sleeve allocation bar. Light mode
+     anchors on the brand deck (Blue Green for Technology, Deep-Space
+     Blue for Financial, Sea Green for Defensive) and fills the
+     remaining sectors with hues spaced ~30 deg around the colour
+     wheel so adjacent segments stay distinct without one screaming
+     louder than its neighbours. Three deliberate exclusions:
 
-       * Cyclical lands on the palette's red extension (Carmine
-         Red), not orange, so it never crowds the JG ``--accent``
-         that runs across the page.
+       * Cyclical lands on the palette's warm extension rather than
+         a second orange so it never crowds the JG ``--accent``.
        * Energy and Materials -- the sectors that naturally read
          warm -- pull to a deep burnt amber and a rust brown
          respectively, well clear of the JG orange.
        * Utilities and Other stay achromatic so the eye has neutral
-         resting points among the saturated tiles.
+         resting points among the saturated segments.
 
      Dark-mode overrides live in the ``@media (prefers-color-scheme:
-     dark)`` block further down and intentionally tone every hue
-     down (lower saturation, mid lightness) so the same chart reads
-     calm on the deep navy surface -- juicy on white, hushed on
-     dark is the contract. */
+     dark)`` block below and intentionally tone every hue down (lower
+     saturation, mid lightness) so the same bar reads calm on the
+     deep navy surface: juicy on white, hushed on dark. */
   --treemap-color-tech: #219ebc;
   --treemap-color-comm: #6d5bd0;
   --treemap-color-cyclical: #fb8500;
@@ -91,21 +120,50 @@
   --treemap-color-materials: #7f5539;
   --treemap-color-realestate: #c026d3;
   --treemap-color-other: #94a3b8;
+  /* One ink per fill, chosen by measurement rather than by habit.
+     The segment labels used to be white on every fill with a
+     ``text-shadow`` propping them up: white on Tiger Orange is
+     2.48:1, on the cash grey 2.56:1, on Technology 3.14:1. Only the
+     navy and the purple ever carried it.
+
+     Each token below is whichever of the two inks scores higher
+     against its own fill, so the label is legible on the segment it
+     is written on. They live here, beside the fills, because the
+     fills flip for dark mode and the inks have to flip with them.
+
+     Healthcare is the one residual: 4.05:1 white against 4.17:1
+     dark, so neither ink clears AA on that pink. It is also the fill
+     least likely to carry a label -- a sub-8% sector hides its
+     figure and defers to the legend. */
+  --ink-on-accent: #0b1f2a;
+  --ink-on-accent-bench: #ffffff;
+  --ink-on-tech: #0b1f2a;
+  --ink-on-comm: #ffffff;
+  --ink-on-cyclical: #0b1f2a;
+  --ink-on-defensive: #0b1f2a;
+  --ink-on-healthcare: #ffffff;
+  --ink-on-financial: #ffffff;
+  --ink-on-industrials: #0b1f2a;
+  --ink-on-energy: #0b1f2a;
+  --ink-on-utilities: #ffffff;
+  --ink-on-materials: #ffffff;
+  --ink-on-realestate: #ffffff;
+  --ink-on-other: #0b1f2a;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    /* Dark counterparts of the light palette above. The same warm
-       temperature carries over: ``--bg`` is a deep warm charcoal
-       rather than a cold blue-black, and the card surface stays
-       just lifted enough from the page to read as a layered plane.
-       Every semantic variable (accent / positive / negative /
-       benchmark) keeps its hue from the light side and only the
-       luminance is rotated so contrast lands within WCAG AA against
-       the new surface. */
+    /* Dark counterparts of the light palette above. Every semantic
+       variable (accent / positive / negative / benchmark) keeps its
+       hue from the light side and only the luminance is rotated so
+       contrast lands within WCAG AA against the new surface. */
     --bg: #071923;
     --fg: #eaf7fb;
-    --muted: #78909c;
+    --muted: #8ba3b0;
     --line: #244252;
+    /* The dark ramp already cleared AA; it moves only to stay a step
+       clear of the retuned light one, and ``--muted-soft`` has to be
+       restated because the light value is a literal. */
+    --muted-soft: color-mix(in srgb, var(--line) 8%, var(--muted));
     --accent: #f6a04d;
     --accent-warm: #ffd166;
     --accent-bench: #8ecae6;
@@ -114,16 +172,6 @@
     --card-bg: #0b2230;
     --link: #8ecae6;
     --link-hover: #b7dff0;
-    /* Treemap palette: dark-mode counterparts of the juicy light-
-       mode hues above. The brief here is the inverse of the light
-       mode's instructions -- on the deep navy surface, full-
-       saturation tiles would punch through the page like neon
-       lights; calm is the operative word. Each entry keeps its
-       sector's hue identity but drops to mid-lightness (~L 60)
-       and moderate saturation (~S 35) so adjacent tiles still
-       read distinct without one screaming louder than another.
-       Cyclical / energy / materials retain their warm-family
-       displacement from the JG dark-mode accent. */
     --treemap-color-tech: #5ab6cf;
     --treemap-color-comm: #9b8ae6;
     --treemap-color-cyclical: #f6a04d;
@@ -136,91 +184,73 @@
     --treemap-color-materials: #b98b6d;
     --treemap-color-realestate: #d77be4;
     --treemap-color-other: #aab4c2;
+    /* Every fill lightens on the dark surface, so the rule inverts:
+       dark ink on all of them except the one blue that stays dark
+       enough to carry white. */
+    --ink-on-accent: #071923;
+    --ink-on-accent-bench: #071923;
+    --ink-on-tech: #071923;
+    --ink-on-comm: #071923;
+    --ink-on-cyclical: #071923;
+    --ink-on-defensive: #071923;
+    --ink-on-healthcare: #071923;
+    --ink-on-financial: #ffffff;
+    --ink-on-industrials: #071923;
+    --ink-on-energy: #071923;
+    --ink-on-utilities: #071923;
+    --ink-on-materials: #071923;
+    --ink-on-realestate: #071923;
+    --ink-on-other: #071923;
   }
-  /* The dashed 0% reference line on the return chart inherits
-     ``var(--muted)`` (see the base rule above). In dark mode
-     that mid-grey wash blends into the deep page background, so
-     swap the stroke to the lighter foreground colour while
-     keeping the base opacity / stroke-width. The dashed pattern
-     stays elegant but the baseline is now clearly traceable
-     across the chart. */
-  .return-chart__ref { stroke: var(--fg); }
-  /* Recolour every wordmark logo for dark surfaces by negating
-     luminance while preserving hue. Many holdings ship dark-on-
-     transparent SVGs (Adobe, S&P Global, Baidu, Meta, Salesforce,
-     Samsung, ...) that brands authored to sit on a light page
-     and that all but disappear against the dark page / card
-     background here. Rather than wrap each logo in a light chip
-     (which paints chrome around every image), we transform the
-     logo's own pixels:
-
-       * ``invert(1)`` negates every RGB channel, so pure black
-         flips to pure white, dark SAP blue flips to a pale
-         peach, dark Meta blue flips to a sand orange, NVIDIA's
-         brand green flips to magenta, etc. Crucially the alpha
-         channel is untouched, so transparent areas of the SVG
-         stay transparent and the page background still shows
-         through around each glyph.
-       * ``hue-rotate(180deg)`` then rotates the hue wheel by a
-         half-turn, which undoes the colour-channel flip
-         introduced by ``invert(1)`` (invert is equivalent to a
-         180deg rotation of hue plus an inversion of luminance,
-         so chaining a second 180deg rotation cancels the hue
-         flip and leaves only the luminance inversion behind).
-         The net effect: dark colours become light versions of
-         the same hue (SAP and Salesforce stay blue, NVIDIA
-         stays green, Adobe stays red, ...), and any near-white
-         pixels become near-black ones -- which we accept because
-         brand-coloured glyphs sit on transparent backgrounds in
-         the SVGs we ship, not on opaque white plates, so this
-         degenerate case doesn't actually arise.
-
-     Identical rule for the standalone holding card logo, the
-     trade card logo, the JG/benchmark compare capsule logo, and
-     the marquee ticker logos because they share the same
-     vanishing-on-dark-surface problem. ``opacity: 1`` overrides
-     the marquee ticker's ``opacity: 0.92`` (set globally to
-     soften the strip against a pure-white card in light mode)
-     so the recoloured glyphs stay fully crisp in dark mode where
-     they're doing all the readability work.
-
-     Two assets are explicitly opted out via attribute-``:not()``
-     because they're not single-hue wordmarks that benefit from
-     a luminance flip:
-
-       * ``LSE:VUAA.L`` (the S&P 500 ETF benchmark) ships as the
-         US flag; inverting it turns the red stripes cyan and
-         the blue canton orange, which reads as "some other
-         country's flag" rather than "USA". The flag's mid-tone
-         palette is already legible on the dark surface.
-       * ``courage.png`` is the per-ticker fallback shown when a
-         holding has no on-file logo; it's a coloured
-         illustration whose meaning would be similarly destroyed
-         by a luminance flip, and it's also already legible.
-
-     The exclusion matches the URL's basename (``$=`` suffix
-     match) rather than the full path so the rule stays robust
-     against ``LOGOS_ADDRESS`` changes, and ``:where()`` keeps
-     the four logo selectors compact while leaving the rule at
-     zero specificity (which matters only if a future override
-     needs to win against it). */
-  :where(
-    .ticker__logo, .holding__logo,
-    .returns-compare__logo
-  ):not([src$="courage.png"], [src$="VUAA.L.svg"]) {
-    filter: invert(1) hue-rotate(180deg);
-    opacity: 1;
+  /* Logos keep their own colours on the dark surface, on a plate.
+     
+     They used to be run through ``invert(1) hue-rotate(180deg)``,
+     which flips luminance while preserving hue -- an elegant trick,
+     and it works for a flat single-hue wordmark. It does not work for
+     the marks that carry a light plate or a mid-tone gradient of
+     their own: Applied Materials, Lam Research and UnitedHealth came
+     out as low-contrast smudges at the 34x22 the table draws them at,
+     because a luminance flip turns their light plate dark and leaves
+     the glyph nowhere to sit.
+     
+     A 2px white plate is the cheaper answer and a truthful one: every
+     mark stays in the colours its owner published, at the size the
+     table needs them legible. ``content-box`` keeps the padding
+     outside the 34x22 image box so the row's geometry does not move.
+     
+     It also retires the ``--literal`` opt-out. That class existed so
+     the coloured fallback illustration could escape the filter;
+     nothing needs to escape a plate. */
+  .holdings__logo {
+    background: #ffffff;
+    border-radius: 4px;
+    padding: 2px 3px;
+    box-sizing: content-box;
   }
 }
 @media print {
   body { background: white; color: black; }
-  .holding, .bars, .return-chart, .section { break-inside: avoid; }
-  .ticker { display: none; }
+  .section, .hero, .yearly, .allocation__block, .return-chart { break-inside: avoid; }
+  .site-header { position: static; }
+  /* The disclosure is closed by default on screen; in print there is
+     nothing to click, so reveal it rather than shipping a page whose
+     "Why?" affordance goes nowhere. */
+  .metrics-note[hidden] { display: block; }
+  .metrics-note__toggle, .trades__toggle { display: none; }
 }
 *, *::before, *::after { box-sizing: border-box; }
 html {
   color-scheme: light dark;
   background: var(--bg);
+  /* Safari on iOS inflates text inside blocks it judges "wide" unless
+     told not to, which silently grows every ``white-space: nowrap``
+     run on the page -- the sort chips, the prices, the dates, the
+     legend items -- past the width they were laid out for. Pinning it
+     to 100% keeps the rendered size the size the stylesheet asked
+     for, on the one engine that does this. The unprefixed property
+     leads so it wins wherever both are understood. */
+  text-size-adjust: 100%;
+  -webkit-text-size-adjust: 100%;
 }
 body {
   background: var(--bg);
@@ -230,94 +260,29 @@ body {
   line-height: 1.5;
   margin: 0 auto;
   max-width: var(--max-width);
-  padding: 32px 24px 48px;
+  /* No bottom padding: the Method band closes the page and carries
+     the design's final 34px itself. */
+  padding: 0 32px 0;
   -webkit-font-smoothing: antialiased;
 }
 img { max-width: 100%; height: auto; }
-/* ``<main>`` is the single grid container that anchors the
-   cross-section column alignment for the holdings capsules
-   nested inside ``<section id="current">`` and ``<section
-   id="historical">``. Declaring four explicit tracks here
-   (logo / body / stats-label / stats-value) and chaining
-   ``grid-template-columns: subgrid`` down through the holdings
-   sections, their ``.holdings__list`` wrappers, each ``.holding``
-   capsule, and finally the ``.holding__stats`` <dl> means every
-   ``<dt>`` / ``<dd>`` ultimately lives in cols 3-4 of *this*
-   grid. Cols 3-4 are sized via ``max-content``, which considers
-   ALL items placed in those tracks regardless of subgrid
-   nesting depth -- including dt/dd from BOTH the Current and
-   Historical lists -- so the two sections always derive the
-   same Return / IRR (and Weight, where it appears) column
-   widths regardless of which one happens to hold the widest
-   value. This is what fixes the cross-section misalignment
-   that the per-list ``minmax(<floor>, max-content)`` approach
-   couldn't deliver: each ``.holdings__list`` is its own grid
-   container, so it could only ever see its own list's
-   max-content; lifting the grid up to ``<main>`` is what makes
-   cross-list maxes possible.
-
-   Sections that don't contain a ``.holdings__list`` (the
-   performance and trades sections, plus the optional ticker
-   marquee) span ``1 / -1`` via the ``main > *`` rule below and
-   contribute no items to cols 3-4, so their internal layout is
-   unaffected. The 1fr body track absorbs whatever leftover
-   width those sections need.
-
-   The mobile media query at ``@media (max-width: 540px)``
-   reverts ``<main>`` to ``display: block`` (and drops the
-   subgrid chain at every level below it) since the per-capsule
-   reflow on mobile uses its own ``"logo body" / "stats stats"``
-   named-areas grid that is independent of cross-capsule
-   alignment. */
-main {
-  display: grid;
-  grid-template-columns:
-    88px
-    minmax(0, 1fr)
-    minmax(4.5em, max-content)
-    minmax(4.5em, max-content);
-  column-gap: 24px;
-}
-/* Every direct child of ``<main>`` -- the 4 sections plus the
-   optional ticker marquee at the top -- spans the full width by
-   default. The two holdings sections override the inner column
-   layout below by switching to ``grid-template-columns:
-   subgrid`` so their descendants can keep walking down the
-   chain. The other sections just sit in this row and use the
-   1fr + 88px + 2 * stats tracks as a single 832px-wide block,
-   exactly as they did before ``<main>`` became a grid. */
-main > * { grid-column: 1 / -1; }
-/* Smooth-scroll for in-page nav (clicking ``Performance`` /
-   ``Current`` / ``Historical`` in the sticky header). The
-   ``:focus-within`` gate is intentional and not an accident:
-   we used to ship ``html:focus-within { scroll-behavior: smooth }``
-   here to opt into the browser's native smooth scroll for nav
-   clicks. With ``_NAV_SCROLL_SCRIPT`` taking over the scroll
-   animation in JS that rule turned into an active foot-gun:
-   anchor clicks focus the activated ``<a>`` (so ``:focus-within``
-   matches on ``<html>``), the matching CSS rule promotes every
-   subsequent ``window.scrollTo`` call to a *browser-driven* smooth
-   scroll, and that smooth scroll layers on top of our requestAnim
-   ation-Frame easing loop. The visible result is two competing
-   scroll animations per frame -- the user-reported "the scroll
-   accelerates / looks odd" feel, most obvious on short hops from
-   the allocation chart to a holding capsule, where the curves
-   disagree by tens of pixels at every frame. Leaving the JS
-   animation as the sole driver fixes it. */
-@media (prefers-reduced-motion: reduce) {
-  /* Don't animate the ticker for users who request reduced motion;
-     wrap into a static row so all logos remain visible at once.
-     ``_TICKER_MARQUEE_SCRIPT`` short-circuits on the same media
-     query so the inline ``transform`` it would normally write
-     never lands; this rule handles the layout side (collapse the
-     ``width: max-content`` track into a centred wrapping row so
-     the off-screen second copy of logos shares space with the
-     visible first copy rather than parading off the right edge). */
-  .ticker__track {
-    flex-wrap: wrap;
-    width: auto;
-    justify-content: center;
-  }
+a { color: var(--link); }
+a:hover { color: var(--link-hover); }
+/* Screen-reader-only text. Used for table captions and for the
+   column headers that are visually implied by their content (the
+   logo column, the relative-size bars) but still owe assistive
+   technology a name. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }
 /* Skip link: invisible until a keyboard user tabs to it, at which
    point it pops in above the sticky header so screen-reader and
@@ -347,61 +312,97 @@ main:focus-visible { outline: none; }
   z-index: 10;
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 8px 24px;
-  margin: -32px -24px 32px;
-  padding: 14px 24px;
-  background: color-mix(in srgb, var(--bg) 85%, transparent);
+  margin: 0 -24px 0;
+  padding: 12px 24px;
+  /* Nearly opaque, and casting a shadow.
+     At 85% the page showed through the bar, so a scroll that left it
+     sitting directly above a table made the nav labels read as that
+     table's column headers -- the bar looked like part of the
+     document rather than chrome floating over it. Transparency was
+     the wrong cue: what separates chrome from content is depth, so
+     the fix is a depth cue. 96% stops the bleed-through while
+     keeping the blur's soft edge, and the shadow puts the bar
+     unambiguously on a plane above whatever it covers. */
+  background: color-mix(in srgb, var(--bg) 96%, transparent);
   backdrop-filter: saturate(180%) blur(14px);
   -webkit-backdrop-filter: saturate(180%) blur(14px);
   border-bottom: 1px solid var(--line);
+  box-shadow: 0 6px 16px -8px color-mix(in srgb, var(--fg) 26%, transparent);
   /* Force a dedicated GPU compositing layer so the sticky header
      does not flicker on iOS Safari while the page scrolls. Without
-     this hint Safari briefly drops the header's backdrop-filter
-     on each anchor-driven scroll (visible as a "blink" when
-     tapping the nav links on iPhone). The translateZ(0) +
-     isolation pair stabilises both the stacking context and the
-     paint layer; ``will-change`` keeps the layer warm so the
-     blur isn't rebuilt on every frame. */
+     this hint Safari briefly drops the header's backdrop-filter on
+     each anchor-driven scroll (visible as a "blink" when tapping
+     the nav links on iPhone). The translateZ(0) + isolation pair
+     stabilises both the stacking context and the paint layer;
+     ``will-change`` keeps the layer warm so the blur isn't rebuilt
+     on every frame. */
   -webkit-transform: translateZ(0);
           transform: translateZ(0);
   isolation: isolate;
   will-change: backdrop-filter;
 }
-/* When the decorative current-holdings ticker is on the page it
-   sits directly under the sticky nav. The header's bottom margin
-   becomes wasteful empty space in that case -- the nav already
-   carries its own ``border-bottom`` and the ticker has its own
-   internal padding, so a gap on top of all that just pushes the
-   first content section needlessly far down. Collapse the bottom
-   margin to zero so the ticker hugs the nav cleanly. The
-   ``:has()`` selector keeps this conditional: pages without a
-   ticker keep the original 32px gap before their first section.
-   ``:has()`` is supported in all current evergreen browsers
-   (Chrome 105+, Firefox 121+, Safari 15.4+); older engines simply
-   fall back to the original spacing, which is benign. */
-body:has(.ticker) .site-header { margin-bottom: 0; }
-.site-title {
-  font-size: 1.875rem;
-  font-weight: 800;
-  letter-spacing: -0.03em;
+/* Brand lockup: mark, name, separator, section. The name is set at
+   body size rather than at 30px / 800 -- on the old header it
+   outranked every piece of evidence on the page. It identifies and
+   then gets out of the way. */
+.site-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   margin: 0;
-  line-height: 1.15;
+  min-width: 0;
+  font-size: 1rem;
 }
+.site-brand__mark {
+  width: 26px;
+  height: 26px;
+  object-fit: contain;
+  flex: 0 0 auto;
+}
+.site-brand__name {
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+}
+.site-brand__sep { color: var(--line-text); }
+.site-brand__section {
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Five pills plus the brand have to hold one line at the 816px
+   measure, so the type drops half a step and the pills tighten by a
+   pixel. The header staying a single bar is the constraint that
+   matters -- a wrapped nav is what made the sticky header 86px and
+   put every anchor 18px under it. */
 .site-nav {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
-  font-size: 0.9375rem;
+  gap: 2px;
+  font-size: 0.84375rem;
 }
 .site-nav a {
   color: var(--muted);
   text-decoration: none;
   font-weight: 500;
-  padding: 4px 12px;
+  padding: 5px 10px;
   border-radius: 999px;
   transition: background 150ms ease, color 150ms ease;
+}
+/* "You are here". A sticky bar over a 3,800px single document that
+   never marks the section under the reader is a map with no marker;
+   the reader can jump but cannot tell where a jump landed.
+   ``aria-current`` is the state, so the same attribute drives both
+   the announcement and the paint -- one source of truth, and no
+   decorative class to fall out of step with it. */
+.site-nav a[aria-current="true"] {
+  color: var(--fg);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 34%, transparent);
 }
 .site-nav a:hover,
 .site-nav a:focus-visible {
@@ -409,11 +410,143 @@ body:has(.ticker) .site-header { margin-bottom: 0; }
   color: var(--fg);
   outline: none;
 }
-/* Slow horizontal "stocks tape" of current-holdings logos. The track
-   contains two copies of the logo set so a JS-driven translate3d
-   loop wraps seamlessly: ``_TICKER_MARQUEE_SCRIPT`` decrements the
-   ``transform`` each frame and wraps the offset by ``halfWidth``
-   (the natural width of one set of logos) whenever it crosses the
-   threshold, which puts the second copy exactly where the first
-   was. The mask gradient fades both ends so logos enter and exit
-   gracefully rather than popping at the edges. */
+/* The disclosure the design collapses the nav behind on a phone. It
+   is hidden on wide viewports, where all four links fit beside the
+   brand -- see the narrow-viewport block for the rest. */
+.site-nav__toggle {
+  display: none;
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 6px 2px;
+  margin: 0;
+  cursor: pointer;
+  flex-direction: column;
+  gap: 3.5px;
+  flex: 0 0 auto;
+}
+.site-nav__toggle span {
+  display: block;
+  width: 18px;
+  height: 1.8px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--fg) 75%, transparent);
+  transition: transform 160ms ease, opacity 160ms ease;
+}
+.site-nav__toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+/* Section rhythm. Every section below the hero is evidence for the
+   claim the hero makes, so they share one vertical cadence and one
+   heading treatment rather than each carrying its own chrome. */
+/* 34px between section blocks, which is the design's rhythm: its
+   blocks carry ``padding: 0 32px 34px`` and no top padding, so the gap
+   between one section's last line and the next one's heading is that
+   34. The first section after the hero takes 30px, because there the
+   design's chart block adds its own ``padding-top: 30px`` on top of
+   the hero's 32px bottom padding rather than the full 34. */
+.section { margin-top: 34px; }
+.section:first-of-type { margin-top: 30px; }
+.section__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+.section__title {
+  margin: 0;
+  font-size: 1.0625rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.section__note {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+/* Two spellings of the sort affordance; the stylesheet shows the one
+   that matches the layout on screen. See ``_page._CLICK_TO_SORT``. */
+.section__note-narrow { display: none; }
+
+/* Scroll affordance for the sort-chip strips.
+   The design puts its chip row *outside* the card, where it gets the
+   full width and fits without scrolling. A ``<thead>`` cannot be
+   lifted out of its ``<table>``, so here the strip lives inside the
+   card and loses its padding to the card -- and the Activity strip
+   carries a sixth chip the design's does not. Some of them scroll, so
+   they have to say so.
+
+   Four background layers, no JS. The two ``local`` layers scroll with
+   the content and are painted over the two ``scroll`` layers, which
+   stay put. At the far left the local cover sits exactly on the
+   shadow and hides it; scroll right and the cover travels away,
+   uncovering it. The shadow is therefore visible on precisely the
+   side that has more content -- both sides mid-scroll, neither when
+   everything already fits. The two strips carry the layers directly;
+   this note is the single explanation for both. */
+.section__intro {
+  margin: 0 0 10px;
+  font-size: 0.8125rem;
+  color: var(--muted);
+  max-width: 70ch;
+}
+.section__intro strong { color: var(--fg); }
+/* The chart key, rendered inline in the section head's note slot so
+   the legend sits beside the title it belongs to rather than
+   floating under the plot. */
+.legend {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 16px;
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+/* The legend sits after the caption in the DOM, which is where the
+   phone frame reads it. The wide frame wants it on the heading's
+   line, so the chart section becomes a two-column grid and the
+   legend is placed into the heading's row -- one copy of the markup,
+   two placements. Everything else spans both columns. */
+.section--chart {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+}
+.section--chart > * { grid-column: 1 / -1; }
+.section--chart > .section__head { grid-column: 1; grid-row: 1; }
+.section--chart > .legend {
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: end;
+  margin-bottom: 4px;
+}
+.legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+}
+.legend__swatch {
+  width: 14px;
+  height: 3px;
+  border-radius: 2px;
+  flex: 0 0 auto;
+}
+.legend__swatch--jg { background: var(--accent); }
+.legend__swatch--bench { background: var(--accent-bench); }
+.legend__swatch--band {
+  width: 12px;
+  height: 9px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--positive) 22%, transparent);
+  border: 1px solid color-mix(in srgb, var(--positive) 50%, transparent);
+}
+/* Shared sign colours for every return readout on the page: the
+   holdings tables, the year table's alpha column, the trades
+   details column and the hero figure all resolve to these two. */
+.value--positive { color: var(--positive); }
+.value--negative { color: var(--negative); }

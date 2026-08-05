@@ -1,0 +1,133 @@
+/* Calendar-year returns: the whole track record, always visible.
+
+   Three of seven years used to sit behind a "Show all" toggle --
+   most of the evidence for the page's central claim was one click
+   away by default. Nothing here collapses. */
+.yearly {
+  /* The head above it carries the section gap now; the card only has
+     to clear its own heading. */
+  margin-top: 14px;
+  padding: 22px 24px 20px;
+  background: var(--card-bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.yearly__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+/* The head is a sibling above the card now, not its first child --
+   see ``yearly_view.render``. It carries the same shape as every
+   ``.section__head``: title left, note right, across the measure. */
+.yearly__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin: 26px 0 4px;
+}
+.yearly__heading {
+  margin: 0;
+  font-size: 1.0625rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.yearly__caption {
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+.yearly__summary {
+  margin: 0 0 14px;
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+.yearly__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+.yearly__table thead th {
+  padding-bottom: 8px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-align: left;
+  /* The benchmark header carries its index number, which is a wider
+     token than the design's abbreviation; letting it wrap would put
+     a two-line header over one-line data rows. */
+  white-space: nowrap;
+}
+.yearly__table thead th.yearly__num { text-align: right; }
+.yearly__row td,
+.yearly__row th {
+  padding: 9px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 45%, transparent);
+  vertical-align: middle;
+}
+.yearly__row:last-child td,
+.yearly__row:last-child th { border-bottom: 0; }
+.yearly__year {
+  width: 44px;
+  text-align: left;
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+.yearly__ytd {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+/* Paired bars make the shape of the record scannable before any
+   number is read: two rows per year, portfolio above benchmark,
+   both normalised to the largest magnitude in the table so the best
+   year fills its track and every other reads as a fraction of it. */
+/* The flex column is on an inner span, not the ``<td>``: a flex
+   table cell drops out of the table's formatting context and stops
+   aligning with the figures beside it. */
+.yearly__bars {
+  padding-right: 14px;
+  padding-left: 14px;
+  min-width: 0;
+}
+.yearly__bars > span {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.yearly__bar {
+  display: block;
+  height: 9px;
+  border-radius: 2px;
+  min-width: 2px;
+}
+.yearly__bar--jg { background: var(--accent); }
+.yearly__bar--bench { background: var(--accent-bench); }
+/* A losing year is the one case where the series colour would lie
+   about direction, so the loss colour wins over the series colour. */
+.yearly__bar--neg { background: var(--negative); }
+/* The design's 56 / 56 / 62 columns at a 14px gutter; this table has
+   no gutter of its own, so each figure carries the gap as padding. */
+.yearly__num {
+  width: 70px;
+  padding-left: 14px;
+  text-align: right;
+  font-size: 0.875rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.yearly__alpha { width: 76px; }
+/* The benchmark's year sits well down the ramp from the portfolio's.
+   It is the thing being beaten, not a second headline: the design
+   gives it a lighter weight *and* a quieter tone so the eye lands on
+   the JG column and the alpha beside it first. */
+.yearly__bench { font-weight: 500; color: var(--muted-deep); }
+.yearly__alpha { font-weight: 700; }
+.yearly__empty { color: var(--muted); font-weight: 400; }

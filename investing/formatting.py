@@ -46,10 +46,10 @@ def _ts_to_datetime(ts: _DateLike | str) -> datetime:
 
 def _fmt_date(dt: date | datetime) -> str:
     # ``DD/MM/YYYY`` is the canonical human-readable format across
-    # the whole page (holding capsules, trade rows, footer "Updated
+    # the whole page (holdings rows, trade rows, hero "Updated
     # on" line). The zero-padded day / month gives every date the
     # exact same character width, which keeps columns of dates
-    # (the trades table, the holding capsules' period lists)
+    # (the trades table, the closed positions' period lists)
     # vertically aligned without monospaced glyphs. The ISO
     # ``<time datetime="...">`` attributes wrapping each rendered
     # date stay in W3C ``YYYY-MM-DD`` form -- machine-format is a
@@ -98,7 +98,7 @@ def _fmt_quarter_range(start: date | datetime, end: date | datetime) -> str:
     * **Cross-year span** (a burst that ends in the next calendar
       year, typically Q4 -> Q1): ``Q4 2026 - Q1 2027``. Wrapped
       in two ``<time>`` elements separated by the same
-      ``.trades__date-sep`` span the equity capsules use for
+      ``.trades__date-sep`` span the closed-position rows use for
       multi-period dates, so the column reads with one mental
       model across both surfaces.
 
@@ -177,7 +177,7 @@ def _fmt_pct(value: float, *, signed: bool = False) -> str:
     A trailing ``.x`` next to a 3-digit integer part is visually
     noisy and adds no real precision to the reader -- ``100.3%``
     reads tidier as ``100%`` and ``672.9%`` as ``673%``. We apply
-    the same rule to ``pp`` deltas (capsule + chart overlay + OG
+    the same rule to ``pp`` deltas (hero + year table + OG
     image) so the page is uniform: any quantity expressed in
     percent or percentage points drops its decimal once it hits
     triple digits.
@@ -189,11 +189,22 @@ def _fmt_pct(value: float, *, signed: bool = False) -> str:
     ``signed=True`` prefixes a leading ``+`` for non-negative
     values, matching the existing ``:+.1f`` behaviour at delta
     sites.
+
+    Negatives take U+2212 MINUS SIGN, not the ASCII hyphen-minus
+    ``format`` produces. Every figure this renders lands in a column
+    of tabular figures beside a signed positive, and ``tabular-nums``
+    cannot help: it equalises *digits*, and the sign is punctuation.
+    Measured in the page's own face at the return column's size, the
+    ASCII hyphen advances 6.63px against the plus's 9.25px, so a
+    negative row's digits sat 2.6px off from the row above it. U+2212
+    is drawn to the same 9.25px as the plus, which is what it is for.
     """
     sign_spec = "+" if signed else ""
     if round(abs(value), 1) >= 100:
-        return format(value, f"{sign_spec}.0f")
-    return format(value, f"{sign_spec}.1f")
+        text = format(value, f"{sign_spec}.0f")
+    else:
+        text = format(value, f"{sign_spec}.1f")
+    return text.replace("-", "\u2212", 1) if text.startswith("-") else text
 
 
 def _sha256_b64(payload: str) -> str:

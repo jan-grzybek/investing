@@ -184,7 +184,7 @@ def apply_group_trade_names(
     Reads the combined summaries rather than re-reading the config, so
     a leg is renamed only when its group was actually applied -- a
     group with just one held leg renders as an ordinary holding and
-    keeps the name its capsule shows.
+    keeps the name its holdings row shows.
 
     Mutates ``trade_events`` in place; a portfolio with no combined
     positions is a no-op.

@@ -152,11 +152,11 @@ class ExchangeRate:
             )
 
             if use_cache_only:
-                if cached is None:
-                    date_arr = np.empty(0, dtype="datetime64[D]")
-                    rate_arr = np.empty(0, dtype=float)
-                else:
-                    date_arr, rate_arr = cached
+                # ``use_cache_only`` is only true when ``cached`` is not
+                # ``None``, so there is no empty-cache case to handle
+                # here -- a cold cache falls through to the fetch below.
+                assert cached is not None
+                date_arr, rate_arr = cached
             else:
                 hist = _call_with_retry(
                     lambda: yf.Ticker(f"{currency}USD=X").history(

@@ -1,3 +1,6 @@
+.trades {
+  font-variant-numeric: tabular-nums;
+}
 .trades__wrap {
   /* Wrap is a named **inline-size** container query container so the
      ``@container trades (max-width: ...)`` rules further down can
@@ -20,16 +23,30 @@
   container-name: trades;
   overflow-x: auto;
   margin-top: 10px;
+  /* The card chrome lives here, not on the ``<table>``, so the "Show
+     all" button can sit inside the card along its bottom edge -- a
+     ``<button>`` is not valid inside ``<table>``. The wrap already
+     clips (``overflow-x`` is not ``visible``), so the radius trims
+     the corners without a second ``overflow`` declaration. */
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card-bg);
 }
 .trades {
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--card-bg);
-  overflow: hidden;
-  font-size: 0.9375rem;
+  /* Pin the layout algorithm here, not only from the sort script.
+     On ``auto`` this table's min-content is wider than the card it
+     sits in, so any moment it is handed back to auto layout it
+     overflows -- which is what happened on every resize, and what
+     would happen permanently with JS off. ``fixed`` plus the baseline
+     percentages below means the no-JS path cannot overflow either;
+     the script then refines the same proportions from measurement. */
+  table-layout: fixed;
+  /* 13.5px, the design's row size -- a full 15px made the log the
+     loudest table on a page where it is the supporting detail. */
+  font-size: 0.84375rem;
 }
 .trades thead th {
   font-size: 0.75rem;
@@ -44,7 +61,26 @@
   white-space: nowrap;
   vertical-align: middle;
 }
-.trades__col--price { text-align: right; }
+/* Baseline proportions for the fixed layout, sized from the narrowest
+   width the table layout is ever used at (~620px, where the container
+   query hands over to cards).
+   Five of the six columns hold something unbreakable -- a listing, a
+   badge, a quarter, a price with its currency code, and now a spelled
+   out "Decreased by 25%" where a bare signed percentage used to fit --
+   so they get what they measured there and the company name, the one
+   column that can wrap, takes the remainder. Sized the other way round the price
+   clipped its currency code, which is the failure this whole finding
+   is about.
+   The sort script replaces these with percentages measured from the
+   real content once it runs; these are what the no-JS path and the
+   first frame get. */
+.trades__col--ticker { width: 14%; }
+.trades__col--name { width: 17%; }
+.trades__col--action { width: 15%; }
+.trades__col--detail { width: 23%; }
+.trades__col--date { width: 13%; }
+.trades__col--price { width: 18%; text-align: right; }
+.trades__col--price .trades__sort { justify-content: flex-end; }
 /* Sort buttons: visually identical to the surrounding header text
    so the table reads as a tight grid -- the interactive affordance
    is communicated by the indicator triangle plus the focus ring,
@@ -66,6 +102,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  width: 100%;
 }
 .trades__sort:focus-visible {
   outline: 2px solid var(--accent);
@@ -105,13 +142,18 @@
 .trades tbody tr:nth-child(even) td {
   background: color-mix(in srgb, var(--card-bg) 60%, var(--bg) 40%);
 }
+/* The ticker is the row's identifier and takes the row's only bold
+   weight; the company name beside it is the same size but sits a
+   step down the neutral ramp, so the pair reads as "symbol, then
+   gloss" rather than as two equal columns. */
 .trades__cell--ticker {
-  font-weight: 600;
+  font-weight: 700;
+  letter-spacing: 0.02em;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
 .trades__cell--name {
-  color: var(--fg);
+  color: var(--fg-soft);
   /* Long names (e.g. "UnitedHealth Group Inc.") are allowed to wrap
      so the column doesn't blow out the table on narrow tablets.
      ``overflow-wrap: anywhere`` keeps the cell from forcing a
@@ -126,6 +168,7 @@
 }
 .trades__cell--date {
   color: var(--muted);
+  font-size: 0.8125rem;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
@@ -169,78 +212,74 @@
    between when the user crosses a threshold and when the column
    actually disappears.
 */
-@container trades (max-width: 600px) {
-  .trades__col--name,
-  .trades__cell--name { display: none; }
-}
-@container trades (max-width: 430px) {
-  .trades__col--action,
-  .trades__cell--action { display: none; }
-}
-/* Solid-pill BUY / SELL badge. Uppercase + letter-spacing give it
-   the "label" affordance a typographic reader expects from a
-   category tag and distinguishes it cleanly from the prose around
-   it. ``width`` (not ``min-width``) pins both pills to the same
-   fixed box so "BOUGHT" and "SOLD" render at byte-for-byte
-   identical widths -- ``min-width`` alone would have let the
-   longer label grow past the shorter one and the column would
-   read as two slightly different chips. ``7em`` is wide enough
-   that the longer "BOUGHT" label sits comfortably away from the
-   pill's rounded ends with visible breathing room on either side,
-   rather than touching the edges. The pill content is centered
-   inside the fixed box with ``text-align: center``; horizontal
-   padding is zeroed because the fixed width already reserves
-   the breathing room. ``color: #fff`` (with the pure-black
-   override in dark mode) is set independently of ``--bg`` so
-   contrast against the saturated fills stays high regardless of
-   the page's ambient surface luminance. */
+
+/* BUY / SELL badge: a square swatch plus a quiet uppercase label,
+   which is what the design draws -- not the solid pill this used to
+   be. The pill was a saturated 84x24 lozenge in a section the page
+   ranks *below* the tables above it, so the loudest thing in the
+   Activity log was its least informative column: two values, endlessly
+   repeated. The swatch carries the same colour in a tenth of the area,
+   and the direction still reads at a glance down the column.
+
+   Colour lands on the text as well as the swatch, so the label keeps
+   its meaning for anyone who cannot resolve a 7px square -- and the
+   word itself ("Bought" / "Sold") says the same thing either way.
+
+   ``inline-block``, not ``inline-flex``. A flex container takes its
+   baseline from its first flex item, and the first item here is the
+   swatch -- an empty box, whose baseline is its bottom edge. That put
+   the badge's baseline 2.5px below the Detail and Date beside it on
+   the phone's second line, so the three sat visibly out of step.
+   Inline-block takes its baseline from its last line box, which is
+   the label: the badge now aligns on the same baseline as everything
+   else on the row, at every width. */
 .trade__badge {
   display: inline-block;
-  width: 7em;
-  padding: 3px 0;
-  border-radius: 999px;
-  font-size: 0.75rem;
+  font-size: 0.71875rem;
   font-weight: 700;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: #ffffff;
-  text-align: center;
-  /* The badge fills sit on coloured chips and overlap any
-     ``background`` ancestor; box-shadow: none keeps the pill flush. */
-  box-shadow: none;
+  white-space: nowrap;
+}
+/* Sits on the text baseline, lifted by about half the gap between the
+   baseline and the cap height so a 7px square reads as centred against
+   an uppercase label rather than as sunk below it. */
+.trade__badge-swatch {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 5px;
+  border-radius: 2px;
+  background: currentcolor;
+  vertical-align: 0.06em;
 }
 /* The four semantic categories collapse onto a single buy-vs-sell
-   axis: green marks any move INTO a position, red marks any move
-   OUT. Direction lands at a glance from the colour; the magnitude
-   (and the lifecycle distinction between "open" and "top-up", or
-   between "trim" and "exit") lives in the adjacent "Details"
-   column instead of being squeezed onto the badge. */
-.trade__badge--buy  { background: var(--positive); }
-.trade__badge--sell { background: var(--negative); }
-/* Dark mode lifts ``--positive`` / ``--negative`` to mid-tone greens
-   and reds so the same variables stay legible as TSR/CAGR text on
-   the deep slate background. White pill text on those lifted fills
-   drops below 2:1 contrast, so we flip the pill text to the page
-   background (deep slate) in dark mode -- inverted chip styling, the
-   standard pattern for high-contrast labels that sit on lighter
-   ``500``-shade fills. The light-mode pills keep the original white
-   text on the deeper ``700``-shade backgrounds where contrast is
-   already comfortable. */
-@media (prefers-color-scheme: dark) {
-  .trade__badge { color: var(--bg); }
+   axis. What that axis is *not* is a gain/loss axis, which is why the
+   badges no longer borrow ``--positive`` / ``--negative``: those two
+   colours mean profit and drawdown everywhere else on the page, and
+   painting SOLD in the loss colour says a disposal went badly.
+   Selling a winner is the opposite of a loss.
+   Buying is the page's own accent -- the colour of the portfolio
+   curve and the weight bars, i.e. of the position itself growing.
+   Selling steps back onto the neutral ramp: the same move, ended.
+   The magnitude, and the lifecycle distinction between "open" and
+   "top-up" or between "trim" and "exit", lives in the adjacent
+   Details column rather than being squeezed onto the badge. */
+.trade__badge--buy  { color: var(--accent); }
+.trade__badge--sell { color: var(--muted-deep); }
+/* "Details" column. Both kinds of detail -- ``--label`` (Initiated /
+   Divested) and ``--pct`` (+30% / -25%) -- render identically: same
+   size, same weight, same neutral tone. "+32%" and "Initiated"
+   answer the same question about the same trade, so ranking one
+   above the other by weight or by colour asserts a difference the
+   data does not have. ``--pct`` differs only in taking tabular
+   figures, so the percentages line up down the column. */
+.trades__detail {
+  color: var(--fg-soft);
+  font-size: 0.8125rem;
 }
-/* "Details" column. Every row -- ``--label`` (Initiated /
-   Divested) and ``--pct`` (+30% / -25%) alike -- picks up the
-   page's standard green / red value colours via the
-   ``.value--positive`` / ``.value--negative`` modifier the row
-   already carries: OPEN / INCREASE read as growth (green),
-   CLOSE / DECREASE as reduction (red). Those colour classes are
-   defined further up and shared with the holding capsules' TSR
-   / CAGR readouts so the whole page speaks one colour-coding
-   language. ``--pct`` rows additionally get a heavier weight so
-   the signed percentage stands out as a numeric readout. */
 .trades__detail--pct {
-  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 /* Plain-hyphen separator between the two ends of a multi-day
    burst's date range. Wrapping the glyph in a ``<span>`` rather
@@ -270,44 +309,217 @@
 .trades:not([data-expanded="true"]) tbody tr.trades__row:nth-of-type(n+11) {
   display: none;
 }
+/* The last row of the card rather than a control parked beneath it:
+   full width, a hairline above it, and the link colour, so it reads
+   as "there is more of this table" instead of as a button that
+   happens to sit nearby. */
 .trades__toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin: 10px 0 0;
-  padding: 8px 14px;
-  background: var(--card-bg);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  color: var(--fg);
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 11px 18px;
+  background: color-mix(in srgb, var(--card-bg) 60%, var(--bg) 40%);
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+  color: var(--link);
   font: inherit;
-  font-size: 0.875rem;
+  font-size: 0.84375rem;
+  font-weight: 600;
+  text-align: center;
   cursor: pointer;
-  transition: background 120ms ease, border-color 120ms ease;
+  transition: background 120ms ease, color 120ms ease;
 }
 .trades__toggle:hover {
-  background: color-mix(in srgb, var(--card-bg) 70%, var(--bg) 30%);
-  border-color: color-mix(in srgb, var(--line) 50%, var(--fg) 50%);
+  background: color-mix(in srgb, var(--card-bg) 30%, var(--bg) 70%);
+  color: var(--link-hover);
 }
 .trades__toggle:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
-/* Small chevron glyph that flips when the table opens so the
-   button visually signals which way the next click will move
-   the section. ``::after`` keeps the indicator decorative
-   (``aria-expanded`` on the button is what assistive tech
-   actually announces). */
-.trades__toggle::after {
-  content: "";
-  display: inline-block;
-  width: 0;
-  height: 0;
-  border-left: 4px solid transparent;
-  border-right: 4px solid transparent;
-  border-top: 5px solid var(--muted);
-  transition: transform 150ms ease;
-}
-.trades__toggle[aria-expanded="true"]::after {
-  transform: rotate(180deg);
+
+/* Below ~620px the log becomes two lines per trade, as the design
+   draws it, rather than a six-column table squeezed onto a phone:
+
+       TICKER  Company name           921.40 USD
+       BOUGHT  +32%                      Q2 2026
+
+   Three grid columns and two rows place every existing cell without
+   dropping any of them -- the narrow layout used to shed Company and
+   then Action entirely. The header row becomes the design's sort
+   chips. */
+@container trades (max-width: 620px) {
+  /* The card layout is not a table any more, so the fixed algorithm
+     and its column percentages have nothing to act on and would only
+     constrain the chips. */
+  .trades {
+    display: block;
+    table-layout: auto;
+    font-size: 0.84375rem;
+  }
+  .trades__col { width: auto; }
+  .trades tbody { display: block; }
+
+  .trades thead { display: block; }
+  .trades thead tr {
+    display: flex;
+    gap: 8px;
+    padding: 8px 14px;
+    background: none;
+    border-bottom: 1px solid var(--line);
+    overflow-x: auto;
+    scrollbar-width: none;
+    /* Fades the strip's own rendering, chips included -- see
+       ``scroll_hint.js`` for why this is a mask rather than the
+       background shadow it replaced, and why the side is set from JS.
+       The mask is positioned against the padding box, i.e. the visible
+       window, not the scrolled content, so the fade stays pinned to
+       the edges while the chips travel under it. */
+    --hint: 26px;
+  }
+  [data-scroll-hint][data-scroll="end"] {
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - var(--hint)), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - var(--hint)), transparent);
+  }
+  [data-scroll-hint][data-scroll="start"] {
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 var(--hint));
+    mask-image: linear-gradient(to right, transparent, #000 var(--hint));
+  }
+  [data-scroll-hint][data-scroll="both"] {
+    -webkit-mask-image: linear-gradient(
+      to right,
+      transparent,
+      #000 var(--hint),
+      #000 calc(100% - var(--hint)),
+      transparent
+    );
+    mask-image: linear-gradient(
+      to right,
+      transparent,
+      #000 var(--hint),
+      #000 calc(100% - var(--hint)),
+      transparent
+    );
+  }
+  .trades thead tr::-webkit-scrollbar { display: none; }
+  .trades thead th {
+    display: block;
+    padding: 0;
+    background: none;
+    border: 0;
+    flex: 0 0 auto;
+  }
+  /* Same 40px target as the holdings chips -- see 20-holdings.css. */
+  .trades__sort {
+    width: auto;
+    justify-content: center;
+    padding: 10px 13px;
+    background: var(--card-bg);
+    border: 1px solid color-mix(in srgb, var(--line) 90%, transparent);
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0;
+    text-transform: none;
+    color: var(--fg);
+  }
+  .trades th[aria-sort="ascending"] .trades__sort,
+  .trades th[aria-sort="descending"] .trades__sort { border-color: var(--accent); }
+
+  /* Flex, not grid.
+     A three-column grid shares its column widths between both rows,
+     so column one sized itself to the BOUGHT pill and every company
+     name started 50px clear of its own ticker -- the two read as
+     unrelated instead of as one label. The design puts ticker and
+     name adjacent on a flex line and gives the pill its own 74px
+     only on the second line, which a shared grid column cannot
+     express. Flex with an explicit break does.
+
+     The break is ``::after`` on the row: a pseudo-element on a flex
+     container is a flex item, so a 100%-basis one ends the first
+     line exactly where the design ends it, whatever the content
+     widths. ``row-gap`` stays 0 because that empty line would
+     otherwise be charged a gap on both sides; the second line's
+     items carry their own margin instead. */
+  .trades__row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    /* 7px is the design's ticker-to-name gap, the tightest on the
+       row; the wider gaps that separate those two from the price,
+       and the badge from the detail, are set as margins on the
+       items that need them. */
+    column-gap: 7px;
+    row-gap: 0;
+    padding: 9px 14px;
+  }
+  .trades__row::after {
+    content: "";
+    order: 4;
+    flex: 0 0 100%;
+    height: 0;
+  }
+  .trades tbody td {
+    display: block;
+    padding: 0;
+    border: 0;
+    background: none;
+  }
+  .trades tbody tr:nth-child(even) td { background: none; }
+  .trades__cell--ticker {
+    order: 1;
+    flex: 0 0 auto;
+    font-size: 0.78125rem;
+  }
+  /* ``flex: 1 1 0``, not ``1 1 auto``.
+     Flex breaks lines on an item's *hypothetical* main size, which
+     for ``auto`` is its max-content width -- so a long company name
+     was sent to a line of its own before shrinking was ever
+     considered, taking the price with it to a third. ``min-width: 0``
+     does not help: it governs how far an item may shrink, not where
+     the line breaks. A zero basis means the name never forces a
+     break and simply absorbs whatever the line has left, which is
+     also what pushes the price to the right edge. */
+  .trades__cell--name {
+    order: 2;
+    flex: 1 1 0;
+    min-width: 0;
+    margin-right: 3px;
+    color: var(--muted-soft);
+    font-size: 0.71875rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .trades__cell--price { order: 3; flex: 0 0 auto; font-size: 0.78125rem; }
+  .trades__cell--action { order: 5; flex: 0 0 74px; margin-top: 3px; }
+  .trades__cell--detail {
+    order: 6;
+    flex: 1 1 0;
+    min-width: 0;
+    margin-top: 3px;
+    margin-right: 3px;
+    font-size: 0.71875rem;
+  }
+  .trades__detail { font-size: inherit; }
+  /* 10px on mobile, one step down from the desktop 11.5px. */
+  .trade__badge { font-size: 0.625rem; }
+  .trade__badge-swatch { width: 6px; height: 6px; }
+  .trades__cell--date {
+    order: 7;
+    flex: 0 0 auto;
+    margin-top: 3px;
+    color: var(--muted-soft);
+    font-size: 0.6875rem;
+  }
+  /* Same principle as the holdings chips: the strip runs in the order
+     the card under it reads -- ticker and name on the first line, then
+     the badge, its detail, the price, and the date. */
+  .trades__col--ticker { order: 1; }
+  .trades__col--name { order: 2; }
+  .trades__col--action { order: 3; }
+  .trades__col--detail { order: 4; }
+  .trades__col--price { order: 5; }
+  .trades__col--date { order: 6; }
 }

@@ -1,293 +1,95 @@
-.holding {
-  display: grid;
-  /* Inherit the logo / body / stats-label / stats-value tracks
-     defined on the parent ``.holdings__list`` (declared below the
-     ``.holding__stats`` rule -- see the comment there for the
-     cross-capsule alignment rationale). ``grid-column: 1 / -1``
-     spans the capsule across all four outer tracks; the explicit
-     placements on ``.holding__logo`` / ``.holding__body`` /
-     ``.holding__stats`` slot each child into its column.
-     ``column-gap`` inherits 24px from the parent (matching the
-     pre-subgrid value) so the visual spacing between logo / body
-     / stats columns stays unchanged; the ``row-gap`` here is a
-     no-op on the desktop single-row capsule but mirrors the
-     historical ``gap: 14px 24px`` so the mobile media query
-     below has a consistent shorthand to override. */
-  grid-template-columns: subgrid;
-  grid-column: 1 / -1;
-  align-items: center;
-  row-gap: 14px;
-  padding: 16px 20px;
-  /* Margin-top still drives the inter-capsule spacing on desktop:
-     grid items don't margin-collapse, so each capsule contributes
-     its own 12px to the row-track size and the visible gap
-     between consecutive capsules stays at 12px. Keeping the
-     margin (rather than switching to ``row-gap`` on the parent)
-     also preserves the 12px breathing room above the very first
-     capsule, where the sort toolbar sits immediately above. */
-  margin-top: 12px;
+/* Holdings and Closed positions: one table each, every row visible.
+
+   The capsule layout this replaces put every metric in its own
+   bordered box, which meant no two numbers ever shared a column and
+   the reader could not compare anything without scrolling back and
+   forth. A table is the primitive the data actually wanted. */
+.holdings__wrap {
+  /* A named inline-size container so the column-dropping rules at
+     the bottom of this file fire on the table's own rendered width
+     rather than on the viewport -- the same mechanism the trades
+     table uses, and for the same reason: the drop happens
+     synchronously with layout, with no JS debounce between the user
+     crossing a threshold and the column disappearing.
+
+     ``overflow-x: auto`` survives as a defensive belt for viewports
+     narrower than the minimum column set and for browsers without
+     container-query support, where it degrades to a horizontal
+     scrollbar rather than clipping. */
+  container-type: inline-size;
+  container-name: holdings;
+  overflow-x: auto;
+  margin-top: 10px;
+}
+.holdings {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--card-bg);
-  /* Anchor-jump reserve so a click on a marquee logo or an
-     equities-bar row scrolls the targeted capsule below the
-     sticky header rather than tucking it under. Matches the
-     ``.section`` reserve so the per-card landing feels
-     consistent with the section-level nav. */
-  scroll-margin-top: 120px;
-}
-/* Either the bare ``<img class="holding__logo">`` or the
-   ``<a class="holding__logo-link">`` wrapper (when the holding
-   has a website URL wired in) ends up as the capsule's first
-   grid child. Pin both to column 1 of the subgrid explicitly so
-   a future re-ordering of the markup doesn't shift the layout,
-   and so the body and stats placements below don't have to rely
-   on auto-flow visiting children in DOM order. */
-.holding > .holding__logo,
-.holding > .holding__logo-link { grid-column: 1; }
-.holding__logo {
-  width: 100%;
-  max-width: 88px;
-  max-height: 64px;
-  object-fit: contain;
-  justify-self: center;
-}
-/* The capsule's logo is wrapped in an ``<a class="holding__logo-link">``
-   that points at the issuer's own website (or its IR site /
-   a Google-search-on-name fallback when yfinance has no website
-   on file). The wrapper is the actual grid item now, so it
-   inherits the cell sizing the bare ``<img>`` used to carry --
-   the inner ``<img>`` stays at ``width: 100%`` so it fills the
-   wrapper without stretching past it. ``display: flex`` centers
-   the image vertically inside the cell on desktop (where the
-   landscape 88x64 box is taller than most wordmarks render).
-   Keep the link visually identical to the legacy bare-image
-   layout (no underline, no hand cursor on the image itself --
-   the pointer cursor is the affordance) and only light up on
-   hover/focus so a sighted reader can tell the logo is now
-   actionable. The same touch-device gate ``.ticker__link`` and
-   ``.bars__row--link`` use is replicated here so a tap on a phone
-   doesn't latch a hover state after the finger lifts. */
-.holding__logo-link {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  max-width: 88px;
-  max-height: 64px;
-  justify-self: center;
-  border-radius: 6px;
-  text-decoration: none;
-  cursor: pointer;
-  transition: opacity 0.15s ease, outline-color 0.15s ease;
-}
-.holding__logo-link:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 4px;
-}
-@media (hover: hover) {
-  .holding__logo-link:hover {
-    opacity: 0.78;
-  }
-}
-.holding__body { grid-column: 2; min-width: 0; }
-.holding__title {
-  font-size: 1.0625rem;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  margin: 0;
-  overflow-wrap: anywhere;
-}
-.holding__periods {
-  list-style: none;
-  margin: 4px 0 0;
-  padding: 0;
-  /* Three columns -- start date, separator, end date -- sized to
-     ``max-content``. Each card's grid widths are derived from the
-     widest start and end actually present in that card's
-     period(s), which makes a single open period (the common case
-     for a current holding) collapse to a tight phrase
-     "Aug 14, 2023 - Present" where the dash sits between two
-     content-tight columns. Combined with ``text-align: end`` on
-     real end dates and ``text-align: start`` on the "Present"
-     placeholder (rules below), the layout achieves a single
-     unified rule:
-       - first date always at the left of column 1;
-       - separator at a fixed x-offset within the card (col 1
-         right edge + 0.5ch column-gap, identical for every period
-         row in a multi-period stack);
-       - second date at the right of column 3 when it's a real
-         date, OR at the left of column 3 (locally symmetric with
-         the start date around the dash) when it's "Present".
-     Multi-period stacks within one card still align dashes
-     vertically because all rows share the same grid columns; the
-     ``min-content`` middle track keeps the dash at a fixed offset
-     even if other end dates in the same card are wider than
-     "Present". The ``max-content`` choice over a fixed em width
-     gives up cross-card dash alignment in exchange for getting
-     "Present" symmetric to the start date for free in the typical
-     single-period current holding -- the alternative was a
-     per-row CSS variable that estimated start-date pixel width
-     server-side, which would have been brittle across font /
-     platform variations. */
-  display: grid;
-  grid-template-columns: max-content min-content max-content;
-  justify-content: start;
-  column-gap: 0.5ch;
-  row-gap: 2px;
-  color: var(--muted);
-  font-size: 0.875rem;
-  font-variant-numeric: tabular-nums;
-  overflow-wrap: anywhere;
-}
-/* ``display: contents`` lets each <li>'s three children (start
-   <time>, dash <span>, end <time>/<span>) participate directly in
-   the parent grid while the <li> itself stays in the DOM tree --
-   so assistive tech still announces it as a list item, but it
-   contributes nothing to layout. Modern browsers (Chromium,
-   Firefox, Safari) preserve list semantics across this property. */
-.holding__periods li { display: contents; }
-/* Right-align the end-date <time>/<span> within its column 3 cell
-   so the row's right edge lines up with the widest end date in
-   this card. The start-date <time> in column 1 keeps the default
-   ``text-align: start`` so it hugs the left edge of its cell.
-   With ``max-content`` columns above, this produces:
-     - closed periods: spread layout, "<start>  -  <end>" where
-       both halves touch their column's outer edge (the dash sits
-       at a card-fixed offset between them);
-     - open periods (end is "Present"): see the ``span:last-child``
-       override below -- "Present" gets ``text-align: start`` so
-       its left edge tucks against the dash, mirroring the start
-       date which is at the left edge of column 1.
-   <time>/<span> is blockified into a grid item so it stretches to
-   fill its column; ``text-align: end`` then aligns the visible
-   text to the cell's right edge. */
-.holding__periods li > :last-child { text-align: end; }
-/* Special-case the "Present" placeholder so it ends up locally
-   symmetric to the start date around the dash. The placeholder
-   renders as a plain <span> (real end dates use <time>), and
-   here we left-align it so it sits at the left edge of column 3
-   right next to the dash. In the typical single-period current
-   holding the column-3 width collapses to "Present"'s own
-   ~3.5em (because there's no longer end date in the same card
-   to widen the column), so the row reads as a tight phrase
-   "<start> - Present" with the dash flanked by only the 0.5ch
-   column-gap on each side -- perfectly symmetric. In multi-row
-   cards that mix open and closed periods the column-3 width is
-   driven by the widest closed end date instead, but the
-   left-aligned "Present" still tucks against the dash, leaving
-   the (invisible) trailing whitespace inside the cell rather
-   than a visible chasm before the placeholder. The selector
-   ``span:last-child`` matches the placeholder unambiguously:
-   real end dates use <time>, and the dash <span> is the middle
-   child, not the last. */
-.holding__periods li > span:last-child { text-align: start; }
-.holding__note {
-  margin: 10px 0 0;
-  font-size: 0.875rem;
-  line-height: 1.45;
-  color: var(--muted);
-  max-width: 60ch;
-}
-.holding__stats {
-  /* Span columns 3-4 of the capsule's subgrid (= columns 3-4 of
-     ``.holdings__list`` -- the stats label and value tracks).
-     ``display: grid; grid-template-columns: subgrid`` makes the
-     dt/dd pairs participate in those parent columns directly so
-     the widest "Weight:" label and the widest "217.4%" value pin
-     both column widths once for the entire holdings list -- every
-     capsule's Return / IRR / Weight rows then line up vertically
-     down the right side of the section instead of each row's
-     offset being driven by its own value width.
-     ``column-gap`` ultimately resolves to the 24px declared on
-     ``.holdings__list`` (per the CSS Grid Level 2 rule that a
-     subgrid's effective gutter is the max of the parent's and
-     its own at each shared gridline). The pre-subgrid layout
-     used a 14px label-to-value gap; the slightly wider 24px gap
-     is the trade-off for cross-capsule column alignment. */
-  grid-column: 3 / -1;
-  display: grid;
-  grid-template-columns: subgrid;
-  row-gap: 3px;
-  margin: 0;
-  font-variant-numeric: tabular-nums;
+  overflow: hidden;
   font-size: 0.9375rem;
+  font-variant-numeric: tabular-nums;
 }
-/* Each stat pair is wrapped in ``<div class="holding__stat">`` so the
-   mobile media query can spread TSR/CAGR/Weight as flex items across
-   the full row. On desktop ``display: contents`` makes the wrapper
-   transparent so dt/dd participate directly in the parent's 2-column
-   grid, preserving the original right-column layout exactly. */
-.holding__stat { display: contents; }
-.holding__stats dt { color: var(--muted); margin: 0; font-weight: 400; }
-.holding__stats dd { margin: 0; text-align: right; font-weight: 600; }
-.value--positive { color: var(--positive); }
-.value--negative { color: var(--negative); }
-/* Per-section "Sort by" toolbar that sits between the section
-   subtitle / chart strip and the stack of holding capsules.
-   Button group reads as a horizontal row on desktop and wraps
-   onto multiple rows on mobile so all five (current) / four
-   (historical) options stay touch-reachable on a narrow viewport
-   without forcing horizontal scrolling. The buttons share a
-   visual language with the trades column-header sort controls
-   below: muted label, focus ring keyed off ``--accent``, and a
-   small triangular indicator that appears when a column is
-   active. The "Default" button is the only one without an
-   indicator since it represents the unsorted upstream order
-   (most recent buy first for current, most recent sell first
-   for historical) rather than a directional re-ordering. */
-.holdings__sort {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin: 0 0 14px;
-  padding: 0;
-  font-size: 0.875rem;
-  color: var(--muted);
-}
-.holdings__sort-label {
-  font-size: 0.75rem;
+.holdings thead th {
+  font-size: 0.6875rem;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.07em;
   color: var(--muted);
-  font-weight: 600;
-  margin-right: 4px;
+  text-align: left;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--card-bg) 60%, var(--bg) 40%);
+  white-space: nowrap;
+  vertical-align: middle;
 }
-.holdings__sort-btn {
+/* Column widths track the design's grid spec (40 / 1fr / 104 / 132 /
+   78 / 68 at a 14px gutter). This is a real table rather than a grid,
+   so each fixed column carries the design's content width plus the
+   24px of cell padding that stands in for the gutter -- which lands
+   the flexible name column within a few pixels of the design's 288. */
+.holdings__col-logo { width: 58px; }
+/* Column headers carry both captions; each frame shows one. See
+   ``holdings_view.OPEN_COLUMNS``. */
+.holdings__col-narrow { display: none; }
+/* Return 78 and IRR 68 in the design; IRR is the last column in both
+   tables, which is the only thing distinguishing the two here. */
+.holdings__col--num { width: 102px; text-align: right; }
+.holdings__col--num:last-child { width: 92px; }
+.holdings__col--num .holdings__sort { justify-content: flex-end; }
+.holdings__col--weight { width: 156px; }
+.holdings__col--since { width: 128px; }
+.holdings__col--periods { width: 224px; }
+/* Sort buttons are visually identical to the surrounding header
+   text so the table reads as a tight grid; the affordance is
+   carried by the indicator triangle and the focus ring rather than
+   by chrome that would clutter the row. Every sortable column shows
+   an inactive triangle so the reader can see up front which columns
+   re-order, and the active one upgrades via ``aria-sort``. */
+.holdings__sort {
   appearance: none;
-  background: var(--card-bg);
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 4px 12px;
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
   font: inherit;
-  font-size: 0.8125rem;
-  font-weight: 500;
-  letter-spacing: -0.005em;
-  color: var(--muted);
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  line-height: 1.4;
-  transition: color 120ms ease, border-color 120ms ease,
-              background 120ms ease;
+  gap: 5px;
+  width: 100%;
 }
-.holdings__sort-btn:hover {
-  color: var(--fg);
-  border-color: color-mix(in srgb, var(--fg) 30%, var(--line));
-}
-.holdings__sort-btn:focus-visible {
+.holdings__sort:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+  border-radius: 4px;
 }
-.holdings__sort-btn[aria-pressed="true"] {
-  color: var(--fg);
-  border-color: var(--fg);
-  background: color-mix(in srgb, var(--fg) 6%, var(--card-bg));
-  font-weight: 600;
-}
-.holdings__sort-indicator {
+.holdings__indicator {
   display: inline-block;
   width: 0;
   height: 0;
@@ -296,142 +98,510 @@
   border-top: 5px solid color-mix(in srgb, var(--muted) 50%, transparent);
   transition: transform 120ms ease, border-top-color 120ms ease;
 }
-.holdings__sort-btn[data-sort-dir="asc"] .holdings__sort-indicator {
+.holdings th[aria-sort="ascending"] .holdings__indicator {
   transform: rotate(180deg);
   border-top-color: var(--fg);
 }
-.holdings__sort-btn[data-sort-dir="desc"] .holdings__sort-indicator {
-  border-top-color: var(--fg);
+.holdings th[aria-sort="descending"] .holdings__indicator { border-top-color: var(--fg); }
+.holdings th[aria-sort="ascending"],
+.holdings th[aria-sort="descending"] { color: var(--fg); }
+/* Group band. A full-width row rather than a second ``<thead>`` so
+   the table keeps one header, one ``aria-sort`` state and one set
+   of column widths across every group. */
+.holdings__band td {
+  padding: 10px 12px 6px;
+  background: color-mix(in srgb, var(--card-bg) 45%, var(--bg) 55%);
+  border-bottom: 1px solid var(--line);
+  border-top: 1px solid var(--line);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted-soft);
 }
-/* When a holdings list carries more positions than the default
-   visible window the rows past that cutoff are hidden until the
-   user opts in via the ``.holdings__toggle`` button below the
-   list. CSS does the actual hiding with a single ``:nth-of-type``
-   rule against the current DOM order; that means after a sort the
-   same N top rows always stay visible -- "the first N capsules in
-   whatever order they're in right now", which is the only sensible
-   reading once the user has re-ordered the list.
-
-   ``[data-expanded="true"]`` on the ``.holdings__list`` overrides
-   the hide rule when the user opts in. The toggle button is omitted
-   entirely when the list is short enough that no overflow exists. */
-.holdings__list:not([data-expanded="true"]) .holding:nth-of-type(n+4) {
-  display: none;
+.holdings__section:first-of-type .holdings__band td { border-top: 0; }
+.holdings__row td,
+.holdings__row th {
+  padding: 9px 12px;
+  border-top: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
+  vertical-align: middle;
 }
-.holdings__toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 12px;
-  padding: 6px 14px;
-  font: inherit;
-  font-size: 0.8125rem;
-  font-weight: 500;
-  letter-spacing: -0.005em;
+/* Only the row-header cell needs resetting: ``<th>`` defaults to
+   centred and bold, ``<td>`` does not.
+   Resetting both on every cell put a (0,1,1) selector ahead of every
+   (0,1,0) modifier below it, so ``.holdings__num``'s ``text-align:
+   right`` and its 700 / 500 weight pair were both silently
+   discarded -- the Return and IRR columns rendered left-aligned at
+   400, out of line with the headers above them and with the design's
+   emphasis between the two metrics gone. */
+.holdings__row th {
+  text-align: left;
+  font-weight: 400;
+}
+.holdings__logo-cell { width: 58px; }
+.holdings__logo-link { display: inline-flex; align-items: center; }
+.holdings__logo-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+/* A landscape cell rather than a square one: most holding logos are
+   wordmarks, and a square box letterboxes them down to a third of
+   the visual weight of the icon-style marks beside them.
+   ``object-position: left`` keeps every mark on a common left edge
+   so the column reads as a column. 34x22 is the design's box. */
+.holdings__logo {
+  width: 34px;
+  height: 22px;
+  object-fit: contain;
+  object-position: left center;
+}
+.holdings__name-cell { min-width: 0; }
+.holdings__name {
+  display: block;
+  font-size: 0.90625rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  /* ``break-word``, not ``anywhere``: only ``anywhere`` feeds back
+     into the column's min-content width, which let the table starve
+     the name column down to a single character and render
+     "NVIDIA Corporatio / n" on a phone. This keeps the intrinsic
+     width at the longest word and only breaks inside a word when
+     that single word still does not fit. */
+  overflow-wrap: break-word;
+}
+/* The listing sits a step below ``--muted``: it identifies the line
+   the holding trades on, which the reader wants available but almost
+   never reads. Putting it on the same grey as the "held since" date
+   beside it made the two compete. */
+.holdings__ticker {
+  display: block;
+  font-size: 0.71875rem;
+  letter-spacing: 0.03em;
+  color: var(--muted-soft);
+}
+.holdings__since {
   color: var(--muted);
-  background: var(--card-bg);
-  border: 1px solid var(--line);
-  border-radius: 999px;
+  white-space: nowrap;
+  font-size: 0.8125rem;
+}
+/* Weight: a bar and its number in one cell, so the shape of the
+   book is legible before a single figure is read. */
+/* The grid lives on an inner span rather than on the ``<td>``. A
+   ``display: grid`` table cell leaves the table's formatting context
+   -- the browser wraps it in an anonymous cell and stops applying
+   ``vertical-align`` -- which floated the weight clear of the Return
+   and IRR figures it lines up against. */
+.holdings__weight-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 40px;
+  align-items: center;
+  column-gap: 9px;
+}
+/* The unfilled track is derived from ``--fg``, not ``--line``: a
+   line-coloured track is a clean light grey on the white card and
+   almost exactly the card's own colour on the dark one, which left
+   the fill reading as an orange stub floating in space. Tinting the
+   foreground inverts with the theme and stays a track on both. */
+.holdings__bar {
+  display: block;
+  height: 7px;
+  border-radius: 2px;
+  /* Mixed from ``--line``, not ``--fg``. ``--fg`` flips to a
+     near-white in dark mode, so a track mixed from it went from a
+     faint grey on the light page to a bright one on the navy -- and a
+     3.5% position read as a mostly-filled bar. ``--line`` is already
+     the page's surface-aware hairline, so the track keeps the same
+     weight against both. */
+  background: color-mix(in srgb, var(--line) 82%, transparent);
+  overflow: hidden;
+}
+/* The row publishes its own weight as ``--w``; the table publishes
+   the largest weight on the page as ``--holdings-weight-scale``.
+   Normalising to the top position rather than to 100% is what makes
+   the column readable -- a book whose largest holding is 21% would
+   otherwise draw every bar inside the left fifth of the track. The
+   fallback keeps the bar sane if the table ever renders without a
+   scale. */
+.holdings__bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent);
+  width: calc(var(--w, 0) / var(--holdings-weight-scale, 100) * 100%);
+}
+.holdings__bar-fill--muted { background: var(--treemap-color-other); }
+.holdings__weight-value {
+  text-align: right;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+.holdings__num {
+  text-align: right;
+  font-size: 0.875rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+/* IRR is the secondary of the two money-weighted figures -- Return
+   is the one a reader compares across rows -- so it carries the
+   same colour at a lighter weight. */
+.holdings__num--soft { font-weight: 500; }
+.holdings__num--tba { color: var(--muted); font-weight: 500; }
+/* Closed positions list every window the position was held over,
+   newest first, since a re-entered position has more than one. */
+.holdings__periods {
+  color: var(--muted);
+  font-size: 0.8125rem;
+  white-space: nowrap;
+}
+.holdings__periods ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.holdings__periods span { padding: 0 4px; }
+/* Below ~620px the design stops being a table and becomes a list of
+   cards -- because a six-column grid on a 358px screen is not a
+   narrower table, it is an unreadable one. What follows rebuilds the
+   design's mobile row out of the same cells:
+
+       [logo] [name              ] [return    ]
+              [listing    since  ] [IRR  x.x% ]
+              [====== bar =======] [   weight ]
+
+   and turns the header row into the design's pill chips above it.
+   The explicit ARIA roles the renderer emits are what keep the
+   row/column semantics intact once ``display`` stops being
+   ``table-*`` -- browsers drop the implicit ones. */
+@container holdings (max-width: 620px) {
+  .holdings { display: block; }
+  .holdings__section { display: block; }
+  .holdings__band { display: block; }
+  .holdings__band td {
+    display: block;
+    padding: 8px 14px;
+    font-size: 0.59375rem;
+    letter-spacing: 0.1em;
+  }
+
+  /* The header row becomes a scrollable strip of sort chips. It stays
+     inside the card, which the design draws it just above -- keeping
+     it in the table is what lets one DOM serve both layouts, and it
+     scrolls with the rows it sorts. */
+  .holdings thead { display: block; }
+  .holdings thead tr {
+    display: flex;
+    gap: 8px;
+    padding: 8px 14px;
+    background: none;
+    border-bottom: 1px solid var(--line);
+    overflow-x: auto;
+    scrollbar-width: none;
+    /* Fades the strip's own rendering, chips included -- see
+       ``scroll_hint.js`` for why this is a mask rather than the
+       background shadow it replaced, and why the side is set from JS.
+       The mask is positioned against the padding box, i.e. the visible
+       window, not the scrolled content, so the fade stays pinned to
+       the edges while the chips travel under it. */
+    --hint: 26px;
+  }
+  [data-scroll-hint][data-scroll="end"] {
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - var(--hint)), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - var(--hint)), transparent);
+  }
+  [data-scroll-hint][data-scroll="start"] {
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 var(--hint));
+    mask-image: linear-gradient(to right, transparent, #000 var(--hint));
+  }
+  [data-scroll-hint][data-scroll="both"] {
+    -webkit-mask-image: linear-gradient(
+      to right,
+      transparent,
+      #000 var(--hint),
+      #000 calc(100% - var(--hint)),
+      transparent
+    );
+    mask-image: linear-gradient(
+      to right,
+      transparent,
+      #000 var(--hint),
+      #000 calc(100% - var(--hint)),
+      transparent
+    );
+  }
+  .holdings thead tr::-webkit-scrollbar { display: none; }
+  /* Two classes, not one. The desktop column widths are set on
+     ``.holdings__col--num:last-child`` and friends -- (0,2,0) -- and
+     a ``.holdings thead th`` reset is only (0,1,2), so it lost. The
+     IRR chip's cell therefore kept its 92px table width while its
+     button measured 53px, leaving 39px of dead cell between IRR and
+     the chip after it. That is the uneven gap in the strip: not the
+     ``gap`` property, which was an even 6px throughout, but a column
+     width from the other layout still holding its space open. */
+  .holdings thead th,
+  .holdings thead .holdings__col {
+    display: block;
+    width: auto;
+    padding: 0;
+    background: none;
+    border: 0;
+    flex: 0 0 auto;
+  }
+  /* Scoped, so it outranks the ``display: block`` reset above. Left
+     at one class it lost, and the logo header stayed in the strip as
+     a zero-width flex item -- invisible, but still charged a 6px gap
+     before the first real chip. */
+  .holdings thead .holdings__col-logo { display: none; }
+  /* The chips take the short caption so five of them fit 358px
+     without a scroll, which is how the design's phone frame reads. */
+  .holdings__col-wide { display: none; }
+  .holdings__col-narrow { display: inline; }
+  /* The chips run in the order the card reads, top-left to
+     bottom-right: name, then the line under it, then the two figures
+     on the right, then the bar across the bottom. A reader scanning
+     the chips is looking at the same row of cards either way, and a
+     control strip whose order contradicts the thing it controls costs
+     a moment of translation on every single use.
+       open:   Name / Held since / Return / IRR / Weight
+       closed: Name / Dates / Return / IRR
+     One rule set serves both -- the closed table has no weight bar
+     and its date column is ``--periods`` rather than ``--since``. */
+  .holdings__col--name { order: 1; }
+  .holdings__col--since,
+  .holdings__col--periods { order: 2; }
+  .holdings__col--num { order: 3; }
+  .holdings__col--num:last-child { order: 4; }
+  .holdings__col--weight { order: 5; }
+  /* 40px, not 26.5px. On the wide frame these are column headers and
+     the whole cell is clickable; on the phone they *become* the sort
+     UI, and they were shrinking at exactly the moment they stopped
+     being reachable with a mouse. Both platform guidelines ask for
+     44px; 40px plus the strip's 8px row gap clears it. */
+  .holdings__sort {
+    width: auto;
+    justify-content: center;
+    padding: 10px 13px;
+    background: var(--card-bg);
+    border: 1px solid color-mix(in srgb, var(--line) 90%, transparent);
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0;
+    text-transform: none;
+    color: var(--fg);
+  }
+  .holdings th[aria-sort="ascending"] .holdings__sort,
+  .holdings th[aria-sort="descending"] .holdings__sort {
+    border-color: var(--accent);
+    color: var(--fg);
+  }
+
+  /* Four columns, because the second line carries three things, not
+     two: the listing, the date it was bought, and the IRR. The design
+     writes the first two as one span -- "NMS:NVDA - 14/08/2024" --
+     directly under the holding's name. A three-column grid had no
+     cell for the date, so it was pinned to the far end of the row and
+     read as a caption on the IRR beside it rather than on the ticker
+     it belongs to.
+     Column 2 sizes to the listing and column 3 takes the slack, with
+     the date pinned to its left edge -- that ordering is what keeps
+     the pair together. Reversed, the listing sat at the left of a
+     flexible column and the date began only where that column ended,
+     which put 107px of nothing between them and left the date reading
+     as a caption on the IRR at the far end of the row.
+     The cap goes on the listing itself, not on its track: a track
+     with a percentage maximum grows to that percentage, so a short
+     ticker would sit at the left of a fixed-width column and the date
+     would start where the column ended -- the very gap this is trying
+     to close. ``max-width`` in container units caps the *element*, and
+     the ``auto`` track then sizes to it, giving the shrink-to-fit the
+     track alone cannot express. It exists so the listing can never be
+     the reason the date runs out of room: a dual-listed holding
+     ("DUS:SSU.DU + IOB:SMSN.IL") is half again as wide as a plain
+     ticker and at 320px it pushed the date under the IRR. Past the
+     cap the listing ellipses, which is the right thing to lose --
+     the exchange prefixes are recoverable, a truncated date is not.
+     Gaps are set per item rather than by ``column-gap``, since the
+     listing and its date want to sit tight against their separator
+     while the logo and the figures want the design's 10px. */
+  .holdings__row {
+    display: grid;
+    grid-template-columns: 30px minmax(0, auto) minmax(0, 1fr) auto;
+    column-gap: 0;
+    row-gap: 5px;
+    align-items: center;
+    padding: 9px 14px;
+  }
+  .holdings__row td,
+  .holdings__row th {
+    display: block;
+    padding: 0;
+    border: 0;
+  }
+  .holdings__logo-cell {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+    width: auto;
+    margin-right: 10px;
+  }
+  .holdings__logo { width: 28px; height: 18px; }
+  /* ``contents`` so the name and its listing become row items in
+     their own right and can sit on separate lines opposite the two
+     metrics, which is the design's arrangement.
+     Two classes, not one: the blanket ``.holdings__row th`` reset
+     above sets ``display: block`` at (0,1,1) and would otherwise win,
+     leaving the cell intact and every sibling auto-placed around it.
+     Same collision that flattened the Return column earlier. */
+  .holdings__row .holdings__name-cell { display: contents; }
+  /* Two lines for the name, because the name is what identifies the
+     row. Truncated to one, the two bond ETFs and the dual-listed
+     Samsung all cut off -- while the card underneath them had a whole
+     empty line. The card layout was chosen for its vertical room;
+     spending that room on the ticker and the weight bar but not on
+     the name inverts the priority.
+     The listing line keeps its ellipsis: that one is a code, and half
+     a code is no worse than none. */
+  .holdings__name {
+    grid-column: 2 / 4;
+    grid-row: 1;
+    font-size: 0.8125rem;
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    line-height: 1.25;
+  }
+  .holdings__ticker {
+    grid-column: 2;
+    grid-row: 2;
+    justify-self: start;
+    min-width: 0;
+    max-width: 32cqi;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.65625rem;
+  }
+  /* Immediately after the listing, joined by the design's middot.
+     The two are separate cells in the table and cannot be merged into
+     one span without duplicating the date, so the separator is drawn
+     by the date's own ``::before`` instead. */
+  .holdings__since {
+    grid-column: 3;
+    grid-row: 2;
+    justify-self: start;
+    white-space: nowrap;
+    font-size: 0.65625rem;
+  }
+  .holdings__since::before {
+    content: "\00b7";
+    margin: 0 4px;
+  }
+  .holdings__periods {
+    grid-column: 2 / -1;
+    grid-row: 3;
+    font-size: 0.65625rem;
+    white-space: normal;
+  }
+  .holdings__num {
+    grid-column: 4;
+    grid-row: 1;
+    margin-left: 10px;
+    font-size: 0.8125rem;
+  }
+  .holdings__num--soft,
+  .holdings__num--tba {
+    grid-column: 4;
+    grid-row: 2;
+    font-size: 0.65625rem;
+    color: var(--muted);
+  }
+  .holdings__num--soft::before,
+  .holdings__num--tba::before {
+    content: "IRR ";
+    color: var(--muted);
+  }
+  .holdings__weight {
+    grid-column: 2 / -1;
+    grid-row: 3;
+  }
+  .holdings__weight-grid { grid-template-columns: minmax(0, 1fr) 36px; column-gap: 8px; }
+  .holdings__bar { height: 6px; }
+  .holdings__weight-value { font-size: 0.6875rem; color: var(--muted); }
+}
+
+/* The time-weighted vs money-weighted explainer, one click from the
+   columns it applies to rather than four screens down in a footer.
+   The accent edge marks it as an aside rather than as another
+   section of evidence. */
+.metrics-note__toggle {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  font-size: inherit;
+  font-weight: 600;
+  color: var(--link);
   cursor: pointer;
-  transition: background 120ms ease, border-color 120ms ease;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
-.holdings__toggle:hover {
-  background: color-mix(in srgb, var(--card-bg) 70%, var(--bg) 30%);
-  border-color: color-mix(in srgb, var(--line) 50%, var(--fg) 50%);
-}
-.holdings__toggle:focus-visible {
+.metrics-note__toggle:hover { color: var(--link-hover); }
+.metrics-note__toggle:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+  border-radius: 4px;
 }
-.holdings__toggle::after {
-  content: "";
-  display: inline-block;
-  width: 0;
-  height: 0;
-  border-left: 4px solid transparent;
-  border-right: 4px solid transparent;
-  border-top: 5px solid var(--muted);
-  transition: transform 150ms ease;
+.metrics-note {
+  margin: 0 0 16px;
+  padding: 16px 20px;
+  background: var(--card-bg);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: 10px;
 }
-.holdings__toggle[aria-expanded="true"]::after {
-  transform: rotate(180deg);
-}
-/* The list wrapper is the third link in the subgrid chain anchored
-   on ``<main>`` (see the ``main { display: grid; ... }`` rule
-   near the top of the file for the full architecture comment).
-   ``grid-template-columns: subgrid`` here passes the four outer
-   tracks down so each ``.holding`` capsule can in turn ``subgrid``
-   into them and place its dt/dd into cols 3-4 of ``<main>``'s
-   grid -- the level at which ``max-content`` sees the union of
-   dt/dd items across BOTH the Current and Historical lists, so
-   the two sections always pick the same column widths.
-
-   The wrapper still exists as its own DOM node (rather than
-   being absorbed via ``display: contents``) because the holdings
-   sort script keys off it: each ``data-holdings-list="<scope>"``
-   wrapper is the parent ``parentNode.removeChild`` / ``appendChild``
-   target for re-ordering its capsules without touching the
-   surrounding allocation bars / treemap / sort toolbar.
-
-   Capsules continue to space themselves vertically via the
-   ``.holding`` ``margin-top: 12px`` rule (grid items don't
-   margin-collapse and the auto-row sizing absorbs each capsule's
-   margin into its row track). The ``column-gap: 24px`` declared
-   on ``<main>`` propagates down through every subgrid in the
-   chain unchanged so the visual spacing between logo / body /
-   label / value columns stays the same as the pre-cross-section
-   layout. The mobile media query below reverts this rule to
-   ``display: block`` (alongside ``main`` and the holdings
-   sections) since the per-capsule reflow into ``"logo body" /
-   "stats stats"`` named areas is independent of cross-capsule
-   alignment. */
-.holdings__list {
+.metrics-note__grid {
   display: grid;
-  grid-template-columns: subgrid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px 26px;
 }
-/* Intro paragraph under a section title (e.g. the methodology note
-   beneath the "Trades" section heading). Sits on its own row,
-   slightly muted, so
-   the reader can skip it once they've internalised the rule. */
-.section__intro {
-  margin: -4px 0 16px;
+.metrics-note__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 5px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg);
+}
+.metrics-note__swatch {
+  width: 11px;
+  height: 3px;
+  border-radius: 2px;
+  flex: 0 0 auto;
+}
+.metrics-note__swatch--jg { background: var(--accent); }
+.metrics-note__swatch--bench { background: var(--accent-bench); }
+.metrics-note p {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.55;
   color: var(--muted);
-  font-size: 0.9375rem;
-  line-height: 1.5;
-  max-width: 64ch;
 }
-/* The trades-section intro carries a denser two-sentence
-   methodology note that runs ~150 chars long; the default 64ch
-   cap wraps it into four narrow lines on desktop even though the
-   sortable table below it spans the full content width and would
-   happily host a wider paragraph. Releasing the cap here lets the
-   intro flow alongside the table's natural width so the lead-in
-   reads as ``column header for the table that follows'' rather
-   than a narrow column floating in the same row as 800px of
-   table real estate. The shorter ``.section--return`` intro
-   keeps the 64ch cap because it sits above a comparison capsule
-   layout, not a wide table, and benefits from the tighter
-   line-length. */
-.section--trades .section__intro {
-  max-width: none;
+.metrics-note p strong { color: var(--fg); }
+.metrics-note__foot {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--line) 60%, transparent);
+  font-size: 0.78125rem;
+  grid-column: 1 / -1;
 }
-/* Burst-aggregated trades, rendered as a dense sortable table.
-
-   Six columns -- ticker / company / action / details / date / price
-   -- give the reader a fund-letter-style activity log they can
-   re-order on the ticker, company, action, details, or date column
-   by clicking a header. The earlier per-trade capsule layout was
-   nice to scan one row at a time but burned a lot of vertical
-   space for what amounts to one line of data per event; folding
-   the same fields into a real ``<table>`` lets the page show every
-   trade ever made without scrolling forever, and the column form
-   gives the eye a stable left-edge alignment to read down.
-
-   Action is a binary BUY-vs-SELL pill (green "Bought" / red "Sold")
-   with a ``min-width`` so the two labels render in pills of the
-   exact same width and the column edges stay flush regardless of
-   row. The finer-grained "Details" column carries the lifecycle
-   nuance the four-category model used to encode in the badge text:
-   "Initial stake" / "+30%" / "-25%" / "Disposal", so a reader can
-   tell at a glance not just direction but whether this was an
-   entry, a top-up, a trim, or an exit. */

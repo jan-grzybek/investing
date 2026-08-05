@@ -67,47 +67,64 @@ class TestAddTrades:
             assert ">Sold<" in row
             assert "trade__badge--buy" not in row
 
-    def test_action_pill_is_pinned_to_a_fixed_width(self, stub_logo_lookup):
-        # The "Bought" / "Sold" pills must render at byte-for-byte
-        # identical width so the column reads as a stack of uniform
-        # chips. ``min-width`` alone wasn't enough -- the longer
-        # "BOUGHT" label still grew past the shorter "SOLD" one --
-        # so the stylesheet pins both to an exact ``width`` box
-        # with zero horizontal padding and centered content. ``7em``
-        # leaves the longer "BOUGHT" with comfortable padding off
-        # the rounded pill ends rather than touching them, and the
-        # same value is reused at every mobile breakpoint so the
-        # iPhone SE / Galaxy Fold widths don't crop the longer
-        # label against the rounded ends (a regression that bit us
-        # at 5.25em).
-        # (We can't measure actual pixel widths from a static-HTML
-        # test, but holding the CSS rule in place is what guarantees
-        # the visual invariant downstream.)
+    def test_action_badge_is_a_swatch_and_a_label_not_a_filled_pill(
+        self,
+        stub_logo_lookup,
+    ):
+        # The badge used to be a solid 7em lozenge: saturated fill,
+        # white text, rounded ends. The design draws it as a small
+        # square swatch followed by the label in the same colour, and
+        # for a reason -- Activity is the page's supporting section,
+        # and a column of saturated pills made its least informative
+        # column (two values, repeated twenty times) the loudest thing
+        # on the screen.
+        #
+        # What has to hold: no background fill on the badge, the
+        # direction colour on the text itself, and a fixed square
+        # swatch. Colour on the *text* is what keeps the meaning for a
+        # reader who cannot resolve a 7px square.
         from investing.assets import _PAGE_STYLES
         from tests._css_helpers import blocks_for, has_declaration
 
-        # Every ``.trade__badge`` declaration block that touches sizing
-        # (base rule + any surviving per-breakpoint override) must pin
-        # the pill to ``width: 7em``. The base rule additionally
-        # centres the label; the 540px override doesn't need to repeat
-        # that since it inherits ``text-align`` from the base. Colour-
-        # only overrides (e.g. the dark-mode pill text flip) don't
-        # restate width and so don't need to repeat ``width: 7em`` --
-        # we only enforce the rule on blocks that already declare a
-        # ``width``. ``has_declaration`` normalises whitespace so the
-        # checks work whether the served CSS is formatted (dev) or
-        # minified (prod). ``min-width`` is explicitly excluded from
-        # every block to prevent the "longer label grows the pill"
-        # regression from creeping back in.
         bodies = blocks_for(_PAGE_STYLES, ".trade__badge")
-        assert len(bodies) >= 2  # base + at least the 540px override
-        assert has_declaration(bodies[0], "text-align", "center")
-        sizing_bodies = [body for body in bodies if "width:" in body]
-        assert len(sizing_bodies) >= 2  # base + 540px both restate width
-        for body in sizing_bodies:
-            assert has_declaration(body, "width", "7em")
+        assert bodies
+        base = bodies[0]
+        assert has_declaration(base, "text-transform", "uppercase")
+        # ``inline-block``, never ``inline-flex``. A flex container
+        # takes its baseline from its first flex item -- here the
+        # swatch, an empty box whose baseline is its own bottom edge --
+        # so an inline-flex badge floats its label 3px above the Detail
+        # and Date beside it. ``test_action_badge_label_shares_the_row
+        # _baseline`` measures the consequence in a browser; this pins
+        # the cause so the two cannot drift apart.
         for body in bodies:
-            assert "min-width" not in body
+            assert "display:inline-flex" not in body.replace(" ", "")
+        # No fill, and no fixed box to centre a label inside: both are
+        # the pill, and both are gone.
+        for body in bodies:
+            assert "background" not in body
+            assert "border-radius" not in body
+            assert "width" not in body
+
+        # The direction colour lands on the text (``color``), never as
+        # a fill. The swatch picks it up through ``currentcolor``, so
+        # the two can never disagree.
+        for modifier in (".trade__badge--buy", ".trade__badge--sell"):
+            blocks = blocks_for(_PAGE_STYLES, modifier)
+            assert blocks, modifier
+            assert all("background" not in b for b in blocks), modifier
+            assert any("color:var(" in b.replace(" ", "") for b in blocks), modifier
+
+        swatches = blocks_for(_PAGE_STYLES, ".trade__badge-swatch")
+        assert swatches
+        assert has_declaration(swatches[0], "background", "currentcolor")
+        # Square, and the same square at every breakpoint: a swatch
+        # that is 7x6 reads as a rendering bug, not as a swatch.
+        size = re.compile(r"(?:^|;)(width|height):([^;]+)")
+        for body in swatches:
+            sized = dict(size.findall(body))
+            if sized:
+                assert sized.get("width") == sized.get("height"), body
 
     def test_details_column_uses_past_tense_initiated_and_divested(
         self,
@@ -144,31 +161,36 @@ class TestAddTrades:
             assert "Initial stake" not in row
             assert "Disposal" not in row
         for row in (open_row, close_row):
-            # Boundary rows carry the ``--label`` modifier (no
-            # percentage / minus glyph is rendered) but still pick
-            # up the page's standard green / red value colour so
-            # the column reads as a single direction-of-travel
-            # cue: Initiated is growth (green), Divested is
-            # reduction (red), matching the buy-vs-sell axis of
-            # the adjacent Action badge.
+            # Boundary rows carry the ``--label`` modifier: no
+            # percentage or minus glyph is rendered.
             assert "trades__detail--label" in row
             assert "%" not in row.split("trades__cell--detail")[1].split("</td>")[0]
-        assert "value--positive" in open_row
-        assert "value--negative" in close_row
-        # INCREASE / DECREASE: signed-percent readouts with the
-        # ``--pct`` modifier and the page's standard
-        # ``value--positive`` / ``value--negative`` colour classes
-        # so the cell speaks the same language as the holdings'
-        # TSR / CAGR rows.
-        assert ">+30%<" in inc_row
+        # INCREASE / DECREASE name what changed and by how much. They
+        # used to render as a bare signed percentage, which on this
+        # page is ambiguous in the worst way: every other percentage in
+        # view is a *return*, and two columns of them sit a few hundred
+        # pixels above. "+30%" cannot tell a reader whether the
+        # position grew by a third or made a third.
+        assert ">Increased by 30%<" in inc_row
         assert "trades__detail--pct" in inc_row
-        assert "value--positive" in inc_row
-        # The minus is the typographically correct U+2212 sign,
-        # not the ASCII hyphen-minus, so it aligns with ``+`` in
-        # tabular-numbers fonts.
-        assert ">\u221225%<" in dec_row
+        assert ">Decreased by 25%<" in dec_row
         assert "trades__detail--pct" in dec_row
-        assert "value--negative" in dec_row
+        # The verb carries the direction, so there is no signed glyph
+        # left to get wrong.
+        for row in (inc_row, dec_row):
+            detail = row.split("trades__cell--detail")[1].split("</td>")[0]
+            assert "+" not in detail
+            assert "\u2212" not in detail
+        # No direction colour anywhere in the column. The row already
+        # states its direction twice -- in the Action badge and in the
+        # sign on the percentage -- and painting a third of the log
+        # green or red made the page's quietest section its most
+        # saturated. The design keeps this column on the body tone in
+        # both frames.
+        for row in w.trades:
+            detail = row.split("trades__cell--detail")[1].split("</td>")[0]
+            assert "value--positive" not in detail
+            assert "value--negative" not in detail
 
     def test_single_day_trade_renders_one_quarter_label(
         self,
@@ -325,15 +347,13 @@ class TestAddTrades:
                 _trade_event(category="INCREASE", delta_pct=42.4),
             ]
         )
-        assert ">+30%<" in w.trades[0]
-        assert ">+100%<" in w.trades[1]
+        assert ">Increased by 30%<" in w.trades[0]
+        assert ">Increased by 100%<" in w.trades[1]
         # 99.5 rounds up to 100; 42.4 rounds down to 42 -- standard
-        # banker's-rounding-adjacent ``{:.0f}`` behaviour, which is
-        # close enough to "round half to even" that the rendering
-        # convention is uncontroversial for the values that show up
-        # in practice. The minus sign is U+2212.
-        assert ">\u2212100%<" in w.trades[2]
-        assert ">+42%<" in w.trades[3]
+        # ``{:.0f}`` behaviour, uncontroversial for the values that
+        # show up in practice.
+        assert ">Decreased by 100%<" in w.trades[2]
+        assert ">Increased by 42%<" in w.trades[3]
 
     def test_table_has_no_logo_cell(self, stub_logo_lookup):
         # Logos were removed from the trades table -- the ticker
@@ -500,14 +520,17 @@ class TestAddTrades:
         assert 'class="trades__toggle"' in table_html
         assert f'data-total="{total}"' in table_html
         assert 'aria-expanded="false"' in table_html
-        assert f">Show all {total} trades<" in table_html
-        # The button is emitted AFTER the table closes so it sits
-        # below the rows in the visual / reading order, not inside
-        # the horizontal-scroll wrapper where it could be clipped.
+        assert f">Show all {total} entries<" in table_html
+        # The button sits after the table but *inside* the wrap, which
+        # is where the design draws it: a full-width strip along the
+        # card's bottom edge, reading as the last row of the table it
+        # opens rather than as a control parked underneath. The card
+        # chrome moved to the wrap for this, since a ``<button>`` is
+        # not valid inside a ``<table>``.
         toggle_idx = table_html.index('class="trades__toggle"')
         table_close = table_html.index("</table>")
-        wrap_close = table_html.index("</div>", table_close)
-        assert wrap_close < toggle_idx
+        wrap_close = table_html.rindex("</div>")
+        assert table_close < toggle_idx < wrap_close
 
     def test_collapse_rule_hides_overflow_rows_by_default(self):
         # The actual hiding is purely CSS: a
@@ -549,23 +572,19 @@ class TestAddTrades:
             ".trades__toggle",
             "data-expanded",
             "aria-expanded",
-            "Show fewer trades",
+            "Show fewer entries",
             "Show all ",
         ):
             assert needle in _TRADES_SORT_SCRIPT
 
     def test_wrap_is_a_named_inline_size_container(self):
         # ``.trades__wrap`` is declared as a ``container-type:
-        # inline-size`` query container with the name ``trades`` so
-        # the matching ``@container trades (max-width: ...)`` rules
-        # below can hide the Company and Action columns against the
-        # wrap's actual rendered width (not the viewport). The two
-        # CSS declarations are the load-bearing prerequisite for the
-        # rest of the responsive column-hiding contract -- without
-        # them the ``@container`` rules below would never match and
-        # both columns would stay visible at every viewport down to
-        # the wrapper-scroll fallback. Assert they ship in the
-        # served stylesheet.
+        # inline-size`` query container named ``trades`` so the
+        # matching ``@container`` rule fires on the wrap's own
+        # rendered width rather than the viewport's. Those two
+        # declarations are the load-bearing prerequisite for the
+        # mobile layout -- without them the rule never matches and
+        # the phone gets the desktop table.
         from investing.assets import _PAGE_STYLES
         from tests._css_helpers import contains_at_rule
 
@@ -574,38 +593,28 @@ class TestAddTrades:
         # pair.
         assert re.search(r"container-type:\s*inline-size", _PAGE_STYLES)
         assert re.search(r"container-name:\s*trades", _PAGE_STYLES)
-        # And the two ``@container`` rules that actually drive the
-        # responsive hiding. Both target the named ``trades``
-        # container and collapse the appropriate ``<th>`` / ``<td>``
-        # cells via ``display: none``.
-        assert contains_at_rule(_PAGE_STYLES, "@container trades (max-width: 600px)")
-        assert contains_at_rule(_PAGE_STYLES, "@container trades (max-width: 430px)")
+        # And the ``@container`` rule that rebuilds the log as the
+        # design's two-line cards on a phone. It targets the named
+        # ``trades`` container, so it fires on the wrap's own width.
+        assert contains_at_rule(_PAGE_STYLES, "@container trades (max-width: 620px)")
 
-    def test_container_query_thresholds_are_well_separated(self):
-        # The Company / Action drop order is intentional (Company
-        # first, since the ticker still uniquely identifies the
-        # security; Action second, since BUY / SELL is redundantly
-        # encoded by the Details column). Just as importantly, the
-        # two thresholds sit far enough apart that a continuous
-        # resize through the boundary produces two clearly separated
-        # visual transitions rather than dropping both columns in
-        # lockstep at one viewport change. Lock that property by
-        # checking the threshold gap stays at least ~150px (the
-        # current design ships 170px of headroom between Company at
-        # 600px and Action at 430px). A future tweak that pushes
-        # them within ~100px of each other would risk reintroducing
-        # the perceived simultaneous-hide bug this test exists to
-        # prevent.
+    def test_mobile_keeps_every_column_rather_than_dropping_them(self):
+        # The narrow layout used to shed Company at 600px and Action
+        # at 430px. The design does not drop either: it puts them on
+        # a second line, so a phone reader gets the whole trade
+        # instead of a progressively poorer one.
         from investing.assets import _PAGE_STYLES
+        from tests._css_helpers import at_rule_body, blocks_for, normalize
 
-        thresholds = [
-            int(m.group(1))
-            for m in re.finditer(r"@container\s+trades\s*\(max-width:\s*(\d+)px\)", _PAGE_STYLES)
-        ]
-        assert len(thresholds) >= 2, thresholds
-        thresholds.sort(reverse=True)
-        # First (widest) hides Company, second hides Action.
-        assert thresholds[0] - thresholds[1] >= 150, thresholds
+        body = at_rule_body(_PAGE_STYLES, "@container trades (max-width: 620px)") or ""
+        assert body
+        for cell in ("--ticker", "--name", "--action", "--detail", "--date", "--price"):
+            rules = blocks_for(body, f".trades__cell{cell}")
+            assert rules, f"{cell} is not placed on the mobile grid"
+            # Placed, not hidden. The point of the two-line card is
+            # that nothing has to be sacrificed to fit.
+            for rule in rules:
+                assert "display:none" not in normalize(rule), f"{cell} is hidden on mobile"
 
     def test_name_and_currency_are_html_escaped(self, stub_logo_lookup):
         # Even though tickers/names are sourced from a trusted sheet,
@@ -641,30 +650,32 @@ class TestSaveTradesSection:
         w.save()
         out = (chdir_tmp / "index.html").read_text()
         # Section anchor + heading + methodology subtitle are present.
-        # The visible heading is just "Trades" -- the same word the
-        # nav link uses, keeping the section name and the nav label
-        # in lock-step. The URL fragment stays ``#trades`` so old
-        # bookmarks and the nav link don't break.
-        assert 'id="trades"' in out
-        assert ">Trades</h2>" in out
+        # "Activity" is the same word the nav link uses, keeping the
+        # section name and the nav label in lock-step; the fragment is
+        # ``#activity`` to match.
+        assert 'id="activity"' in out
+        assert ">Activity</h2>" in out
         # Previous headings are fully retired -- a leftover "Recent
-        # trades" or "Trade log" anywhere on the page would mean we
-        # missed a comment or label during the rename.
+        # trades", "Trade log" or bare "Trades" heading anywhere on the
+        # page would mean we missed a label during the rename.
         assert "Recent trades" not in out
         assert "Trade log" not in out
-        # Subtitle covers the section's two methodology facts: it
-        # spans the full ownership history (no trailing-year cutoff
-        # any more) and rolling-quarter bursts are combined.
+        assert ">Trades</h2>" not in out
+        # Subtitle covers the section's three methodology facts: it
+        # spans the full ownership history (no trailing-year cutoff),
+        # rolling-quarter bursts are combined, and sizes are never
+        # published.
         assert "Every executed trade since inception" in out
         assert "rolling quarter" in out
+        assert "Sizes are never published" in out
         # Nav picks up the new section once trades are present.
-        assert 'href="#trades"' in out
+        assert 'href="#activity"' in out
         # Section sits below historical / current sections in the
         # source order so the activity log reads as detail after the
         # high-level portfolio summary.
         idx_perf = out.index('id="performance"')
-        idx_trades = out.index('id="trades"')
-        assert idx_perf < idx_trades
+        idx_activity = out.index('id="activity"')
+        assert idx_perf < idx_activity
         # Single ``<table class="trades">`` per page, with the
         # sortable thead and the row tbody wired up via
         # ``data-sort-*`` attributes. Sanity-check the contract the
@@ -673,14 +684,16 @@ class TestSaveTradesSection:
         assert out.count('<table class="trades"') == 1
         assert 'data-sort-default="date"' in out
         assert 'data-sort-default-dir="desc"' in out
-        # All five sortable column headers carry their sort key so
-        # the click handler can dispatch on it.
-        for key in ("ticker", "name", "action", "detail", "date"):
+        # Every sortable column header carries its sort key so the
+        # click handler can dispatch on it.
+        for key in ("ticker", "name", "action", "detail", "date", "price"):
             assert f'data-sort-key="{key}"' in out
-        # The Price column is non-sortable (mixing currencies in a
-        # numeric sort would imply an FX-converted ordering the
-        # page doesn't compute), so it never carries a sort key.
-        assert 'data-sort-key="price"' not in out
+        # Price sorts by currency first and by amount within each
+        # currency -- a real ordering, where a bare numeric sort across
+        # USD / EUR / GBp would not be. The header says so rather than
+        # leaving the reader to discover it.
+        assert 'data-sort-currency="USD"' in out
+        assert "Sorts by currency first" in out
 
     def test_save_skips_trades_section_when_empty(
         self,
@@ -699,9 +712,9 @@ class TestSaveTradesSection:
         # "Trades" substring -- the section's name also lives in
         # a CSS comment in the embedded stylesheet, so a plain
         # substring search would yield a false positive.
-        assert 'id="trades"' not in out
-        assert ">Trades</h2>" not in out
-        assert 'href="#trades"' not in out
+        assert 'id="activity"' not in out
+        assert ">Activity</h2>" not in out
+        assert 'href="#activity"' not in out
         # No actual rendered table either.
         assert '<table class="trades"' not in out
         assert 'class="trades__row"' not in out
@@ -712,9 +725,10 @@ class TestSaveTradesSection:
         chdir_tmp,
         freeze_today,
     ):
-        # When the page carries both the historical holdings section
-        # and the trades section, trades appears last so the page
-        # reads as: performance -> current -> historical -> activity.
+        # When the page carries both the closed-positions section and
+        # the activity section, activity appears last so the page reads
+        # as: performance -> allocation -> holdings -> closed ->
+        # activity -> method.
         freeze_today(datetime(2025, 6, 1))
         w = Webpage()
         w.add_return(_total_return(), [])
@@ -729,6 +743,7 @@ class TestSaveTradesSection:
         w.add_trades([_trade_event(start=datetime(2024, 1, 1))])
         w.save()
         out = (chdir_tmp / "index.html").read_text()
-        idx_hist = out.index('id="historical"')
-        idx_trades = out.index('id="trades"')
-        assert idx_hist < idx_trades
+        idx_closed = out.index('id="closed"')
+        idx_activity = out.index('id="activity"')
+        idx_method = out.index('id="method"')
+        assert idx_closed < idx_activity < idx_method

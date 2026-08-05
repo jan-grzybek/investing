@@ -329,7 +329,7 @@ def _missing_sector_body(ticker: str) -> str:
     return (
         f'yfinance returned a blank `info["sector"]` for `{ticker}` '
         "on the most recent production build, and no override is "
-        "present in `sector_overrides.toml`. The equities treemap "
+        "present in `sector_overrides.toml`. The equity allocation bar "
         "groups this ticker under the neutral `Other` tile until an "
         "override is provided.\n\n"
         "**To resolve:** add an entry to "
@@ -385,7 +385,7 @@ def _invalid_override_body(ticker: str, value: str) -> str:
     return (
         f"`sector_overrides.toml` pins `{ticker}` to "
         f"`{value!r}`, which is not one of the canonical "
-        "GICS-style sectors the treemap palette recognises. The "
+        "GICS-style sectors the allocation palette recognises. The "
         "entry was dropped at load time and the ticker fell back "
         "to the empty-sector path (and, if yfinance also has no "
         "value, the neutral `Other` tile).\n\n"

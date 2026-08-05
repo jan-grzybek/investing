@@ -1,0 +1,130 @@
+/* Two stacked part-of-a-whole bars, ~120px total, where a
+   three-row bar chart plus a 416px treemap used to sit.
+
+   A stacked bar is the honest primitive here: the segments sum to
+   the frame, which is the entire claim. And it survives to phone
+   widths without a layout engine, which the treemap did not -- that
+   chart needed a client-side squarify pass and a fold-small-tiles
+   -into-Other heuristic just to stay legible. */
+.allocation {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  margin-top: 10px;
+  padding: 20px 24px 22px;
+  background: var(--card-bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.allocation__block + .allocation__block {
+  padding-top: 20px;
+  border-top: 1px solid color-mix(in srgb, var(--line) 60%, transparent);
+}
+.allocation__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 9px;
+}
+.allocation__title {
+  margin: 0;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+/* Names the denominator. The equity bar is a share of the equity
+   sleeve, not of the whole portfolio, and saying so is what keeps
+   the two bars from looking like they disagree about what 100%
+   means -- which is precisely the defect the old treemap had
+   against the allocation chart above it. */
+.allocation__note {
+  font-size: 0.75rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.allocation__bar {
+  display: flex;
+  height: 30px;
+  border-radius: 6px;
+  overflow: hidden;
+  gap: 2px;
+}
+.allocation__segment {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  cursor: default;
+  /* Each segment is its own inline-size container, which is what lets
+     the rule below ask the only question that matters -- "is there
+     room for the label?" -- of the one box that knows the answer.
+     A segment's width is set by the flex layout from its share, so
+     there is no circularity: size containment stops the label inside
+     from feeding back into it.
+
+     ``overflow: hidden`` is the safety net under that. Without it a
+     ``white-space: nowrap`` label simply spilled out of a segment too
+     narrow to hold it and ran into its neighbour's -- the bar read
+     "10.7%10.6%", two numbers with no gap and no way to tell which
+     belonged to which colour. */
+  container: allocation-segment / inline-size;
+  overflow: hidden;
+}
+/* 46px clears the widest figure the bar can draw ("100.0%" at 12px
+   bold tabular is ~40px) plus a little air either side, so a label
+   never sits edge-to-edge with its segment's boundary. Below that the
+   segment shows colour only and the legend carries its share -- which
+   the legend does for every segment, wide or narrow, so the set is
+   never half-labelled. */
+@container allocation-segment (max-width: 46px) {
+  .allocation__segment-value { display: none; }
+}
+/* The label takes the ink its own fill declares -- see the
+   ``--ink-on-*`` tokens in 00-base.css, which sit beside the fills so
+   the two flip together for dark mode.
+   There is no ``text-shadow`` any more. It was there to prop up white
+   on fills that could not carry it (2.48:1 on Tiger Orange), and a
+   shadow under a label is what you reach for when the colour is
+   wrong rather than when it is right. */
+.allocation__segment-value {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--seg-ink, #ffffff);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.allocation__key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+.allocation__key-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+}
+.allocation__key-swatch {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  flex: 0 0 auto;
+}
+/* Every chip carries its share. It inherits the legend's muted ink
+   rather than stepping up to ``--fg``: the chip exists to name a
+   sector, and a figure set brighter than the name it
+   belongs to reads as the more important of the two, which inverts
+   the point. Weight alone is enough to find it. */
+.allocation__key-value {
+  font-weight: 600;
+  color: inherit;
+  font-variant-numeric: tabular-nums;
+}

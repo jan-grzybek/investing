@@ -36,6 +36,7 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+from investing.holdings import DAYS_YEAR  # noqa: E402
 from investing.paths import COURAGE_LOGO, LOGOS_ADDRESS  # noqa: E402
 from investing.performance import calc_yearly_returns  # noqa: E402
 from investing.webpage import Webpage  # noqa: E402
@@ -73,22 +74,17 @@ class _StubLogoCache:
     candidate extension and falls back to ``courage.png`` when none
     match. We do the same shape of lookup against the repo's local
     ``logos/`` directory (which is what GitHub Pages serves anyway)
-    so the preview render never has to leave the workstation. The
-    class shape mirrors ``LogoCache``'s public surface --
-    ``__call__`` for the URL, ``aspect_ratio`` for the equal-area
-    sizing math, and ``coverage_ratio`` for the equal-VISUAL-area
-    density correction the sector treemap layers on top -- so the
-    ``Webpage`` callsite's ``getattr(..., "aspect_ratio", None)`` /
-    ``getattr(..., "coverage_ratio", None)`` probes both find the
-    methods and the preview's treemap renders with per-logo factors
-    that match production.
+    so the preview render never has to leave the workstation.
+
+    ``__call__`` is the whole surface, matching ``LogoCache``: the
+    aspect and ink-density probes the stub used to mirror existed for
+    the sector treemap's equal-visual-area logo sizing, and both went
+    with it. The OG card's strip reads aspects straight off disk.
     """
 
     def __init__(self, extension_map: dict[str, str], logos_dir: Path):
         self._extensions = extension_map
         self._logos_dir = logos_dir
-        self._aspect_cache: dict[str, float] = {}
-        self._density_cache: dict[str, float] = {}
 
     def __call__(self, ticker: str) -> str:
         ext = self._extensions.get(ticker)
@@ -96,44 +92,6 @@ class _StubLogoCache:
             return COURAGE_LOGO
         encoded = ticker.replace(":", "%3A")
         return f"{LOGOS_ADDRESS}{encoded}{ext}"
-
-    def aspect_ratio(self, ticker: str) -> float:
-        from investing.logos import _DEFAULT_LOGO_ASPECT, _parse_svg_aspect_ratio
-
-        cached = self._aspect_cache.get(ticker)
-        if cached is not None:
-            return cached
-        aspect = _DEFAULT_LOGO_ASPECT
-        ext = self._extensions.get(ticker)
-        if ext == ".svg":
-            path = self._logos_dir / f"{ticker}.svg"
-            if path.is_file():
-                try:
-                    text = path.read_text(encoding="utf-8")
-                except OSError:
-                    text = ""
-                parsed = _parse_svg_aspect_ratio(text)
-                if parsed is not None:
-                    aspect = parsed
-        self._aspect_cache[ticker] = aspect
-        return aspect
-
-    def coverage_ratio(self, ticker: str) -> float:
-        from investing.logos import _DEFAULT_LOGO_DENSITY, _measure_svg_density
-
-        cached = self._density_cache.get(ticker)
-        if cached is not None:
-            return cached
-        density = _DEFAULT_LOGO_DENSITY
-        ext = self._extensions.get(ticker)
-        if ext == ".svg":
-            path = self._logos_dir / f"{ticker}.svg"
-            if path.is_file():
-                measured = _measure_svg_density(str(path))
-                if measured is not None:
-                    density = measured
-        self._density_cache[ticker] = density
-        return density
 
 
 def _ease_history(
@@ -225,18 +183,37 @@ def _build_dataset() -> dict:
     start = datetime(2019, 1, 1)
     end = datetime.today()
 
+    # Both figures are derived from the growth multiplier, with the
+    # same formula ``performance.calc_total_return`` uses, rather than
+    # written down beside it.
+    #
+    # They used to be hard-coded, and they disagreed: "48.4% total,
+    # 10.5% annualised" over seven and a half years is arithmetically
+    # impossible -- 48.4% compounds to 5.3% a year, and 10.5% a year
+    # compounds to 113%. The yearly table underneath was right, because
+    # it is computed from ``history``, so the page contradicted itself
+    # in the one place a reader is most likely to check the numbers.
+    # A demo whose figures do not survive a reader's arithmetic is
+    # worse than no demo.
+    def _from_multiplier(multiplier: float) -> tuple[float, float]:
+        days = max((end - start).days, 1)
+        return (multiplier - 1.0) * 100.0, (multiplier ** (DAYS_YEAR / days) - 1.0) * 100.0
+
+    jg_total, jg_cagr = _from_multiplier(1.484)
+    bench_total, bench_cagr = _from_multiplier(1.417)
+
     total_return = {
         "start_date": start,
         "history": _ease_history(start, end, 1.484),
-        "twr%": 48.4,
-        "cagr%": 10.5,
+        "twr%": jg_total,
+        "cagr%": jg_cagr,
     }
     benchmarks = [
         {
             "ticker": "LSE:VUAA.L",
             "name": "Vanguard S&P 500 UCITS ETF",
-            "tsr%": 41.7,
-            "cagr%": 9.2,
+            "tsr%": bench_total,
+            "cagr%": bench_cagr,
             "periods": [{"start": start, "end": None}],
             "history": _ease_history(start, end, 1.417),
         }

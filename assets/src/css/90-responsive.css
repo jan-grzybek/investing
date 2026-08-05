@@ -1,311 +1,297 @@
-/* Stack the JG/benchmark comparison columns earlier than the rest of
-   the mobile layout: with two columns inside the capsule, the
-   logo+name+subtitle on the left and TSR/CAGR stats on the right run
-   out of horizontal headroom around 600-680px viewport widths and
-   start visually overlapping. Switching to a single-column stack
-   here keeps each side fully legible until the global mobile layout
-   kicks in below 540px. */
-@media (max-width: 680px) {
-  .returns-compare__grid { grid-template-columns: 1fr; row-gap: 14px; }
-  .returns-compare__col + .returns-compare__col {
-    padding-left: 0;
-    margin-left: 0;
-    padding-top: 14px;
-    border-left: none;
-    border-top: 1px solid var(--line);
-  }
+/* Viewport-level responsive rules.
+
+   Most of the page's responsiveness is handled where it belongs --
+   in the container queries on the two tables, which react to their
+   own rendered width rather than to the viewport. What is left here
+   is the handful of decisions that genuinely are about the device:
+   how big the hero can be, whether the multi-column explainer
+   blocks still have room for two columns, and the scroll offset the
+   sticky header imposes on in-page anchors. */
+
+/* In-page anchors have to clear the sticky header, so the offset is
+   the header's height plus a little air.
+   It used to be the literal 68px, which was right on desktop and
+   wrong on a phone: there the nav wrapped to a second line, the
+   header grew to 86px, and every section landed 18px *underneath*
+   the bar. ``--header-h`` is published by ``nav_scroll.js`` from a
+   ResizeObserver on the header itself, so the number tracks whatever
+   the header actually is -- at any width, with the mobile nav open or
+   closed. The fallback covers the no-JS case. */
+:target { scroll-margin-top: calc(var(--header-h, 52px) + 12px); }
+#performance,
+#allocation,
+#holdings,
+#closed,
+#activity,
+#method { scroll-margin-top: calc(var(--header-h, 52px) + 12px); }
+
+@media (max-width: 720px) {
+  /* Below this the two-column explainer blocks stop being a
+     comparison and start being two narrow columns of text. */
+  .metrics-note__grid,
+  .method__grid { grid-template-columns: 1fr; }
+  .hero__stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
-@media (max-width: 540px) {
-  body { padding: 20px 16px 32px; }
-  .site-header {
-    margin: -20px -16px 24px;
-    padding: 10px 16px;
-    gap: 6px 16px;
-  }
-  .site-title { font-size: 1.375rem; }
-  /* The desktop nav uses 12px horizontal padding and 4px gap, which
-     pushes the four current section labels (Performance / Current /
-     Historical / Trades) past the content width on common iPhone
-     viewports (375px and 390px both wrap "Trades" to a second row,
-     and a wrapped nav inflates header height past the
-     ``scroll-margin-top`` reserve below, hiding the section title
-     when the user taps an anchor). Compact the padding and gap on
-     mobile so all four pills fit in a single row down to ~360px
-     content width (iPhone SE 2/3, iPhone 12 mini, iPhone 12/13/14
-     std). Slightly smaller type also pulls each label in by ~5%
-     which gives us the headroom we need without crossing the
-     accessible-text floor. Below ~360px (legacy iPhone SE 1st
-     gen / Android compact) the nav will still wrap, but the
-     fallback degrades gracefully and the scroll-margin reserve
-     below still keeps the title visible. */
-  .site-nav { width: 100%; gap: 2px; font-size: 0.875rem; }
-  .site-nav a { padding: 4px 8px; }
-  .ticker {
-    margin: 0 -16px 20px;
-    padding: 12px 0;
-  }
-  /* Per-breakpoint loop speed lives in JS (see ``loopDur`` inside
-     ``_TICKER_MARQUEE_SCRIPT``): 60s on desktop, 45s under 540px,
-     35s under 380px. The gap is purely visual and matches the
-     smaller logo cell below. */
-  .ticker__track { gap: 28px; }
-  .ticker__logo { width: 48px; height: 24px; }
-  /* With the compacted mobile nav above, the header collapses to a
-     single row at iPhone widths (~81px tall). 100px of reserve
-     gives us a comfortable ~18px buffer between header bottom and
-     section title top. Matches the desktop buffer above so the
-     anchor-jump feel is consistent across viewports. */
-  .section { margin-top: 28px; scroll-margin-top: 100px; }
-  .section__title { font-size: 1.1875rem; margin-bottom: 12px; }
-  /* Mobile mirrors the desktop "typography only, no decoration"
-     subsection treatment with a slightly smaller body size and
-     a tighter rhythm so subsections stay legible in a
-     phone-width column. The ``:first-of-type`` override below
-     keeps the desktop "first subsection sits tight" rule scaled
-     for the smaller chapter rule above it. */
-  .section__subtitle { font-size: 0.9375rem; margin: 26px 0 10px; scroll-margin-top: 100px; }
-  .section--current > .section__title + .section__subtitle,
-  .section--historical > .section__title + .section__subtitle {
-    margin-top: 8px;
-  }
-  .return-chart { margin-bottom: 16px; }
-  /* The chart SVG is authored with a 1000x400 viewBox (a wide
-     2.5:1 aspect ratio that suits desktop). On phone widths
-     ``height: auto`` + ``preserveAspectRatio="none"`` would
-     collapse the chart to ~140-160px tall, where the curves
-     bunch up into a near-flat strip and the +/- pp delta is
-     hard to read. Override the aspect ratio so the chart gains
-     meaningful vertical room (~225-240px tall at typical
-     iPhone widths) and the JG vs benchmark divergence reads at
-     a glance again. ``preserveAspectRatio="none"`` already
-     allows the SVG to stretch to whatever box CSS hands it. */
-  .return-chart svg { aspect-ratio: 5 / 3; height: auto; }
-  /* On mobile each capsule reflows internally into a "logo body"
-     row plus a "stats stats" row (see ``.holding`` below), so the
-     desktop cross-section subgrid chain (``<main>`` -> holdings
-     section -> ``.holdings__list`` -> ``.holding`` -> stats <dl>)
-     has no role to play -- and the four-track outer grid would
-     in fact fight the per-capsule named-areas declared below (the
-     capsule stops being a subgrid, its inner reflow takes over).
-     Revert every link in the chain to ``display: block`` so each
-     element lays itself out independently in normal flow; the
-     mobile column / row gaps declared on ``.holding`` and the
-     mobile-only ``grid-template-areas`` apply directly without
-     having to override anything inherited from ``<main>``. */
-  main { display: block; }
-  .section--current,
-  .section--historical { display: block; }
-  .holdings__list { display: block; }
-  .holding {
-    grid-template-columns: 56px minmax(0, 1fr);
-    grid-template-areas:
-      "logo body"
-      "stats stats";
-    align-items: start;
-    gap: 12px 14px;
-    padding: 14px;
-    scroll-margin-top: 100px;
-  }
-  .holding__logo,
-  .holding__logo-link {
-    max-width: 56px;
-    max-height: 56px;
-  }
-  /* On mobile the capsule switches to a named-areas grid; either
-     the wrapper ``<a class="holding__logo-link">`` (when the
-     capsule has a website URL wired in) or the bare ``<img
-     class="holding__logo">`` (the safety-net path when no URL is
-     available) ends up as the actual first grid child, so the
-     ``logo`` area assignment is replicated on both selectors. */
-  .holding__logo,
-  .holding__logo-link {
-    grid-area: logo;
-    align-self: center;
-  }
-  .holding__body { grid-area: body; }
-  .holding__title { font-size: 1rem; }
-  .holding__note { margin-top: 8px; }
-  .holding__stats {
-    /* On mobile the stats row spans the full width below the
-       logo+body. Lay it out as a fixed 3-column grid -- TSR in
-       the left third, CAGR in the middle, Weight (when present)
-       in the right third -- so vertical scanning down the
-       holdings list always finds the same metric in the same
-       column. The earlier ``flex / space-between`` distribution
-       achieved that for *current* holdings (which have all three
-       stats), but historical holdings only carry TSR + CAGR and
-       ``space-between`` would have pushed their CAGR all the way
-       to the right edge -- aligning it with the Weight column of
-       current rows above and below, which is misleading. The
-       three-track grid keeps CAGR centered for both shapes. */
-    grid-area: stats;
-    display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
-    column-gap: 14px;
-    row-gap: 6px;
-    padding-top: 4px;
-    border-top: 1px solid var(--line);
-  }
-  .holding__stat {
-    /* Each wrapper becomes a real flex container on mobile so its
-       label and value sit tight together with a small gap, while
-       the parent grid decides which column the whole pair lands
-       in. */
-    display: flex;
-    gap: 6px;
-    align-items: baseline;
-  }
-  /* TSR (1st child) keeps the default ``justify-self: start`` and
-     hugs the left edge of column 1; CAGR (2nd) sits centered
-     within column 2 so it aligns across current and historical
-     rows; Weight (3rd, current rows only) hugs the right edge of
-     column 3. Historical rows simply leave column 3 empty. */
-  .holding__stat:nth-child(2) { justify-self: center; }
-  .holding__stat:nth-child(3) { justify-self: end; }
-  /* On the desktop vertical stack the Return / IRR rows have the
-     full width of the stats column, so the renderer keeps the
-     ``.X`` decimal even when the integer part reaches three
-     figures (``217.4%`` reads as one number). Reflowing into the
-     mobile 3-column row makes that same ``.4`` crowd the
-     neighbouring Weight value, and the original ``_fmt_pct``
-     truncation to ``217%`` reads tidier. ``build_holding_card``
-     wraps the decimal tail in ``.holding__decimal`` only when the
-     value reaches the 100 threshold; the rule below hides that
-     wrapper at the breakpoint without touching values under 100
-     (where the wrapper is never emitted in the first place). */
-  .holding__decimal { display: none; }
-  /* Trades table: shrink the cell padding so the surviving columns
-     still fit a phone-width without horizontal scrolling. Column
-     visibility itself is handled entirely by the ``@container
-     trades (...)`` rules further up -- the wrap is a named
-     inline-size container, so the Company column drops at ~600px
-     wrap width (which lands around viewport 640 once the body's
-     32px horizontal padding is taken into account) and the Action
-     column drops at ~430px wrap width (around viewport 460). The
-     mobile media-query block here covers only the things that
-     depend on viewport rather than container width: tighter cell
-     padding, a slightly smaller table font, and the badge tweaks
-     below that flatten the pill's vertical rhythm to match the
-     denser surrounding type. */
-  .trades { font-size: 0.875rem; }
-  .trades thead th { padding: 8px 8px; font-size: 0.6875rem; }
-  .trades tbody td { padding: 8px 8px; }
-  .trade__badge {
-    width: 7em;
-    padding: 2px 0;
+
+/* The phone type scale.
+   The design ships two frames -- 880px and 390px -- and they do not
+   run the same type. Nearly every label, caption and heading steps
+   down on the narrow one: section headings 17 -> 15px, captions
+   13 -> 11.5px, the uppercase eyebrows 11 -> 9.5px, the year table
+   17% smaller across the board. Shipping the desktop scale into a
+   390px frame is most of why the phone layout read as a squeezed
+   desktop page rather than as the design's phone page: the same
+   words at the same size in half the width, so every line ran to
+   the edge and the hierarchy between a heading and the note under
+   it collapsed.
+
+   668px is where the two tables' container queries flip them to
+   cards (a 620px wrap inside 24px of body padding either side), so
+   the whole page changes character at one width instead of drifting
+   between two. Below 560px a second block adds the phone chrome --
+   drawer nav, tighter gutters, a smaller hero -- and being later in
+   the file it wins on the handful of properties both set. */
+@media (max-width: 668px) {
+  .section__title,
+  .yearly__heading { font-size: 0.9375rem; }
+  .section__note {
     font-size: 0.6875rem;
+    color: var(--muted-soft);
   }
-  .returns-compare { padding: 14px 16px; }
-  .returns-compare__col { column-gap: 14px; }
-  .returns-compare__name { font-size: 1rem; gap: 10px; }
-  .returns-compare__logo { width: 28px; height: 28px; }
-  /* Phones don't have horizontal headroom for the label to flow to
-     the right of the bar without overflowing the chart figure. Move
-     it just LEFT of the bar with a translucent backdrop so it stays
-     legible over the curve endpoints while the bar continues to mark
-     the actual chart-end x-coordinate. */
-  .return-chart__delta-label {
-    left: auto;
-    margin-left: 0;
-    right: calc(12% + 6px);
-    background: color-mix(in srgb, var(--card-bg) 88%, transparent);
-    padding: 1px 5px;
-    border-radius: 4px;
-    -webkit-backdrop-filter: blur(2px);
-    backdrop-filter: blur(2px);
-    font-size: 0.8125rem;
+  .section__note-wide { display: none; }
+  .section__note-narrow { display: inline; }
+  .section__intro { font-size: 0.71875rem; }
+  /* The chart's caption runs half a step larger than the tables'
+     intros in the design -- it is the one instruction on the page,
+     and it sits alone above the thing it instructs. */
+  .section--chart > .section__intro { font-size: 0.75rem; }
+  .legend { font-size: 0.71875rem; }
+  /* The line swatches shrink with the type they label. */
+  .legend__swatch { width: 12px; }
+  .legend__swatch--band { width: 11px; height: 8px; }
+  /* Phone frame: the legend drops out of the heading's row and back
+     to its DOM position, under the caption and directly above the
+     chart it names. */
+  .section--chart { grid-template-columns: minmax(0, 1fr); }
+  .section--chart > .legend {
+    grid-column: 1;
+    grid-row: auto;
+    justify-self: start;
+    margin: 0 0 8px;
   }
-  .bars { margin-bottom: 20px; }
-  .bars__row {
-    grid-template-columns: minmax(0, 1fr) max-content;
-    grid-template-areas:
-      "label value"
-      "bar bar";
-    column-gap: 12px;
-    row-gap: 4px;
+  .hero__eyebrow { font-size: 0.59375rem; letter-spacing: 0.1em; }
+  .hero__updated { font-size: 0.59375rem; font-weight: 700; letter-spacing: 0.06em; }
+  .hero__stat-label { font-size: 0.59375rem; letter-spacing: 0.07em; }
+  /* "Portfolio TWR" / "S&P 500 TSR" shed the acronym here -- see
+     ``hero._stat``. */
+  .hero__stat-metric { display: none; }
+  .yearly__caption {
+    font-size: 0.65625rem;
+    color: var(--muted-soft);
   }
-  .bars__label {
-    grid-area: label;
-    white-space: normal;
-    overflow: visible;
-    text-overflow: clip;
+  .yearly__summary { font-size: 0.71875rem; }
+  .yearly__table thead th { font-size: 0.59375rem; letter-spacing: 0.07em; }
+  .yearly__year { font-size: 0.78125rem; }
+  .allocation__title { font-size: 0.59375rem; letter-spacing: 0.07em; }
+  .allocation__note {
+    font-size: 0.65625rem;
+    color: var(--muted-soft);
   }
-  .bars__value { grid-area: value; }
-  .bars__track { grid-area: bar; }
-  /* Treemap: reflow to a taller, narrower aspect on phones so the
-     smaller tiles stay tall enough to fit the ticker label. The
-     logos hide on the smallest screens (handled in the 380px
-     block further down); legend chips wrap onto their own row
-     naturally already so no override is needed there. The ticker
-     / weight font sizes are deliberately *not* pinned here -- the
-     container-query-based ``clamp(...)`` rules on those labels
-     already scale them with the tile's actual rendered
-     dimensions, which shrink on the narrower mobile canvas, so
-     a fixed override would just clamp them to a less-fit value. */
-  .treemap__canvas { aspect-ratio: 4 / 3; }
-  .treemap__tile-inner { padding: 4px 5px; gap: 3px; }
-  footer { font-size: 0.8125rem; margin-top: 20px; padding-top: 8px; }
+  .allocation__segment-value { font-size: 0.6875rem; }
+  /* The sector bar's figures step down again: there are five of them
+     against the asset bar's three, in the same width. */
+  .allocation__block + .allocation__block .allocation__segment-value {
+    font-size: 0.65625rem;
+  }
+  .allocation__key { font-size: 0.71875rem; }
+  .metrics-note__toggle { font-size: 0.71875rem; }
+  .metrics-note { font-size: 0.71875rem; }
+  .metrics-note__title { font-size: 0.59375rem; letter-spacing: 0.07em; }
+  .metrics-note__foot {
+    font-size: 0.6875rem;
+    color: var(--muted-soft);
+  }
+  .method { font-size: 0.71875rem; }
+  .method__title { font-size: 0.8125rem; }
+  .method__legal { font-size: 0.6875rem; }
+  /* The design's phone rhythm: 20px between blocks against the wide
+     frame's 34, and 36px from the hero to the first section. */
+  .section { margin-top: 20px; }
+  .section:first-of-type { margin-top: 18px; }
+  .yearly { padding: 16px 16px 14px; }
+  .allocation {
+    padding: 14px 16px 16px;
+    gap: 16px;
+  }
+  .method {
+    margin: 20px -16px 0;
+    padding: 18px 16px 24px;
+  }
+  /* The chart's axis labels are sized in viewBox units, so they
+     shrink with the frame. Below this width the 15px ticks land
+     around 7px on screen, which is unreadable, so they grow back in
+     viewBox units -- and every second label goes, because at that
+     size there is no longer room for all of them. The gridlines all
+     stay: fewer numbers against the same grid is the readable
+     trade, and it is what the design mock does too. */
+  .return-chart__tick { font-size: 29px; }
+  .return-chart__tick--minor { display: none; }
+  /* No end labels on the phone. The design drops them, and it is
+     right to: at this scale the two stacked names and figures eat a
+     ninth of the chart's width to repeat two numbers the hero states
+     at 62px a screen earlier. The dots stay -- they mark where each
+     curve ends without costing width.
+
+     With the labels gone their gutter is dead margin, so the SVG
+     switches to the plot-only aspect ratio and ``slice`` clips the
+     gutter away, letting the curve run to the right edge. */
+  .return-chart__end-name,
+  .return-chart__end-value { display: none; }
+  .return-chart__plot svg { aspect-ratio: var(--chart-plot); }
+  /* "0% / 20% / 40%", not "+0% / +20% / +40%" -- the design's phone
+     axis. The sign is a glyph of noise in front of every tick on an
+     axis that only runs one way; a negative sign is never dropped. */
+  .return-chart__tick-sign { display: none; }
 }
-/* Below ~540px the JG vs benchmark delta line "JG vs S&P 500: +6.7
-   pp Total Return · +1.3 pp CAGR" no longer comfortably fits on
-   a single row (the "Total Return" wording is wider than the older
-   "TR" abbreviation, so we stack a bit earlier than we used to).
-   Force each piece onto its own line and hide the now-redundant dot
-   separator. */
-@media (max-width: 540px) {
-  .returns-compare__delta-prefix,
-  .returns-compare__delta-metric { flex: 1 0 100%; }
-  .returns-compare__delta-sep { display: none; }
-  .returns-yearly { padding: 14px 16px; }
-  /* Three visible columns (Year / JG / benchmark). Hide Δ on phones;
-     keep fixed layout with equal metric tracks so ``JG`` and the
-     benchmark header share the same width (auto layout sized them
-     from label length). */
-  .returns-yearly__wrap { overflow-x: hidden; }
-  .returns-yearly__table { min-width: 0; }
-  .returns-yearly__col-year { width: 34%; }
-  .returns-yearly__col-metric { width: 33%; }
-  col.returns-yearly__col-delta { width: 0; }
-  .returns-yearly__col-delta { display: none; }
-  .returns-yearly__table thead th { padding: 0 8px 10px; font-size: 0.8125rem; }
-  .returns-yearly__table tbody th[scope="row"] {
-    padding: 10px 8px 10px 0;
-    font-size: 0.875rem;
-  }
-  .returns-yearly__table tbody td { padding: 10px 8px; font-size: 0.875rem; }
-}
-@media (max-width: 380px) {
-  body { padding: 16px 12px 28px; }
+
+@media (max-width: 560px) {
+  body { padding: 0 16px 0; }
   .site-header {
-    margin: -16px -12px 20px;
-    padding: 10px 12px;
+    margin: 0 -16px 0;
+    padding: 10px 16px;
+    /* One line, always. Letting the four links wrap beside the brand
+       is what made the header 86px on a phone; the design collapses
+       them behind a disclosure precisely so the bar stays a bar. */
+    flex-wrap: nowrap;
   }
-  .site-title { font-size: 1.25rem; }
-  .ticker { margin: 0 -12px 16px; padding: 10px 0; }
-  .ticker__track { gap: 22px; }
-  .ticker__logo { width: 40px; height: 20px; }
-  .holding {
-    grid-template-columns: 44px minmax(0, 1fr);
-    gap: 10px 12px;
-    padding: 12px;
+  .site-nav__toggle { display: flex; }
+  /* Open, the nav is a full-width column under the bar -- the
+     design's mobile drawer, not a row of pills.
+     It is taken out of flow and hung off the header rather than
+     added to it. In flow it grew the header, which pushed every
+     section down the moment the reader tapped the button: the page
+     jumped under the finger, and ``--header-h`` grew with it, so the
+     anchor offset went wrong for as long as the drawer was open. Out
+     of flow it opens *over* the page, the header stays 45px, and
+     nothing below it moves. The header is ``position: sticky``, so
+     it is already the containing block; its ``isolation: isolate``
+     and z-index carry the drawer above the content it covers. */
+  .site-nav {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    flex-direction: column;
+    gap: 0;
+    /* Fully opaque: it is covering content now, not sitting beside
+       it, and the header's 96% wash is not enough to read over a
+       table. */
+    background: var(--bg);
+    border-bottom: 1px solid var(--line);
+    box-shadow: 0 14px 26px -14px color-mix(in srgb, var(--fg) 40%, transparent);
   }
-  .holding__logo,
-  .holding__logo-link { max-width: 44px; max-height: 44px; }
-  .holding__title { font-size: 0.9375rem; }
-  .holding__stats { font-size: 0.875rem; gap: 6px 10px; }
-  /* Phone-portrait widths shrink the trades table padding further
-     so the four remaining columns (ticker / details / date / price,
-     once the 480px rule above has hidden the action pill) sit
-     comfortably without nudging into ``.trades__wrap``'s
-     horizontal-scroll fallback. */
-  .trades thead th { padding: 6px; }
-  .trades tbody td { padding: 6px; }
-  /* Tighter inner padding on phone-portrait widths so the
-     equal-area logo / ticker / percent stack still has room to
-     breathe inside the smallest tiles. The per-tile container
-     query handles logo-vs-ticker visibility on its own (a tile
-     too narrow for the logo box drops to the ticker symbol
-     automatically), so no display: none belt-and-braces is
-     needed at this viewport any more. */
-  .treemap__tile-inner { padding: 3px 4px; }
+  .site-header[data-nav="open"] .site-nav { display: flex; }
+  /* 41px was close; 14px of padding on the 0.875rem line box clears
+     the 44px both platform guidelines ask for. */
+  .site-nav a {
+    padding: 14px 16px;
+    border-radius: 0;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--fg);
+    border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent);
+  }
+  .site-nav a:last-child { border-bottom: 0; }
+  /* The bars cross into an X so the control says what the next tap
+     does rather than only what it did. */
+  .site-header[data-nav="open"] .site-nav__toggle span:nth-child(1) {
+    transform: translateY(5.3px) rotate(45deg);
+  }
+  .site-header[data-nav="open"] .site-nav__toggle span:nth-child(2) { opacity: 0; }
+  .site-header[data-nav="open"] .site-nav__toggle span:nth-child(3) {
+    transform: translateY(-5.3px) rotate(-45deg);
+  }
+  .site-brand { font-size: 0.90625rem; }
+  .site-brand__mark { width: 22px; height: 22px; }
+  .site-brand__section { font-size: 0.84375rem; }
+  /* The rule between the name and the section keeps its full size
+     while the words either side shrink -- it is a divider, and the
+     design lets it stay the tallest thing in the bar. */
+  .site-brand__sep { font-size: 1rem; }
+  /* Stacked, so the metric and the date each own a line rather than
+     wrapping mid-row. */
+  .hero__eyebrow {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+  .hero { padding: 20px 0 18px; }
+  .hero__figure { font-size: 3.875rem; }
+  .hero__unit { font-size: 1.625rem; }
+  .hero__gloss { padding-bottom: 0; }
+  .hero__headline { font-size: 1.0625rem; }
+  .hero__period { font-size: 0.8125rem; }
+  .hero__stats { margin-top: 16px; }
+  .hero__stat { padding: 10px 12px; }
+  .hero__stat-value { font-size: 1.3125rem; }
+  .hero__stat-note { font-size: 0.75rem; }
+  .yearly,
+  .allocation,
+  .method { padding-left: 16px; padding-right: 16px; }
+  /* Three numeric columns plus the year in ~330px. Each figure is
+     pinned to a width that fits its widest value with a gutter of
+     its own, so "2.9%" and "+0.3 pp" never run together -- and the
+     bars column, being the only ``auto`` one left, absorbs whatever
+     remains rather than collapsing to a sliver. */
+  .yearly__num {
+    width: 54px;
+    font-size: 0.78125rem;
+    padding-left: 8px;
+  }
+  .yearly__alpha { width: 66px; }
+  .yearly__year { width: 46px; }
+  .yearly__bars { padding-right: 6px; padding-left: 6px; }
+}
+
+/* Below this the paired bars stop being a chart.
+   The four numeric columns are pinned to the widths their figures
+   need, so the bars column gets whatever is left -- and on a 320px
+   screen that is 14px, which renders the best year as a 5px stub and
+   the worst as a sliver. Two bars that cannot be told apart say
+   nothing about the shape of the record, which is the only reason
+   they are there; the figures beside them say it exactly. So the
+   column goes and the numbers take the space back. */
+@media (max-width: 359px) {
+  .yearly__bars,
+  .yearly__table thead th:nth-child(2) {
+    display: none;
+  }
+  /* The tooltip steps down with everything else on the phone: the
+     design runs it a size smaller throughout so it can sit over a
+     149px-tall chart without covering the curve it is reading. */
+  .return-chart__tooltip { min-width: 148px; padding: 8px 10px; }
+  /* The tracking on the date is a wide-frame refinement; the design
+     leaves the phone's alone, where the label is already tight. */
+  .return-chart__tooltip-date {
+    font-size: 0.65625rem;
+    letter-spacing: normal;
+  }
+  .return-chart__tooltip-label { font-size: 0.6875rem; }
+  .return-chart__tooltip-value { font-size: 0.75rem; }
+  .return-chart__tooltip-delta { font-size: 0.78125rem; }
+  .return-chart__tooltip-delta::before {
+    font-size: 0.625rem;
+    letter-spacing: 0.07em;
+  }
+}
+
+/* Users who ask for less motion get the same page without the
+   scroll animation; ``_NAV_SCROLL_SCRIPT`` short-circuits on the
+   same media query and jumps straight to the target. */
+@media (prefers-reduced-motion: reduce) {
+  .return-chart__hover,
+  .holdings__indicator,
+  .trades__sort-indicator,
+  .site-nav a { transition: none; }
 }

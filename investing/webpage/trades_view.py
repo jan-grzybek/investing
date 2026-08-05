@@ -45,13 +45,36 @@ TRADE_ACTION_SORT_INDEX: dict[str, int] = {
 # and matched against the per-row ``data-sort-*`` attributes;
 # ``label`` is the displayed text; ``modifier`` is the BEM
 # modifier added to the ``<th>``.
-SORTABLE_COLUMNS: tuple[tuple[str, str, str], ...] = (
-    ("ticker", "Ticker", "trades__col--ticker"),
-    ("name", "Company", "trades__col--name"),
-    ("action", "Action", "trades__col--action"),
-    ("detail", "Details", "trades__col--detail"),
-    ("date", "Date", "trades__col--date"),
+# ``(sort key, label, sort kind, BEM modifier)``.
+#
+# ``kind`` decides which way a column opens on its first click, by the
+# same rule the holdings tables use: a number reads high-to-low first,
+# everything else A-Z. Without it this table opened *every* column
+# ascending except date, so the first click on Price offered the
+# cheapest fill in the log -- the opposite of what the same click does
+# two sections up. ``ordinal`` is text's behaviour under a different
+# name: Action and Details sort on a lifecycle index, and ascending is
+# what walks it forwards (Bought before Sold, opened before closed).
+#
+# "Name", not "Company": half these rows are funds.
+SORTABLE_COLUMNS: tuple[tuple[str, str, str, str], ...] = (
+    ("ticker", "Ticker", "text", "trades__col--ticker"),
+    ("name", "Name", "text", "trades__col--name"),
+    ("action", "Action", "ordinal", "trades__col--action"),
+    # Singular, as the design's chip has it: one trade, one detail.
+    ("detail", "Detail", "ordinal", "trades__col--detail"),
+    ("date", "Date", "number", "trades__col--date"),
+    ("price", "Price", "number", "trades__col--price"),
 )
+
+# Tooltip on the Price header. Price used to be the one unsortable
+# column, on the reasoning that a numeric sort across USD / EUR / GBp
+# implies an ordering that doesn't exist without an FX conversion.
+# That reasoning is right about the ordering and wrong about the
+# remedy: the column sorts by currency first and by amount within
+# each currency, which is a real ordering, and the tooltip says so
+# rather than leaving the reader to discover it.
+PRICE_SORT_HINT = "Sorts by currency first — a EUR price is not comparable to a USD one"
 
 
 # How many rows the trades table shows by default before the
@@ -67,14 +90,22 @@ VISIBLE_DEFAULT: int = 10
 def _detail_text(event: TradeEvent) -> str:
     """Human-facing text for the "Details" column.
 
-    OPEN / CLOSE return the static lifecycle labels (the
-    position came into existence / was disposed of,
-    respectively). INCREASE / DECREASE return a signed
-    whole-number percentage of the burst's magnitude relative
-    to the prior position -- ``+30%`` reads as "this BUY grew
-    the existing stake by 30%", ``-25%`` as "this SELL trimmed
-    it by 25%". The minus glyph is the typographically
-    correct ``\u2212`` (U+2212), not the ASCII hyphen-minus.
+    OPEN / CLOSE return the static lifecycle labels: the position came
+    into existence, or was disposed of.
+
+    INCREASE / DECREASE name what changed and by how much -- "Increased
+    by 30%", "Decreased by 25%" -- as a percentage of the position
+    *before* the trade.
+
+    They used to render as a bare signed percentage, ``+30%`` and
+    ``\u221225%``. On this page that is ambiguous in the worst way: every
+    other percentage in view is a *return*, and the two columns of
+    returns sit a few hundred pixels above. A reader has no way to tell
+    from "+30%" alone whether the position grew by a third or made a
+    third, and those are very different claims. Spelling out the verb
+    costs a few characters of column and removes the question -- and it
+    is also what retires the signed glyph, since "Decreased" carries
+    the direction that the minus used to.
     """
     category = event["category"]
     if category in _TRADE_DETAIL_LABELS:
@@ -82,8 +113,8 @@ def _detail_text(event: TradeEvent) -> str:
     delta_pct = event.get("delta_pct")
     if delta_pct is None:
         return _TRADE_ACTION_DISPLAY[category][0]
-    sign = "+" if category == "INCREASE" else "\u2212"
-    return f"{sign}{delta_pct:.0f}%"
+    verb = "Increased" if category == "INCREASE" else "Decreased"
+    return f"{verb} by {delta_pct:.0f}%"
 
 
 def build_row(event: TradeEvent) -> str:
@@ -108,20 +139,19 @@ def build_row(event: TradeEvent) -> str:
     detail_label = _detail_text(event)
     # The two "boundary" labels (Initiated / Divested) are
     # qualitative; the magnitude rows (+30% / -25%) are
-    # quantitative and benefit from a tabular-numbers
-    # treatment. Both branches pick up the page's standard
-    # green / red value colours so the whole column speaks
-    # the same direction-of-travel language: OPEN / INCREASE
-    # are growth (green), CLOSE / DECREASE are reduction
-    # (red), matching the buy-vs-sell axis of the adjacent
-    # Action badge without needing a second glance.
-    value_modifier = "value--positive" if category in ("OPEN", "INCREASE") else "value--negative"
+    # quantitative and get a tabular-numbers treatment so the
+    # column's figures line up. Neither branch is coloured: the
+    # direction of travel is already stated twice on the row, by
+    # the Action badge and by the sign on the percentage itself,
+    # and painting a third of the log green or red made the page's
+    # quietest section its most saturated. The design keeps this
+    # column on the neutral body tone in both frames.
     if category in ("INCREASE", "DECREASE"):
         detail_modifier = "pct"
-        detail_class = f"trades__detail trades__detail--pct {value_modifier}"
+        detail_class = "trades__detail trades__detail--pct"
     else:
         detail_modifier = "label"
-        detail_class = f"trades__detail trades__detail--label {value_modifier}"
+        detail_class = "trades__detail trades__detail--label"
     start = event["start_date"]
     end = event["end_date"]
     # Quarter-granularity timing -- see ``_fmt_quarter_range``
@@ -139,25 +169,28 @@ def build_row(event: TradeEvent) -> str:
     sort_action = TRADE_ACTION_SORT_INDEX[category]
     sort_detail = TRADE_DETAIL_SORT_INDEX[category]
     return (
-        '<tr class="trades__row"'
+        '<tr class="trades__row" role="row"'
         f' data-sort-date="{sort_date}"'
         f' data-sort-ticker="{html.escape(sort_ticker)}"'
         f' data-sort-name="{html.escape(sort_name)}"'
         f' data-sort-action="{sort_action}"'
-        f' data-sort-detail="{sort_detail}">'
-        f'<td class="trades__cell trades__cell--ticker">{html.escape(symbol)}</td>'
-        f'<td class="trades__cell trades__cell--name">{html.escape(name)}</td>'
-        '<td class="trades__cell trades__cell--action">'
+        f' data-sort-detail="{sort_detail}"'
+        f' data-sort-currency="{html.escape(event["currency"])}"'
+        f' data-sort-price="{event["price"]:.6f}">'
+        f'<td class="trades__cell trades__cell--ticker" role="cell">{html.escape(symbol)}</td>'
+        f'<td class="trades__cell trades__cell--name" role="cell">{html.escape(name)}</td>'
+        '<td class="trades__cell trades__cell--action" role="cell">'
         f'<span class="trade__badge trade__badge--{action_modifier}">'
+        '<span class="trade__badge-swatch" aria-hidden="true"></span>'
         f"{html.escape(action_label)}</span>"
         "</td>"
-        '<td class="trades__cell trades__cell--detail">'
+        '<td class="trades__cell trades__cell--detail" role="cell">'
         f'<span class="{detail_class}" '
         f'data-detail-kind="{detail_modifier}">'
         f"{html.escape(detail_label)}</span>"
         "</td>"
-        f'<td class="trades__cell trades__cell--date">{period_html}</td>'
-        f'<td class="trades__cell trades__cell--price">{price_html}</td>'
+        f'<td class="trades__cell trades__cell--date" role="cell">{period_html}</td>'
+        f'<td class="trades__cell trades__cell--price" role="cell">{price_html}</td>'
         "</tr>"
     )
 
@@ -167,44 +200,47 @@ def build_table(rows: list[str]) -> str:
     ``<table>`` and add the "Show all" toggle when the log is
     longer than the default visible window.
 
-    The header row exposes click-to-sort buttons on the ticker,
-    company, action, details, and date columns. The default
+    Every column exposes a click-to-sort button. The default
     sort (the order the rows are emitted in) is by date
     descending so the most recent activity sits at the top
     before the user touches anything.
     """
     headers: list[str] = []
-    for key, label, modifier in SORTABLE_COLUMNS:
+    for key, label, kind, modifier in SORTABLE_COLUMNS:
+        hint = f' title="{html.escape(PRICE_SORT_HINT)}"' if key == "price" else ""
         headers.append(
-            f'<th class="trades__col {modifier}" scope="col" '
-            f'data-sort-key="{key}" aria-sort="none">'
-            f'<button type="button" class="trades__sort">'
+            f'<th class="trades__col {modifier}" scope="col" role="columnheader" '
+            f'data-sort-key="{key}" data-sort-kind="{kind}" aria-sort="none">'
+            f'<button type="button" class="trades__sort"{hint}>'
             f"{html.escape(label)}"
             '<span class="trades__sort-indicator" aria-hidden="true"></span>'
             "</button></th>"
         )
-    # Price column is not sortable -- mixing currencies in a
-    # numeric sort would imply a meaningful ordering across
-    # USD / EUR / GBp etc. that doesn't exist without an FX
-    # conversion.
-    headers.append('<th class="trades__col trades__col--price" scope="col">Price</th>')
-    thead = f"<thead><tr>{''.join(headers)}</tr></thead>"
-    tbody = f"<tbody>{''.join(rows)}</tbody>"
-    table_html = (
-        '<div class="trades__wrap">'
-        '<table class="trades" '
-        'data-sort-default="date" '
-        'data-sort-default-dir="desc">'
-        f"{thead}{tbody}"
-        "</table>"
-        "</div>"
+    thead = (
+        f'<thead role="rowgroup"><tr role="row" data-scroll-hint>{"".join(headers)}</tr></thead>'
     )
+    tbody = f'<tbody role="rowgroup">{"".join(rows)}</tbody>'
     toggle_html = ""
     total = len(rows)
     if total > VISIBLE_DEFAULT:
         toggle_html = (
             '<button type="button" class="trades__toggle" '
             f'data-total="{total}" aria-expanded="false">'
-            f"Show all {total} trades</button>"
+            f"Show all {total} entries</button>"
         )
-    return table_html + toggle_html
+    # The toggle sits *inside* the card, as the design draws it: a
+    # full-width strip along the bottom edge under a hairline, reading
+    # as the last row of the table it opens. Outside and pill-shaped it
+    # read as an unrelated control that happened to land nearby.
+    # ``<button>`` is not valid inside ``<table>``, so the card chrome
+    # lives on the wrap and the table sits inside it untrimmed.
+    return (
+        '<div class="trades__wrap">'
+        '<table class="trades" role="table" '
+        'data-sort-default="date" '
+        'data-sort-default-dir="desc">'
+        f"{thead}{tbody}"
+        "</table>"
+        f"{toggle_html}"
+        "</div>"
+    )

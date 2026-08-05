@@ -1,187 +1,140 @@
+/*
+ * Click-to-sort for the Holdings and Closed positions tables.
+ *
+ * Each table carries `data-holdings-table="<scope>"`, one `<th
+ * data-sort-key="..." data-sort-kind="text|number">` per sortable
+ * column, and one `<tbody class="holdings__section">` per group
+ * (equities / fixed income). Rows expose their keys as
+ * `data-sort-<key>`.
+ *
+ * Sorting is per-`<tbody>`: rows are reordered inside their own
+ * group so a sort can never shuffle a bond into the equity sleeve.
+ * The group's band row stays pinned at the top of its section.
+ *
+ * `aria-sort` on the active `<th>` drives both the screen-reader
+ * announcement and the visible indicator triangle (CSS), so there is
+ * exactly one source of truth for "which column is sorted, which
+ * way". The first click on a column picks the direction its datatype
+ * reads naturally in -- A-Z for text, high-to-low for numbers --
+ * and subsequent clicks toggle.
+ */
 (function () {
-  var HIDE_LABEL = "Show fewer holdings";
-
-  function rowKey(row, key) {
-    return row.getAttribute("data-sort-" + key) || "";
+  function key(row, name) {
+    return row.getAttribute("data-sort-" + name) || "";
   }
 
-  function cmpNum(a, b, key, dir) {
-    var av = parseFloat(rowKey(a, key));
-    var bv = parseFloat(rowKey(b, key));
-    var an = isNaN(av);
-    var bn = isNaN(bv);
-    if (an && bn) return 0;
-    if (an) return 1;
-    if (bn) return -1;
-    if (av < bv) return dir === "desc" ? 1 : -1;
-    if (av > bv) return dir === "desc" ? -1 : 1;
-    return 0;
-  }
-
-  function cmpText(a, b, key, dir) {
-    var av = rowKey(a, key);
-    var bv = rowKey(b, key);
-    if (av < bv) return dir === "desc" ? 1 : -1;
-    if (av > bv) return dir === "desc" ? -1 : 1;
-    return 0;
-  }
-
-  function expandHoldingsList(list, toggle) {
-    list.setAttribute("data-expanded", "true");
-    if (toggle) {
-      toggle.setAttribute("aria-expanded", "true");
-      toggle.textContent = HIDE_LABEL;
+  function compare(a, b, name, kind, dir) {
+    var av = key(a, name);
+    var bv = key(b, name);
+    var c;
+    if (kind === "number") {
+      var an = parseFloat(av);
+      var bn = parseFloat(bv);
+      var aNaN = isNaN(an);
+      var bNaN = isNaN(bn);
+      // Rows with no value for the active column sort last in both
+      // directions: "unknown" is not a small number.
+      if (aNaN && bNaN) return 0;
+      if (aNaN) return 1;
+      if (bNaN) return -1;
+      c = an < bn ? -1 : an > bn ? 1 : 0;
+    } else {
+      c = av < bv ? -1 : av > bv ? 1 : 0;
     }
+    return dir === "desc" ? -c : c;
   }
 
-  function collapseHoldingsList(list, toggle, showLabel) {
-    list.removeAttribute("data-expanded");
-    if (toggle) {
-      toggle.setAttribute("aria-expanded", "false");
-      toggle.textContent = showLabel;
-    }
-  }
+  function setup(table) {
+    var sections = table.querySelectorAll("tbody.holdings__section");
+    var heads = table.querySelectorAll("th[data-sort-key]");
+    if (!sections.length || !heads.length) return;
 
-  function expandForAnchorTarget(el) {
-    var holding =
-      el.classList && el.classList.contains("holding")
-        ? el
-        : el.closest
-          ? el.closest(".holding")
-          : null;
-    if (!holding) return;
-    var list = holding.closest ? holding.closest("[data-holdings-list]") : null;
-    if (!list || list.getAttribute("data-expanded") === "true") return;
-    try {
-      if (getComputedStyle(holding).display !== "none") return;
-    } catch (err) {
-      return;
-    }
-    var scope = list.getAttribute("data-holdings-list");
-    if (!scope) return;
-    var toggle = document.querySelector('[data-holdings-toggle="' + scope + '"]');
-    expandHoldingsList(list, toggle);
-  }
-
-  function setupGroup(group) {
-    var scope = group.getAttribute("data-holdings-sort");
-    if (!scope) return;
-    var list = document.querySelector('[data-holdings-list="' + scope + '"]');
-    if (!list) return;
-    var original = Array.prototype.slice.call(list.querySelectorAll(".holding"));
-    var btns = group.querySelectorAll(".holdings__sort-btn");
-    var state = { key: "default", dir: null };
-
-    function applyDefault() {
-      for (var i = 0; i < original.length; i++) list.appendChild(original[i]);
+    // Captured once so re-sorting is always a permutation of the
+    // upstream order rather than of the last sort's output -- which
+    // is what makes the tie-break stable.
+    var original = [];
+    for (var s = 0; s < sections.length; s++) {
+      original.push(Array.prototype.slice.call(sections[s].querySelectorAll(".holdings__row")));
     }
 
-    function applySort(key, kind, dir) {
-      var rows = Array.prototype.slice.call(list.querySelectorAll(".holding"));
-      rows.sort(function (a, b) {
-        var c =
-          kind === "number"
-            ? cmpNum(a, b, key, dir)
-            : cmpText(a, b, key, dir);
-        if (c !== 0) return c;
-        var ai = original.indexOf(a);
-        var bi = original.indexOf(b);
-        return ai - bi;
-      });
-      for (var i = 0; i < rows.length; i++) list.appendChild(rows[i]);
-    }
+    var state = { key: null, dir: null };
 
-    function activate(btn, dir) {
-      var key = btn.getAttribute("data-holdings-sort-key");
-      var kind = btn.getAttribute("data-holdings-sort-kind");
-      if (key === "default") {
-        applyDefault();
-        state.key = "default";
-        state.dir = null;
-      } else {
-        applySort(key, kind, dir);
-        state.key = key;
-        state.dir = dir;
+    function apply(name, kind, dir) {
+      for (var i = 0; i < sections.length; i++) {
+        var rows = original[i].slice();
+        rows.sort(function (a, b) {
+          var c = compare(a, b, name, kind, dir);
+          if (c !== 0) return c;
+          return original[i].indexOf(a) - original[i].indexOf(b);
+        });
+        for (var r = 0; r < rows.length; r++) sections[i].appendChild(rows[r]);
       }
-      for (var i = 0; i < btns.length; i++) {
-        var b = btns[i];
-        if (b === btn) {
-          b.setAttribute("aria-pressed", "true");
-          if (key === "default") {
-            b.removeAttribute("data-sort-dir");
-          } else {
-            b.setAttribute("data-sort-dir", dir);
-          }
-        } else {
-          b.setAttribute("aria-pressed", "false");
-          b.removeAttribute("data-sort-dir");
+    }
+
+    function select(th, dir) {
+      var name = th.getAttribute("data-sort-key");
+      apply(name, th.getAttribute("data-sort-kind"), dir === "descending" ? "desc" : "asc");
+      state.key = name;
+      state.dir = dir;
+      for (var i = 0; i < heads.length; i++) {
+        heads[i].setAttribute("aria-sort", heads[i] === th ? dir : "none");
+      }
+    }
+
+    function activate(th) {
+      var name = th.getAttribute("data-sort-key");
+      var dir;
+      if (state.key === name) {
+        dir = state.dir === "ascending" ? "descending" : "ascending";
+      } else {
+        dir = th.getAttribute("data-sort-kind") === "number" ? "descending" : "ascending";
+      }
+      select(th, dir);
+    }
+
+    // Adopt the sort the table says it is already in.
+    //
+    // Without this the script booted blind: `state.key` was null and
+    // every `aria-sort` said "none" even though the rows arrived
+    // ordered by weight. The first click on Weight therefore computed
+    // "descending" -- the direction a number column opens in -- and
+    // re-applied the order the table was already in, so the click did
+    // nothing visible. It took a second click to reach ascending.
+    //
+    // Seeding from the table's own declaration fixes that and pays for
+    // itself twice over: the active column now carries its indicator
+    // from first paint instead of the table looking unsorted, and
+    // applying the sort rather than merely recording it means the
+    // stated order and the real one cannot drift apart.
+    function adopt() {
+      var wanted = table.getAttribute("data-sort-default");
+      if (!wanted) return;
+      for (var i = 0; i < heads.length; i++) {
+        if (heads[i].getAttribute("data-sort-key") === wanted) {
+          select(heads[i], table.getAttribute("data-sort-default-dir") === "asc"
+            ? "ascending"
+            : "descending");
+          return;
         }
       }
     }
 
-    for (var i = 0; i < btns.length; i++) {
-      (function (btn) {
+    for (var h = 0; h < heads.length; h++) {
+      (function (th) {
+        var btn = th.querySelector(".holdings__sort");
+        if (!btn) return;
         btn.addEventListener("click", function () {
-          var key = btn.getAttribute("data-holdings-sort-key");
-          var kind = btn.getAttribute("data-holdings-sort-kind");
-          var dir;
-          if (key === "default") {
-            dir = null;
-          } else if (state.key === key) {
-            dir = state.dir === "asc" ? "desc" : "asc";
-          } else {
-            dir = kind === "number" ? "desc" : "asc";
-          }
-          activate(btn, dir);
+          activate(th);
         });
-      })(btns[i]);
+      })(heads[h]);
     }
-  }
 
-  function setupToggle(toggle) {
-    var scope = toggle.getAttribute("data-holdings-toggle");
-    if (!scope) return;
-    var list = document.querySelector('[data-holdings-list="' + scope + '"]');
-    if (!list) return;
-    var total = toggle.getAttribute("data-total") || "";
-    var showLabel = "Show all " + total + " holdings";
-    toggle.addEventListener("click", function () {
-      var open = list.getAttribute("data-expanded") === "true";
-      if (open) {
-        collapseHoldingsList(list, toggle, showLabel);
-      } else {
-        expandHoldingsList(list, toggle);
-      }
-    });
-  }
-
-  function setupAnchorExpand() {
-    document.addEventListener(
-      "click",
-      function (e) {
-        if (e.defaultPrevented) return;
-        if (e.button !== 0) return;
-        if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-        var t = e.target;
-        if (!t || !t.closest) return;
-        var a = t.closest('a[href^="#"]:not(.skip-link)');
-        if (!a) return;
-        var href = a.getAttribute("href");
-        if (!href || href === "#") return;
-        var el = document.getElementById(href.slice(1));
-        if (!el) return;
-        expandForAnchorTarget(el);
-      },
-      true
-    );
+    adopt();
   }
 
   function boot() {
-    var groups = document.querySelectorAll(".holdings__sort");
-    for (var i = 0; i < groups.length; i++) setupGroup(groups[i]);
-    var toggles = document.querySelectorAll(".holdings__toggle");
-    for (var t = 0; t < toggles.length; t++) setupToggle(toggles[t]);
-    setupAnchorExpand();
+    var tables = document.querySelectorAll("table[data-holdings-table]");
+    for (var i = 0; i < tables.length; i++) setup(tables[i]);
   }
 
   if (document.readyState === "loading") {

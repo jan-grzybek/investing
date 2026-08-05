@@ -1,0 +1,3 @@
+(function(){function setup(btn){var panel=document.getElementById(btn.getAttribute("aria-controls"));if(!panel)return;var openLabel=btn.getAttribute("data-label-open")||"Why?";var closeLabel=btn.getAttribute("data-label-close")||"Hide";btn.hidden=false;btn.addEventListener("click",function(){var open=btn.getAttribute("aria-expanded")==="true";btn.setAttribute("aria-expanded",open?"false":"true");btn.textContent=open?openLabel:closeLabel;panel.hidden=open;});}
+function boot(){var btns=document.querySelectorAll(".metrics-note__toggle");for(var i=0;i<btns.length;i++)setup(btns[i]);}
+if(document.readyState==="loading"){document.addEventListener("DOMContentLoaded",boot);}else{boot();}})();

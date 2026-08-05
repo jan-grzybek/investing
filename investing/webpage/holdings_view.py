@@ -1,397 +1,377 @@
-"""Holdings card + per-section "Sort by" toolbar renderers.
+"""Holdings tables: one row per position, sortable by column.
 
-Each ``<article class="holding">`` capsule shows the ticker /
-name title, the period(s) the position was open, and a stats
-list (TSR / CAGR / Weight). The toolbar rendered above each
-list (Current / Historical) is responsible for the click-to-sort
-controls -- the per-row ``data-sort-*`` attributes emitted here
-feed the inline ``_HOLDINGS_SORT_SCRIPT`` so a click on a sort
-button can reorder cards without rerunning Python.
+Holdings used to render as ``<article class="holding">`` capsules,
+three visible with the rest behind a "Show all" toggle, each metric
+boxed in its own cell of a per-capsule grid. Two things were wrong
+with that. Most of the portfolio was hidden by default, so the
+treemap above it linked to rows that were ``display: none`` and a
+script had to force-expand the list on anchor click. And the capsule
+layout defeats the one thing a reader wants from a holdings list --
+comparison -- because no two numbers ever share a column.
 
-The module is intentionally view-only: no FX, no aggregation,
-no Logo lookup of its own. Callers pass the resolved logo URL
-in -- the renderer's ``_get_logo_url`` continues to own the
-per-page logo cache.
+So: one table, every row visible, click a column header to sort.
+Weight renders as an in-row bar so the shape of the book is legible
+without reading a single number, and the money-weighted metrics sit
+in single columns that run the length of the table.
+
+Rows are grouped into ``<tbody>`` sections (equities, fixed income,
+closed) with a band row naming each group and its share of the
+portfolio. Sorting is per-section: the JS reorders rows inside their
+own ``<tbody>`` so a sort can never shuffle a bond into the equity
+sleeve.
+
+The module is intentionally view-only: no FX, no aggregation, no
+logo lookup of its own. Callers pass the resolved logo URL in -- the
+renderer's ``_get_logo_url`` continues to own the per-page logo
+cache.
 """
 
 from __future__ import annotations
 
 import html
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Sequence
+from datetime import date
 
 from ..errors import InvariantError
 from ..formatting import _fmt_date, _fmt_pct, _format_sort_number, _value_class
 from ..holdings import CAGR_TBA_THRESHOLD, google_search_url
-from ..safehtml import SafeHtml, escape
 from .anchors import holding_anchor
 
+# Column spec: ``(key, label, kind, css_modifier)``.
+#
+# ``key`` is the ``data-sort-key`` the header carries and the suffix
+# of the ``data-sort-<key>`` attribute each row exposes; ``kind``
+# drives the direction the sort script picks the first time a column
+# is activated ("text" -> ascending A-Z, "number" -> descending
+# high-low), matching the natural reading direction for each datatype.
+#
+# The ``tsr`` / ``cagr`` keys are historical and deliberately kept:
+# they match the ``data-sort-*`` contract the script and the on-disk
+# DOM-order tests already pin. Only the visible labels read "Return"
+# and "IRR", because the underlying figures are MoIC- and IRR-based
+# rather than TWR/CAGR -- see the Method block for the rationale.
+# ``(sort key, wide label, narrow label, sort kind, BEM modifier)``.
+#
+# Two labels, because the header is two different things in the two
+# frames. Wide, it captions a column and has the room to say what the
+# column holds: "Held since", "Dates held". Narrow, the same element
+# is a sort chip in a row of five that has to fit 358px -- and there
+# "Held since" and "Dates held" are what pushed the row into a
+# horizontal scroll it should never have needed. The design writes the
+# short forms on its phone frame for exactly that reason. An empty
+# narrow label means the wide one serves both.
+OPEN_COLUMNS: tuple[tuple[str, str, str, str, str], ...] = (
+    ("name", "Holding", "Name", "text", "name"),
+    ("since", "Held since", "", "text", "since"),
+    ("weight", "Weight", "", "number", "weight"),
+    ("tsr", "Return", "", "number", "num"),
+    ("cagr", "IRR", "", "number", "num"),
+)
 
-def _fmt_holding_pct_html(value: float) -> SafeHtml:
-    """Format a Return / IRR percentage with a CSS-hidable decimal.
-
-    On wider viewports the Return / IRR rows of a holding capsule
-    stack vertically, leaving the right column of the stats grid
-    plenty of room for the trailing ``.X`` digit even when the
-    integer portion has reached three figures. On narrower
-    viewports the same metrics reflow into a horizontal row
-    alongside Weight (the ``@media (max-width: 540px)`` block in
-    ``page.css``), where ``100.0`` / ``217.4`` would crowd the
-    3-column grid and the original ``_fmt_pct`` truncation to
-    plain ``100`` / ``217`` reads tidier.
-
-    The helper emits both shapes from a single DOM node: when the
-    rounded magnitude reaches 100 it wraps the ``.X`` tail in a
-    ``<span class="holding__decimal">`` element that the mobile
-    media query hides via ``display: none``. Under 100 the
-    formatter returns the bare ``.1f`` text (every viewport keeps
-    the decimal there because the integer part is at most two
-    digits, so the extra precision doesn't crowd the row).
-
-    Boundary handling mirrors :func:`_fmt_pct` -- ``round(abs(value),
-    1) >= 100`` catches values that round UP to 100 (e.g. ``99.96``
-    -> ``100.0``) so they shed the decimal on mobile alongside the
-    natively-3-digit cases.
-    """
-    full = format(value, ".1f")
-    if round(abs(value), 1) < 100:
-        return SafeHtml(html.escape(full))
-    # ``format(..., ".1f")`` always emits ``<int>.<digit>``, so the
-    # split is unconditional and the wrapper carries the leading
-    # ``.`` so the desktop layout reads as a continuous number while
-    # the mobile rule simply drops the wrapper.
-    integer_part, decimal_part = full.rsplit(".", 1)
-    return SafeHtml(
-        f"{html.escape(integer_part)}"
-        f'<span class="holding__decimal">.{html.escape(decimal_part)}</span>'
-    )
-
-
-# Sort options surfaced above each holdings list. ``key`` is the
-# ``data-holdings-sort-key`` consumed by the holdings-sort
-# script and matched against the ``data-sort-<key>`` attribute
-# on each ``<article class="holding">``; ``label`` is the
-# displayed text; ``kind`` controls the default direction the
-# JS picks the first time the user activates a column ("text"
-# -> ascending, "number" -> descending). The "default" key
-# special-cases the restore-DOM-order button.
-# Default number of holding capsules visible before the "Show all"
-# toggle expands the list. Kept in sync with the CSS
-# ``nth-of-type(n+4)`` cutoff (three visible rows).
-VISIBLE_DEFAULT: int = 3
-
-
-# No "Ticker" option: capsules identify positions by company name, so
-# a ticker sort would reorder the list against data the reader cannot
-# see -- and for a combined position (several listings of one company,
-# see :mod:`investing.positions`) there is no single ticker it could
-# honestly sort by. The Trades table keeps its own ticker sort, where
-# the column is visible and each row is one specific listing.
-SORT_OPTIONS: tuple[tuple[str, str, str], ...] = (
-    ("default", "Default", "default"),
-    ("name", "Name", "text"),
-    # ``tsr`` and ``cagr`` are kept as the sort *keys* (they match
-    # the ``data-sort-tsr`` / ``data-sort-cagr`` attributes the
-    # holdings-sort script reads, and the on-disk DOM order tests
-    # pin those names). The visible labels read "Return" and "IRR"
-    # because the underlying figures are now MoIC-based and IRR-
-    # based rather than TWR/CAGR -- see the disclaimer methodology
-    # bullet for the full rationale.
-    ("tsr", "Return", "number"),
-    ("cagr", "IRR", "number"),
-    ("weight", "Weight", "number"),
+CLOSED_COLUMNS: tuple[tuple[str, str, str, str, str], ...] = (
+    ("name", "Holding", "Name", "text", "name"),
+    ("held", "Dates held", "Dates", "text", "periods"),
+    ("tsr", "Return", "", "number", "num"),
+    ("cagr", "IRR", "", "number", "num"),
 )
 
 
-def build_sort_control(*, scope: str, include_weight: bool) -> str:
-    """Render the per-section "Sort by" toolbar above a holdings list.
+def _weight_bar(weight: float, *, muted: bool) -> str:
+    """Render the in-row weight bar plus its numeric label.
 
-    ``scope`` is the value the wrapping
-    ``data-holdings-list="..."`` element carries on its inner
-    list, used by the inline sort script to wire each toolbar
-    to its own list independently. ``include_weight`` controls
-    whether the "Weight" button is rendered -- it is meaningless
-    for historical holdings (no current weight) so the
-    historical toolbar omits it.
+    The row publishes its own weight as ``--w`` and the stylesheet
+    divides it by the table's ``--holdings-weight-scale`` (the
+    largest weight on the page, set once on the ``<table>``). Doing
+    the normalisation in CSS rather than in Python means a row can be
+    rendered the moment its holding arrives, without the renderer
+    having to see the whole book first.
 
-    The "Default" button is rendered as the active option on
-    first paint to mirror the order ``get_holdings`` already
-    emits (most recent buy / most recent sell first).
+    Scaling to the largest position rather than to 100% is what makes
+    the column readable: a book whose top holding is 21% would
+    otherwise draw every bar inside the left fifth of the track,
+    where the differences that matter are a few pixels wide.
+
+    Fixed income gets the neutral fill rather than the JG accent. The
+    accent means "this is the equity sleeve" everywhere else on the
+    page -- chart curve, allocation bar, OG card swatch -- and a bond
+    ETF is not that.
     """
-    buttons: list[str] = []
-    for key, label, kind in SORT_OPTIONS:
-        if key == "weight" and not include_weight:
-            continue
-        is_default = key == "default"
-        indicator_html = (
-            ""
-            if is_default
-            else '<span class="holdings__sort-indicator" aria-hidden="true"></span>'
-        )
-        buttons.append(
-            f'<button type="button" class="holdings__sort-btn" '
-            f'data-holdings-sort-key="{key}" '
-            f'data-holdings-sort-kind="{kind}" '
-            f'aria-pressed="{"true" if is_default else "false"}">'
-            f"{html.escape(label)}{indicator_html}"
-            "</button>"
-        )
-    # Aria label flexes per scope so screen readers announce the
-    # sub-section the toolbar reorders ("current equity holdings" /
-    # "current fixed income holdings" / "historical equity
-    # holdings" / "historical fixed income holdings"). Falls back
-    # to a generic "current" / "historical" wording when the scope
-    # doesn't carry an explicit asset-class suffix, preserving the
-    # historical equity-only labelling for the legacy
-    # ``"current"`` / ``"historical"`` scopes.
-    if scope.startswith("current"):
-        scope_label = "current"
-    elif scope.startswith("historical"):
-        scope_label = "historical"
-    else:
-        scope_label = scope
-    if scope.endswith("-fixed-income"):
-        scope_label += " fixed income"
-    elif scope in ("current", "historical"):
-        # Pure-equity legacy scope: keep the historical wording so
-        # tests and existing snapshots don't churn on the new
-        # explicit "equity" qualifier.
-        pass
-    else:
-        scope_label += " equity"
+    fill = "holdings__bar-fill holdings__bar-fill--muted" if muted else "holdings__bar-fill"
     return (
-        f'<div class="holdings__sort" role="group" '
-        f'aria-label="Sort {scope_label} holdings" '
-        f'data-holdings-sort="{html.escape(scope)}">'
-        '<span class="holdings__sort-label" aria-hidden="true">'
-        "Sort by"
+        '<span class="holdings__bar">'
+        f'<span class="{fill}" style="--w: {max(weight, 0.0):.2f}"></span>'
         "</span>"
-        f"{''.join(buttons)}"
-        "</div>"
+        f'<span class="holdings__weight-value">{_fmt_pct(weight)}%</span>'
     )
 
 
-def build_toggle(*, scope: str, total: int) -> str:
-    """Render a collapse toggle beneath a holdings list when needed.
+def _logo_cell(*, logo_url: str, website_url: str, company_name: str) -> str:
+    """Render the leading logo cell, linked to the issuer's own site.
 
-    Emitted only when ``total`` exceeds :data:`VISIBLE_DEFAULT` so a
-    single-position list stays free of inert chrome. The button's
-    ``data-holdings-toggle`` value matches the sibling list's
-    ``data-holdings-list`` scope so the inline sort / collapse script
-    can pair each toggle with its list independently.
+    Decorative ``alt=""`` on the ``<img>`` means the link needs its
+    own accessible name; ``aria-label`` / ``title`` carry that and a
+    mouse tooltip. ``target="_blank"`` keeps the reader's place on the
+    portfolio page and ``rel="noopener noreferrer"`` blocks the target
+    from reaching back through ``window.opener``.
+
+    Explicit ``width`` / ``height`` reserve the box before the SVG
+    decodes, so a table of 12 logos settles at zero layout shift.
     """
-    if total <= VISIBLE_DEFAULT:
-        return ""
+    label = f"Open {company_name or 'company'} website"
     return (
-        f'<button type="button" class="holdings__toggle" '
-        f'data-holdings-toggle="{html.escape(scope)}" '
-        f'data-total="{total}" aria-expanded="false">'
-        f"Show all {total} holdings</button>"
+        '<td class="holdings__logo-cell" role="cell">'
+        f'<a class="holdings__logo-link" href="{html.escape(website_url)}" '
+        'target="_blank" rel="noopener noreferrer" '
+        f'aria-label="{html.escape(label)}" title="{html.escape(label)}">'
+        f'<img class="holdings__logo" src="{html.escape(logo_url)}" alt="" '
+        'loading="lazy" decoding="async" width="34" height="22">'
+        "</a>"
+        "</td>"
     )
 
 
-def build_card(
-    *,
-    logo_url: str,
-    title: str,
-    stats: Iterable[tuple[str, str | SafeHtml, float | None]],
-    periods: Iterable[tuple] | None = None,
-    note: str | None = None,
-    card_id: str | None = None,
-    data_attrs: Mapping[str, str] | None = None,
-    website_url: str | None = None,
-    company_name: str | None = None,
-) -> str:
-    """Render a capsule with logo, title/period(s)/note, and right-aligned stats.
+def _name_cell(holding: dict) -> str:
+    """Render the company name with its listing(s) underneath.
 
-    ``data_attrs`` is an optional mapping of ``data-*`` attribute
-    names (without the ``data-`` prefix) to string values that
-    will be emitted on the outer ``<article>``. Used by the
-    holdings sort control to read per-card sort keys (ticker,
-    name, return, IRR, weight) without having to re-parse the
-    rendered card body. The attribute names use the historical
-    ``tsr`` / ``cagr`` keys to keep the JS contract stable; only
-    the visible labels and the underlying formulas have moved
-    to MoIC / XIRR semantics.
-
-    Stat values are HTML-escaped by default; callers that need to
-    embed inline markup (e.g. the ``<span class="holding__decimal">``
-    wrapper emitted by :func:`_fmt_holding_pct_html` so the mobile
-    layout can hide the trailing ``.X``) can pass a :class:`SafeHtml`
-    value to bypass escaping. The :func:`escape` helper is idempotent
-    on :class:`SafeHtml`, so the call site stays a single line.
-
-    ``website_url`` is the click target wired onto the capsule's
-    logo wrapper. When provided, the ``<img>`` is wrapped in an
-    ``<a>`` so the company logo doubles as a navigation affordance
-    (typically the issuer's own site, falling back to investor
-    relations and then to a Google search via
-    :func:`investing.holdings.resolve_company_url`). ``company_name``
-    is the human-readable label used for the link's
-    ``aria-label`` / ``title`` so screen readers and tooltips
-    announce ``"Open <name> website"`` rather than the bare URL.
+    The name is the answer to "what do I own"; the ticker is a detail
+    of the transaction, so it sits below at a smaller size rather
+    than competing for the row's first line. A position assembled
+    from several listings (see :mod:`investing.positions`) names all
+    of them, joined with ``+``, because no single symbol identifies
+    it honestly.
     """
-    body_parts = [f'<h3 class="holding__title">{html.escape(title)}</h3>']
-    if periods:
-        # Always render the most-recent period first so it sits
-        # at the top of the visual stack. ``Holding.summary``
-        # already returns newest-first in production, but
-        # preview / synthetic data and any future call site might
-        # not; the visual order is a UX guarantee.
-        ordered = sorted(periods, key=lambda p: p[0], reverse=True)
-        items = []
-        for start, end in ordered:
-            start_html = f'<time datetime="{start.strftime("%Y-%m-%d")}">{_fmt_date(start)}</time>'
-            if end is None:
-                end_html = "<span>Present</span>"
-            else:
-                end_html = f'<time datetime="{end.strftime("%Y-%m-%d")}">{_fmt_date(end)}</time>'
-            items.append(f"<li>{start_html}<span>-</span>{end_html}</li>")
-        body_parts.append(f'<ul class="holding__periods">{"".join(items)}</ul>')
-    if note:
-        body_parts.append(f'<p class="holding__note">{html.escape(note)}</p>')
-
-    stat_parts = []
-    for label, value, sign in stats:
-        attr = ""
-        if sign is not None:
-            attr = f' class="{_value_class(sign)}"'
-        stat_parts.append(
-            '<div class="holding__stat">'
-            f"<dt>{html.escape(label)}</dt>"
-            f"<dd{attr}>{escape(value)}</dd>"
-            "</div>"
-        )
-
-    id_attr = f' id="{html.escape(card_id)}"' if card_id else ""
-    data_attr_html = ""
-    if data_attrs:
-        # Emit attributes in a stable order so the rendered
-        # markup is deterministic across calls; ``dict``
-        # preserves insertion order, but the explicit ``sorted``
-        # pass keeps the output reproducible regardless of how
-        # the caller built the mapping.
-        data_attr_html = "".join(
-            f' data-{key}="{html.escape(data_attrs[key])}"' for key in sorted(data_attrs)
-        )
-    # Below-the-fold logos load lazily; explicit dimensions
-    # reserve space and keep CLS at zero.
-    img_html = (
-        f'<img class="holding__logo" src="{html.escape(logo_url)}" '
-        'alt="" loading="lazy" decoding="async" '
-        'width="64" height="64">'
-    )
-    if website_url:
-        # Decorative ``alt=""`` on the inner ``<img>`` means the
-        # link itself needs an accessible name; ``aria-label`` /
-        # ``title`` carry that and a sighted-mouse tooltip without
-        # changing the existing visual layout. ``target="_blank"``
-        # opens the issuer site in a new tab so the reader doesn't
-        # lose their place on the portfolio page; ``rel="noopener
-        # noreferrer"`` blocks the target page from reaching back
-        # into ``window.opener`` (the OWASP "tabnabbing" mitigation
-        # the page already applies to the Yahoo Finance footer
-        # link).
-        label_source = company_name or "company"
-        label = f"Open {label_source} website"
-        logo_html = (
-            f'<a class="holding__logo-link" href="{html.escape(website_url)}" '
-            f'target="_blank" rel="noopener noreferrer" '
-            f'aria-label="{html.escape(label)}" title="{html.escape(label)}">'
-            f"{img_html}"
-            "</a>"
-        )
-    else:
-        logo_html = img_html
+    listings = " + ".join(holding.get("tickers") or [holding["ticker"]])
     return (
-        f'<article class="holding"{id_attr}{data_attr_html}>'
-        f"{logo_html}"
-        f'<div class="holding__body">{"".join(body_parts)}</div>'
-        f'<dl class="holding__stats">{"".join(stat_parts)}</dl>'
-        "</article>"
+        '<th class="holdings__name-cell" scope="row" role="rowheader">'
+        f'<span class="holdings__name">{html.escape(holding["name"])}</span>'
+        f'<span class="holdings__ticker">{html.escape(listings)}</span>'
+        "</th>"
     )
 
 
-def build_holding_card(
-    holding: dict,
-    *,
-    logo_url_for: Callable[[str], str],
-) -> str:
-    """Convenience wrapper that derives the card kwargs from a holding dict.
+def _period_start(holding: dict) -> date:
+    """The date the position the reader is looking at was opened.
 
-    ``logo_url_for`` is the renderer's per-page logo cache
-    accessor (typically ``Webpage._get_logo_url``); passing it
-    in keeps the view module logo-cache-agnostic.
+    A re-entered position has several periods; the open one is what
+    "Held since" means, so prefer the period with no end date and
+    fall back to the most recent start when every period is closed.
     """
-    stats: list[tuple[str, str | SafeHtml, float | None]] = [
-        # ``tsr%``/``cagr%``/``current_weight%`` are unrounded
-        # floats. Return and IRR run through
-        # ``_fmt_holding_pct_html`` so the ``.X`` decimal renders
-        # on the desktop vertical stack but the mobile horizontal
-        # row drops it via the ``.holding__decimal`` CSS hide rule.
-        # Weight keeps the plain ``_fmt_pct`` formatter (weights are
-        # always under 100 in practice, so the decimal-wrapping
-        # branch never fires there anyway). The raw float still
-        # flows to ``_value_class`` for sign-based colouring.
-        #
-        # The visible labels read "Return" (cumulative MoIC - 1)
-        # and "IRR" (annualised XIRR over the holding's actual
-        # cashflow series). The dict keys ``tsr%``/``cagr%`` are
-        # retained so the OG image / sort attrs / capsule layout
-        # don't churn; the methodology bullet in the footer
-        # disclaimer carries the formula change.
-        ("Return:", SafeHtml(f"{_fmt_holding_pct_html(holding['tsr%'])}%"), holding["tsr%"]),
+    periods = holding["periods"]
+    open_periods = [p for p in periods if p["end"] is None]
+    return max(p["start"] for p in (open_periods or periods))
+
+
+def _periods_cell(holding: dict) -> str:
+    """Render every ownership window of a closed position, newest first.
+
+    ``Holding.summary`` already returns newest-first in production,
+    but preview / synthetic data might not, and the visual order is a
+    UX guarantee rather than an upstream accident.
+    """
+    ordered = sorted(holding["periods"], key=lambda p: p["start"], reverse=True)
+    items = []
+    for period in ordered:
+        start, end = period["start"], period["end"]
+        start_html = f'<time datetime="{start.strftime("%Y-%m-%d")}">{_fmt_date(start)}</time>'
+        if end is None:
+            end_html = "<span>Present</span>"
+        else:
+            end_html = f'<time datetime="{end.strftime("%Y-%m-%d")}">{_fmt_date(end)}</time>'
+        items.append(f"<li>{start_html}<span>&ndash;</span>{end_html}</li>")
+    return f'<td class="holdings__periods" role="cell"><ul>{"".join(items)}</ul></td>'
+
+
+def _metric_cells(holding: dict) -> str:
+    """Return the Return / IRR cells for one row.
+
+    IRR renders as "TBA" while the position is too young for an
+    annualised figure to mean anything (see
+    :data:`investing.holdings.CAGR_TBA_THRESHOLD`); the cell carries
+    no sign colour in that case because there is no sign yet.
+    """
+    tsr = holding["tsr%"]
+    cells = [
+        f'<td class="holdings__num {_value_class(tsr)}" role="cell">'
+        f"{_fmt_pct(tsr, signed=True)}%</td>",
     ]
-    if holding["cagr%"] > CAGR_TBA_THRESHOLD:
-        stats.append(("IRR:", "TBA", None))
+    cagr = holding["cagr%"]
+    if cagr > CAGR_TBA_THRESHOLD:
+        cells.append('<td class="holdings__num holdings__num--tba" role="cell">TBA</td>')
     else:
-        stats.append(
-            (
-                "IRR:",
-                SafeHtml(f"{_fmt_holding_pct_html(holding['cagr%'])}%"),
-                holding["cagr%"],
-            ),
+        cells.append(
+            f'<td class="holdings__num holdings__num--soft {_value_class(cagr)}" role="cell">'
+            f"{_fmt_pct(cagr, signed=True)}%</td>"
         )
-    if holding["is_current"]:
+    return "".join(cells)
+
+
+def build_row(holding: dict, *, logo_url_for: Callable[[str], str]) -> str:
+    """Render one holding as a ``<tr>``.
+
+    Open positions get a "Held since" date and a weight bar; closed
+    ones get the list of windows they were held over instead, and no
+    weight at all -- they have none.
+    """
+    is_current = holding["is_current"]
+    website_url = holding.get("website") or google_search_url(holding["name"])
+    sort_attrs = {
+        "name": holding["name"].casefold(),
+        "tsr": _format_sort_number(holding["tsr%"]),
+        "cagr": _format_sort_number(holding["cagr%"]),
+    }
+
+    cells = [
+        _logo_cell(
+            logo_url=logo_url_for(holding["ticker"]),
+            website_url=website_url,
+            company_name=holding["name"],
+        ),
+        _name_cell(holding),
+    ]
+
+    if is_current:
         weight = holding["current_weight%"]
         if weight is None:
             raise InvariantError(
                 f"current holding {holding['ticker']!r} reached the "
                 "renderer with no weight -- apply_rollup() did not run",
             )
-        stats.append(("Weight:", f"{_fmt_pct(weight)}%", None))
+        start = _period_start(holding)
+        sort_attrs["since"] = start.strftime("%Y-%m-%d")
+        sort_attrs["weight"] = _format_sort_number(weight)
+        cells.append(
+            f'<td class="holdings__since" role="cell">'
+            f'<time datetime="{start.strftime("%Y-%m-%d")}">{_fmt_date(start)}</time>'
+            "</td>"
+        )
+        muted = holding.get("asset_class") == "fixed_income"
+        # The grid goes on an inner span, not on the ``<td>``. A
+        # ``display: grid`` cell leaves the table's formatting context
+        # entirely: the browser wraps it in an anonymous cell and
+        # ``vertical-align: middle`` stops applying, which floated the
+        # weight a couple of pixels clear of the Return and IRR
+        # figures it is supposed to line up with. The design puts the
+        # grid on a span for exactly this reason.
+        cells.append(
+            '<td class="holdings__weight" role="cell">'
+            f'<span class="holdings__weight-grid">{_weight_bar(weight, muted=muted)}</span>'
+            "</td>"
+        )
+    else:
+        # Closed rows sort by their most recent exit, which is the
+        # date a reader scanning "when did this end" is looking for.
+        sort_attrs["held"] = max(
+            p["end"].strftime("%Y-%m-%d") for p in holding["periods"] if p["end"] is not None
+        )
+        cells.append(_periods_cell(holding))
 
-    periods = [(p["start"], p["end"]) for p in holding["periods"]]
-    sort_attrs: dict[str, str] = {
-        "sort-name": holding["name"].casefold(),
-        "sort-tsr": _format_sort_number(holding["tsr%"]),
-        "sort-cagr": _format_sort_number(holding["cagr%"]),
-    }
-    if holding["is_current"]:
-        sort_attrs["sort-weight"] = _format_sort_number(holding["current_weight%"])
-
-    # ``Holding.summary`` always fills ``website`` (issuer site ->
-    # IR site -> Google search on company name); the ``.get`` +
-    # local fallback here is a renderer-side safety net for
-    # synthetic preview / test dicts that don't go through the
-    # production summary path. Either way the link's ``href`` is
-    # never empty so the wrapper always routes a click somewhere
-    # actionable.
-    website_url = holding.get("website") or google_search_url(holding["name"])
-
-    return build_card(
-        logo_url=logo_url_for(holding["ticker"]),
-        # Company name alone. The Holdings section answers "what do I
-        # own", and the answer is a company -- which listing it was
-        # bought through is a detail of the transaction, so the ticker
-        # lives in the Trades table (and on the treemap tile, where
-        # space forces a short label). This also lets a position
-        # backed by several listings render identically to every other
-        # capsule instead of needing a concatenated title.
-        title=holding["name"],
-        stats=stats,
-        periods=periods,
-        card_id=holding_anchor(holding["ticker"]),
-        data_attrs=sort_attrs,
-        website_url=website_url,
-        company_name=holding["name"],
+    cells.append(_metric_cells(holding))
+    attrs = "".join(
+        f' data-sort-{key}="{html.escape(sort_attrs[key])}"' for key in sorted(sort_attrs)
     )
+    return (
+        f'<tr class="holdings__row" role="row" id="{html.escape(holding_anchor(holding["ticker"]))}"{attrs}>'
+        f"{''.join(cells)}"
+        "</tr>"
+    )
+
+
+def build_group(*, label: str, rows: Sequence[str], columns: int) -> str:
+    """Wrap ``rows`` in a ``<tbody>`` under a band row naming the group.
+
+    The band is a full-width row rather than a second ``<thead>`` so
+    the table keeps one header, one ``aria-sort`` state and one set
+    of column widths across every group. Empty groups render nothing
+    at all -- "no title for an empty section" is the same
+    asymmetric-portfolio contract the rest of the page follows.
+    """
+    if not rows:
+        return ""
+    return (
+        '<tbody class="holdings__section" role="rowgroup">'
+        f'<tr class="holdings__band" role="row">'
+        f'<td colspan="{columns}" role="cell">{html.escape(label)}</td></tr>'
+        f"{''.join(rows)}"
+        "</tbody>"
+    )
+
+
+def build_table(
+    *,
+    scope: str,
+    groups: Iterable[str],
+    columns: tuple[tuple[str, str, str, str, str], ...] = OPEN_COLUMNS,
+    caption: str,
+    weight_scale: float = 0.0,
+    default_key: str = "",
+    default_dir: str = "desc",
+) -> str:
+    """Assemble the header + groups into one sortable table.
+
+    ``caption`` is a visually-hidden ``<caption>``: the visible
+    heading above the table is an ``<h2>``, but a table still owes
+    screen-reader users a name of its own, and "Holdings" alone does
+    not distinguish the open book from the closed one.
+
+    ``weight_scale`` is the largest weight in the table; every row's
+    bar is drawn as a fraction of it (see :func:`_weight_bar`). Zero
+    means no weight column, in which case the property is omitted
+    rather than published as a division by zero waiting to happen.
+    """
+    body = "".join(groups)
+    if not body:
+        return ""
+    scale_attr = f' style="--holdings-weight-scale: {weight_scale:.2f}"' if weight_scale > 0 else ""
+    # The order the table is in, declared so the sort script can adopt
+    # it instead of booting blind. Blind, its first click on the column
+    # the rows were already ordered by re-applied that same order and
+    # looked like a dead control -- and the table showed no indicator
+    # at all until something was clicked.
+    default_attr = (
+        f' data-sort-default="{html.escape(default_key)}" '
+        f'data-sort-default-dir="{html.escape(default_dir)}"'
+        if default_key
+        else ""
+    )
+    # ``+ 1`` for the logo column, which is decorative and carries no
+    # sort affordance of its own.
+    header_cells = [
+        '<th class="holdings__col-logo" role="columnheader">'
+        '<span class="visually-hidden">Logo</span></th>'
+    ]
+    for key, label, short, kind, modifier in columns:
+        if short:
+            caption_html = (
+                f'<span class="holdings__col-wide">{html.escape(label)}</span>'
+                f'<span class="holdings__col-narrow">{html.escape(short)}</span>'
+            )
+        else:
+            caption_html = html.escape(label)
+        header_cells.append(
+            f'<th class="holdings__col holdings__col--{modifier}" role="columnheader" '
+            f'data-sort-key="{key}" data-sort-kind="{kind}" aria-sort="none">'
+            '<button type="button" class="holdings__sort">'
+            f"{caption_html}"
+            '<span class="holdings__indicator" aria-hidden="true"></span>'
+            "</button>"
+            "</th>"
+        )
+    return (
+        '<div class="holdings__wrap">'
+        f'<table class="holdings" role="table" '
+        f'data-holdings-table="{html.escape(scope)}"{default_attr}{scale_attr}>'
+        f'<caption class="visually-hidden">{html.escape(caption)}</caption>'
+        f'<thead role="rowgroup"><tr role="row" data-scroll-hint>{"".join(header_cells)}</tr></thead>'
+        f"{body}"
+        "</table>"
+        "</div>"
+    )
+
+
+__all__ = [
+    "CLOSED_COLUMNS",
+    "OPEN_COLUMNS",
+    "build_group",
+    "build_row",
+    "build_table",
+]

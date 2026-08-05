@@ -3,6 +3,7 @@ pointer interaction styles, and the end-to-end ``save()`` flow."""
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 
 import pytest
@@ -10,6 +11,7 @@ import pytest
 from investing.assets import _NAV_SCROLL_SCRIPT, _RETURN_CHART_SCRIPT
 from investing.formatting import _sha256_b64
 from investing.webpage import Webpage
+from investing.webpage.return_chart import render as _render_chart
 from tests._webpage_support import (
     _benchmark,
     _holding,
@@ -18,110 +20,108 @@ from tests._webpage_support import (
 )
 
 
-class TestRenderBars:
-    def test_returns_empty_string_when_no_rows(self):
-        assert Webpage._render_bars([], "allocation") == ""
-        assert Webpage._render_bars(None, "allocation") == ""
+class TestAllocationBars:
+    """Two stacked part-of-a-whole bars replace the three-row bar chart
+    and the 416px treemap that used to sit under it."""
 
-    def test_renders_one_row_per_entry_with_widths(self):
-        out = Webpage._render_bars(
-            [("Equities", 95.4), ("Cash & Cash Equivalents", 4.6)],
-            "allocation",
-        )
-        assert 'class="bars bars--allocation"' in out
-        assert "Equities" in out
-        # Special characters in labels get HTML-escaped.
-        assert "Cash &amp; Cash Equivalents" in out
-        # In allocation mode bar widths match the raw percentages.
-        # Width is rendered with two decimals for sub-pixel precision
-        # (the input ``value`` is now an unrounded float).
-        assert "width: 95.40%" in out
-        assert "width: 4.60%" in out
-        assert out.count('class="bars__row"') == 2
+    @staticmethod
+    def _render(allocation=None, sectors=()):
+        from investing.webpage.allocation import render
 
-    def test_value_is_emitted_between_label_and_bar(self):
-        out = Webpage._render_bars([("Equities", 95.4)], "allocation")
-        # Title -> percentage -> bar (so percentages sit between the
-        # title and the visual bar).
-        label_idx = out.index("bars__label")
-        value_idx = out.index("bars__value")
-        track_idx = out.index("bars__track")
-        assert label_idx < value_idx < track_idx
+        return render(allocation, list(sectors))
 
-    def test_preserves_input_order(self):
-        out = Webpage._render_bars(
-            [("Cash & Cash Equivalents", 1.0), ("Equities", 2.0), ("Fixed Income", 3.0)],
-            "allocation",
-        )
-        # Labels appear in the input order, not sorted.
-        assert out.index("Cash &amp;") < out.index("Equities") < out.index("Fixed Income")
+    def test_returns_empty_string_with_no_data(self):
+        assert self._render() == ""
+        assert self._render({}, []) == ""
 
-    def test_anchored_rows_render_as_links(self):
-        # Rows whose label appears in the ``anchors`` map become
-        # ``<a class="bars__row--link">`` elements pointing at the
-        # target anchor; the rest stay as plain ``<div>`` rows.
-        out = Webpage._render_bars(
-            [("Equities", 95.4), ("Cash & Cash Equivalents", 4.6)],
-            "allocation",
-            anchors={"Equities": "equities"},
-        )
-        # The Equities row links to ``#equities``.
-        assert 'href="#equities"' in out
-        assert 'class="bars__row bars__row--link"' in out
-        # The cash row has no anchor entry -> stays a non-linked
-        # ``<div class="bars__row">``.
-        cash_block = out.split("Cash &amp;", 1)[1].split("</div></div>", 1)[0]
-        assert "bars__row--link" not in cash_block
+    def test_asset_class_bar_renders_one_segment_per_slice(self):
+        out = self._render({"Equities": 78.7, "Fixed Income": 10.7})
+        assert out.count('class="allocation__segment"') == 2
+        assert "width: 78.70%" in out
+        assert "width: 10.70%" in out
 
-    def test_unanchored_rows_stay_as_divs(self):
-        # No ``anchors`` argument at all -> every row renders as a
-        # plain ``<div class="bars__row">``.
-        out = Webpage._render_bars(
-            [("Equities", 50.0), ("Cash & Cash Equivalents", 25.0)],
-            "allocation",
-        )
-        assert "bars__row--link" not in out
-        assert "<a " not in out
-        assert out.count('class="bars__row"') == 2
+    def test_segments_keep_input_order(self):
+        out = self._render({"Equities": 60.0, "Fixed Income": 40.0})
+        assert out.index("60.00%") < out.index("40.00%")
 
-    def test_anchors_for_unknown_labels_are_ignored(self):
-        # A stray label in ``anchors`` that doesn't match any row is
-        # silently ignored -- the caller doesn't have to filter down
-        # to "real" tickers before passing the map.
-        out = Webpage._render_bars(
-            [("Equities", 50.0)],
-            "allocation",
-            anchors={"Equities": "equities", "MISSING": "holding-MISSING"},
-        )
-        assert 'href="#equities"' in out
-        assert "MISSING" not in out
+    def test_zero_weight_slices_are_dropped(self):
+        # A zero-width segment is invisible but still renders a legend
+        # chip claiming the portfolio holds something it does not.
+        out = self._render({"Equities": 100.0, "Fixed Income": 0.0})
+        assert "Fixed Income" not in out
 
-    def test_anchored_rows_preserve_label_value_track_order(self):
-        # The label-value-track ordering invariant from the non-linked
-        # path must hold on the linked rows too, so the visual layout
-        # is identical regardless of whether a row is clickable.
-        out = Webpage._render_bars(
-            [("Equities", 95.4)],
-            "allocation",
-            anchors={"Equities": "equities"},
-        )
-        label_idx = out.index("bars__label")
-        value_idx = out.index("bars__value")
-        track_idx = out.index("bars__track")
-        assert label_idx < value_idx < track_idx
+    def test_wide_segments_label_themselves(self):
+        out = self._render({"Equities": 78.7, "Fixed Income": 21.3})
+        assert "78.7%" in out.split("allocation__key", 1)[0]
 
-    def test_anchor_id_is_html_escaped(self):
-        # Anchor values flow into an HTML attribute so the renderer
-        # must escape them; otherwise a malformed slug (an unlikely
-        # but cheap-to-guard regression) could break out of the
-        # ``href`` and into surrounding markup.
-        out = Webpage._render_bars(
-            [("Equities", 50.0)],
-            "allocation",
-            anchors={"Equities": 'evil"<script>'},
-        )
-        assert "<script>" not in out
-        assert "&lt;script&gt;" in out or "&quot;" in out
+    def test_every_segment_and_every_chip_carries_its_share(self):
+        # Which of the two the reader ends up seeing is a CSS question
+        # -- a container query on the segment hides a label the segment
+        # is too narrow to hold, at whatever width that happens to be.
+        # The renderer's job is to put the figure in both places.
+        #
+        # This replaced a render-time ``pct >= 6`` rule, which decided
+        # in *percent* a question that is really about *pixels*: six
+        # percent of an 880px bar holds a label and six percent of a
+        # 340px one does not, so on a narrow page two neighbours both
+        # kept labels neither could fit and the numbers collided. It
+        # also left the legend half-labelled, since a chip showed its
+        # share only when the bar had dropped it.
+        out = self._render({"Equities": 97.0, "Fixed Income": 3.0})
+        bar, _, key = out.partition("allocation__key")
+        drawn = [chunk.split("<", 1)[0] for chunk in bar.split('allocation__segment-value">')[1:]]
+        assert drawn == ["97.0%", "3.0%"]
+        # Every chip, not just the ones the bar gave up on.
+        chips = [chunk.split("<", 1)[0] for chunk in key.split('allocation__key-value">')[1:]]
+        assert chips == ["97.0%", "3.0%"]
+
+    def test_a_segment_is_its_own_container_so_labels_hide_when_they_do_not_fit(self):
+        # The segment has to establish an inline-size containment
+        # context for the query to have anything to ask, and it has to
+        # clip: without ``overflow: hidden`` a ``nowrap`` label simply
+        # spills into its neighbour's, which is how the bar came to
+        # read "10.7%10.6%" with no gap between two different slices.
+        from investing.assets import _PAGE_STYLES
+        from tests._css_helpers import blocks_for, contains_at_rule, has_declaration
+
+        bodies = blocks_for(_PAGE_STYLES, ".allocation__segment")
+        assert bodies
+        joined = " ".join(bodies).replace(" ", "")
+        assert "inline-size" in joined
+        assert has_declaration(bodies[0], "overflow", "hidden")
+        assert contains_at_rule(_PAGE_STYLES, "@container allocation-segment (max-width: 46px)")
+
+    def test_sector_bar_is_captioned_with_its_denominator(self):
+        # The sector bar is a share of the equity sleeve, not of the
+        # whole portfolio, and saying so is what keeps the two bars
+        # from looking like they disagree about what 100% means.
+        out = self._render(None, [("Technology", 55.4), ("Healthcare", 44.6)])
+        assert "Equity sleeve by sector" in out
+        assert "share of equities" in out
+
+    def test_each_bar_renders_independently(self):
+        # A cash-only portfolio has an asset-class split and no sector
+        # mix; a synthetic fixture can have the reverse.
+        assert "By asset class" in self._render({"Equities": 100.0})
+        assert "Equity sleeve by sector" not in self._render({"Equities": 100.0})
+        assert "By asset class" not in self._render(None, [("Technology", 100.0)])
+
+    def test_sector_colours_come_from_the_shared_palette(self):
+        # A reader who learned "blue-green means Technology" from the
+        # treemap still knows it.
+        out = self._render(None, [("Technology", 100.0)])
+        assert "var(--treemap-color-tech)" in out
+
+    def test_unknown_sector_falls_back_to_the_other_swatch(self):
+        # An unbounded colour vocabulary would break the legend's
+        # promise that the same hue means the same sector.
+        out = self._render(None, [("Cryptozoology", 100.0)])
+        assert "var(--treemap-color-other)" in out
+
+    def test_segment_label_is_html_escaped(self):
+        out = self._render({'Equities" onload="x': 50.0, "Fixed Income": 50.0})
+        assert 'onload="x' not in out
+        assert "&quot;" in out or "&#34;" in out
 
 
 class TestRenderReturnChart:
@@ -129,7 +129,7 @@ class TestRenderReturnChart:
         out = Webpage._render_return_chart({"history": [(datetime(2024, 1, 1), 1.0)]}, [])
         assert out == ""
 
-    def test_renders_jg_line_and_reference_line(self):
+    def test_renders_jg_line_and_a_real_baseline(self):
         history = [
             (datetime(2024, 1, 1), 1.0),
             (datetime(2024, 6, 1), 1.1),
@@ -138,15 +138,17 @@ class TestRenderReturnChart:
         out = Webpage._render_return_chart({"history": history}, [])
         assert 'class="return-chart"' in out
         assert "return-chart__line--jg" in out
-        assert "return-chart__ref" in out
-        # Without a benchmark there is no second line and no delta overlay.
+        # A labelled 0% baseline, not an unlabelled dashed suggestion.
+        assert "return-chart__base" in out
+        assert "return-chart__ref" not in out
+        # Without a benchmark there is no second line and no band.
         assert "return-chart__line--bench" not in out
-        assert "return-chart__delta" not in out
+        assert "return-chart__band" not in out
         # The svg has a viewBox and no fixed pixel dimensions.
         assert "viewBox=" in out
         assert "<svg " in out and 'width="' not in out.split("<svg ", 1)[1].split(">", 1)[0]
 
-    def test_renders_benchmark_line_and_legend_when_provided(self):
+    def test_renders_benchmark_line_and_end_labels_when_provided(self):
         history = [
             (datetime(2024, 1, 1), 1.0),
             (datetime(2024, 6, 1), 1.1),
@@ -157,10 +159,27 @@ class TestRenderReturnChart:
         }
         out = Webpage._render_return_chart({"history": history}, [benchmark])
         assert "return-chart__line--bench" in out
-        assert "S&amp;P 500" in out
+        # The benchmark keeps its index number. "S&P" alone is not a
+        # shorter way of writing "S&P 500" on this page: S&P Global is
+        # a *holding*, named in the tables below, so the bare
+        # abbreviation reads as the company that compiles the index
+        # rather than the index itself.
+        assert ">S&amp;P 500<" in out
+        assert ">S&amp;P<" not in out
+        assert ">Portfolio<" in out
 
-    def test_renders_outperformance_overlay_with_benchmark(self):
-        # JG ends at 1.20 (+20%), bench ends at 1.05 (+5%) -> +15 pp.
+    def test_only_the_redundant_index_suffix_is_dropped(self):
+        history = [(datetime(2024, 1, 1), 1.0), (datetime(2024, 6, 1), 1.1)]
+        benchmark = {
+            "ticker": "LSE:VUAA.L",
+            "name": "S&P 500 Index",
+            "history": [(datetime(2024, 1, 1), 1.0), (datetime(2024, 6, 1), 1.05)],
+        }
+        out = _render_chart({"history": history}, [benchmark], benchmark_label=lambda b: b["name"])
+        assert ">S&amp;P 500<" in out
+        assert "Index<" not in out
+
+    def test_end_values_read_the_series_endpoints(self):
         history = [
             (datetime(2024, 1, 1), 1.0),
             (datetime(2024, 6, 1), 1.1),
@@ -175,91 +194,48 @@ class TestRenderReturnChart:
             ],
         }
         out = Webpage._render_return_chart({"history": history}, [benchmark])
-        # The delta overlay sits inside its own positioning wrapper and
-        # exposes bar+label as separate elements so CSS can keep the
-        # bar pinned to the chart-end x-coordinate at every viewport.
-        assert 'class="return-chart__plot"' in out
-        assert 'class="return-chart__delta"' in out
-        assert 'class="return-chart__delta-bar"' in out
-        assert "+15.0 pp" in out
-        # Positive delta -> green class on the label.
-        assert "return-chart__delta-label value--positive" in out
-        # The overlay communicates positions via CSS custom properties
-        # so the bar/label can be styled independently of each other.
-        delta = out.split('class="return-chart__delta"', 1)[1].split("</div>", 1)[0]
-        assert "--top:" in delta
-        assert "--height:" in delta
+        assert ">+20.0%<" in out
+        assert ">+5.0%<" in out
 
-    def test_outperformance_overlay_uses_negative_class_when_underperforming(self):
+    def test_overlapping_end_labels_are_pushed_apart(self):
+        # A dead-heat window would otherwise render two labels on top
+        # of each other. The dots stay on the curve; only the text moves.
         history = [
             (datetime(2024, 1, 1), 1.0),
-            (datetime(2024, 6, 1), 0.95),
-            (datetime(2024, 12, 1), 0.92),
+            (datetime(2024, 6, 1), 1.05),
+            (datetime(2024, 12, 1), 1.1),
         ]
         benchmark = {
             "ticker": "LSE:VUAA.L",
             "history": [
                 (datetime(2024, 1, 1), 1.0),
-                (datetime(2024, 6, 1), 1.02),
-                (datetime(2024, 12, 1), 1.05),
+                (datetime(2024, 6, 1), 1.049),
+                (datetime(2024, 12, 1), 1.099),
             ],
         }
         out = Webpage._render_return_chart({"history": history}, [benchmark])
-        assert "-13.0 pp" in out
-        assert "return-chart__delta-label value--negative" in out
+        names = [
+            float(m)
+            for m in re.findall(r'class="return-chart__end-name" x="[\d.]+" y="([\d.-]+)"', out)
+        ]
+        assert len(names) == 2
+        assert abs(names[0] - names[1]) >= 40
 
-    def test_outperformance_label_uses_canonical_twr_minus_tsr_when_provided(self):
-        # When ``total_return["twr%"]`` and ``benchmark["tsr%"]`` are
-        # available (the production path), the chart's pp-delta label
-        # must come from those canonical metrics so it stays in sync
-        # with the JG vs S&P 500 capsule below the chart -- which
-        # also displays ``twr% - tsr%`` as its ``Total Return`` delta.
-        # The discrete history endpoints (1.20 vs 1.05 = +15.0 pp)
-        # are intentionally chosen NOT to match the TWR/TSR pair
-        # (+18.4 vs +5.7 = +12.7 pp) so a regression to history-based
-        # math would surface as a wrong assertion here.
+    def test_no_bracket_overlay_survives(self):
+        # The 1.75px vertical bracket the shaded band replaces is gone,
+        # along with its label and its CSS custom properties.
         history = [
             (datetime(2024, 1, 1), 1.0),
-            (datetime(2024, 6, 1), 1.1),
             (datetime(2024, 12, 1), 1.2),
         ]
         benchmark = {
             "ticker": "LSE:VUAA.L",
-            "tsr%": 5.7,
-            "history": [
-                (datetime(2024, 1, 1), 1.0),
-                (datetime(2024, 6, 1), 1.02),
-                (datetime(2024, 12, 1), 1.05),
-            ],
+            "history": [(datetime(2024, 1, 1), 1.0), (datetime(2024, 12, 1), 1.05)],
         }
-        out = Webpage._render_return_chart({"history": history, "twr%": 18.4}, [benchmark])
-        assert "+12.7 pp" in out
-        # And explicitly: the history-derived value must NOT appear
-        # as the chart label. (``+15.0 pp`` could in theory show up
-        # elsewhere on the page in some other test-data scenario, but
-        # here it would only come from a regression in this code
-        # path, since no other call site emits it.)
-        assert "+15.0 pp" not in out
-
-    def test_caption_uses_since_start_date_with_duration(self):
-        history = [
-            (datetime(2024, 1, 1), 1.0),
-            (datetime(2024, 5, 1), 1.2),
-        ]
-        out = Webpage._render_return_chart({"history": history}, [])
-        # Caption anchors the period via the start date and follows it
-        # with the elapsed window so the reader gets both at a glance.
-        caption = out.split("return-chart__caption", 1)[1].split("</div>", 1)[0]
-        # Date is wrapped in a machine-readable <time> element. The
-        # "Since X" caption reads as prose, so this one specific
-        # spot uses the long-form ``%b %-d, %Y`` from
-        # ``_fmt_date_long`` rather than the page-wide DD/MM/YYYY
-        # convention. ISO ``datetime`` attribute stays in W3C
-        # YYYY-MM-DD.
-        assert '<time datetime="2024-01-01">Jan 1, 2024</time>' in caption
-        assert "4 months" in caption
-        # The old "range X-Yx" caption format is gone.
-        assert "range" not in caption
+        out = Webpage._render_return_chart({"history": history}, [benchmark])
+        assert "return-chart__delta-label" not in out
+        assert "--top:" not in out
+        assert "return-chart__caption" not in out
 
 
 class TestReturnChartScrubber:
@@ -297,17 +273,27 @@ class TestReturnChartScrubber:
         assert data["start"] == "2024-01-01"
         # Total day span is the distance from start to last sample.
         assert data["totalDays"] == (datetime(2024, 12, 1) - datetime(2024, 1, 1)).days
-        # Single-series chart has no right-margin reserve (no delta).
-        assert data["rightPct"] == 0
-        # y-domain frames the values with a small headroom on both
-        # sides; here the data spans 1.0..1.2 -> bounds straddle that.
-        assert data["yMin"] < 1.0 < data["yMax"]
-        assert data["yMax"] > 1.2
+        # The plot box is what the scrubber converts through: the axes
+        # reserve room on both sides of the viewBox, so a naive
+        # pointer-x-over-container-width mapping would report a date
+        # two months off at either edge.
+        assert data["plot"]["x0"] > 0
+        assert data["plot"]["x1"] < data["view"]["w"]
+        assert data["plot"]["y0"] < data["plot"]["y1"]
+        # The domain is snapped to the tick ladder rather than padded
+        # by a percentage of the range, and zero is always inside it:
+        # the baseline is the reference every value is measured
+        # against. Here the data never dips below its starting value,
+        # so the floor lands exactly on it.
+        assert data["yMin"] == 1.0
+        assert data["yMax"] >= 1.2
         # Only the JG series is present; bench is absent.
         kinds = [s["kind"] for s in data["series"]]
         assert kinds == ["jg"]
         jg = data["series"][0]
-        assert jg["label"] == "JG"
+        # The tooltip has room for the whole word; only the chart's
+        # 114-unit right inset has to initial it.
+        assert jg["label"] == "Portfolio"
         # With three or more history points the renderer embeds the
         # SAME densely-sampled Pchip curve the SVG polyline draws,
         # so the marker dots track the rendered line exactly.
@@ -342,13 +328,14 @@ class TestReturnChartScrubber:
         }
         out = Webpage._render_return_chart({"history": history}, [benchmark])
         data = self._parse_chart_attr(out)
-        # Right-margin reserve matches the delta overlay width so the
-        # scrubber doesn't run the guide past the curves' last point.
-        assert data["rightPct"] == 12.0
         kinds = [s["kind"] for s in data["series"]]
         assert kinds == ["jg", "bench"]
         bench = data["series"][1]
         assert bench["label"] == "S&P 500"
+        # The portfolio's own series is labelled for the tooltip, where
+        # there is room for the whole word (the chart's end label
+        # initials it because the inset is 114 units wide).
+        assert data["series"][0]["label"] == "Portfolio"
         # Both series share the same densely-sampled x-axis so the
         # tooltip date, marker dots, and local caliper stay in
         # lockstep across the two curves.
@@ -487,12 +474,12 @@ class TestReturnChartScrubber:
         out = Webpage._render_return_chart({"history": history}, [benchmark])
         assert 'class="return-chart__hover-delta-bar"' in out
         assert 'class="return-chart__tooltip-delta"' in out
-        # The hover overlay sits BEFORE the static delta so the CSS
-        # rule ``.return-chart__hover.is-active ~ .return-chart__delta``
-        # can dim the static label while the scrubber is active.
-        hover_idx = out.index('class="return-chart__hover"')
-        static_delta_idx = out.index('class="return-chart__delta"')
-        assert hover_idx < static_delta_idx
+        # The hover overlay is the last thing in the plot block so it
+        # paints above the SVG without needing a stacking hack. There
+        # is no static delta annotation left to sit before -- the
+        # shaded band replaced it.
+        assert out.index('class="return-chart__hover"') > out.index("<svg ")
+        assert 'class="return-chart__delta"' not in out
 
     def test_short_history_omits_chart_and_data(self):
         # Single-sample history -> no chart, no scrubber data.
@@ -666,97 +653,13 @@ class TestNavScrollScript:
 
 
 class TestInteractionStyles:
-    """CSS gating around interactive states (marquee pause + linked
-    rows). Verified against the saved page so we exercise the same
-    inline stylesheet a browser would render."""
+    """Pointer-interaction rules that only exist in the served CSS.
 
-    def test_marquee_pauses_only_on_real_pointer_hover(
-        self,
-        stub_logo_lookup,
-        chdir_tmp,
-        freeze_today,
-    ):
-        # Pause-on-hover now lives in ``_TICKER_MARQUEE_SCRIPT``
-        # rather than in a CSS ``animation-play-state: paused`` rule:
-        # the marquee animation is driven from JS so the script
-        # gates the pause behind a ``matchMedia('(hover: hover)')``
-        # check (so taps on touch devices, where ``:hover`` used to
-        # latch into a sticky state, never freeze the bar) and
-        # attaches ``mouseenter``/``mouseleave`` listeners only when
-        # the user actually has a pointer device.
-        #
-        # The original ``:focus-within`` variant is gone in both the
-        # script and the stylesheet: pointer-clicking a marquee
-        # anchor would focus it by default and the previous CSS used
-        # to keep the strip parked until the user clicked somewhere
-        # else.
-        freeze_today(datetime(2025, 6, 1))
-        w = Webpage()
-        w.add_return(_total_return(), [])
-        w.add_holding(_holding(ticker="NMS:AAA"))
-        w.save()
-        out = (chdir_tmp / "index.html").read_text()
-
-        from tests._css_helpers import normalize
-
-        # The pause/resume listeners are gated behind a real-pointer
-        # ``matchMedia('(hover: hover)')`` check inside the marquee
-        # script. The exact source order is fixed by the IIFE so we
-        # can assert the gating literal-by-literal here.
-        assert "matchMedia('(hover: hover)')" in out
-        assert "mouseenter" in out
-        assert "mouseleave" in out
-        # The animation no longer runs as a CSS keyframe, so no
-        # ``animation-play-state: paused`` rule should remain in
-        # the stylesheet (the JS pause flag is the only path now).
-        assert "animation-play-state:paused" not in normalize(out)
-        # And the focus-within variant that used to keep the bar
-        # parked after a click is gone from the stylesheet too.
-        assert ".ticker:focus-within" not in normalize(out)
-        # Regression guard: the unconditional ``.ticker:hover``
-        # rule grouped with ``:focus-within`` (the previous shape)
-        # is absent.
-        assert ".ticker:hover .ticker__track,.ticker:focus-within" not in normalize(out)
-
-    def test_marquee_link_hover_is_gated_to_pointer_devices(
-        self,
-        stub_logo_lookup,
-        chdir_tmp,
-        freeze_today,
-    ):
-        # Same touch-device caveat as the strip itself: the
-        # logo-lift hover effect lives behind ``@media (hover:
-        # hover)`` so a tap doesn't leave a logo permanently
-        # brightened. ``:focus-visible`` stays outside the gate
-        # for keyboard users.
-        freeze_today(datetime(2025, 6, 1))
-        w = Webpage()
-        w.add_return(_total_return(), [])
-        w.add_holding(_holding(ticker="NMS:AAA"))
-        w.save()
-        out = (chdir_tmp / "index.html").read_text()
-
-        from tests._css_helpers import (
-            at_rule_bodies,
-            blocks_for,
-            has_declaration,
-        )
-
-        focus_bodies = blocks_for(out, ".ticker__link:focus-visible .ticker__logo")
-        assert focus_bodies, "focus-visible logo brighten rule missing"
-        assert any(has_declaration(b, "opacity", "1") for b in focus_bodies)
-
-        # The stylesheet declares ``@media (hover: hover)`` several times
-        # (one block per topic), so union the bodies before probing.
-        hover_bodies = at_rule_bodies(out, "@media (hover: hover)")
-        assert hover_bodies, "@media (hover: hover) missing"
-        hover_logo_rules: list[str] = []
-        for hb in hover_bodies:
-            hover_logo_rules.extend(
-                blocks_for(hb, ".ticker__link:hover .ticker__logo"),
-            )
-        assert hover_logo_rules, "hover logo brighten missing inside @media (hover: hover)"
-        assert any(has_declaration(b, "opacity", "1") for b in hover_logo_rules)
+    The marquee and the clickable allocation-bar rows are gone, so the
+    ``@media (hover: hover)`` gates that guarded their hover states
+    went with them; what survives here is the one rule that has to
+    stay absent.
+    """
 
     def test_no_css_smooth_scroll_layered_on_top_of_js_animation(
         self,
@@ -801,137 +704,149 @@ class TestInteractionStyles:
         assert rm_body is not None, "reduced-motion block missing"
         assert "html:focus-within" not in rm_body
 
-    def test_bars_row_link_hover_is_gated_to_pointer_devices(
+    def test_removed_surfaces_leave_no_orphaned_rules(
         self,
         stub_logo_lookup,
         chdir_tmp,
         freeze_today,
     ):
-        # The user-reported regression: tapping a ticker row in the
-        # equities allocation chart on a touch device left the row
-        # highlighted after the finger lifted (``:hover`` sticks on
-        # touch). Gating on ``@media (hover: hover)`` keeps the
-        # hover affordance for mouse / trackpad readers while touch
-        # users only see the highlight while their finger is
-        # actually on the row.
+        # Dead selectors in a hashed inline stylesheet are shipped
+        # bytes that no element can ever match, and they make the next
+        # reader think the surface still exists.
         freeze_today(datetime(2025, 6, 1))
         w = Webpage()
         w.add_return(_total_return(), [])
-        w.add_allocations({"Equities": 95.0}, {"NMS:AAA": 50.0})
         w.add_holding(_holding(ticker="NMS:AAA"))
         w.save()
         out = (chdir_tmp / "index.html").read_text()
-
-        from tests._css_helpers import (
-            blocks_for,
-            contains_at_rule,
-            normalize,
-        )
-
-        # The hover branch is gated.
-        assert contains_at_rule(out, "@media (hover: hover)")
-        # The keyboard focus branch is not, so the row still gets
-        # a visible state when reached via the tab order.
-        assert blocks_for(out, ".bars__row--link:focus-visible"), (
-            "focus-visible rule on .bars__row--link missing"
-        )
-        # Regression guard: the comma-joined unconditional
-        # ``:hover, :focus-visible`` shape that produced the
-        # sticky-tap behaviour is gone.
-        assert ".bars__row--link:hover,.bars__row--link:focus-visible" not in normalize(out)
+        for token in ("ticker__", "treemap__", "bars__", "returns-compare", "holding__"):
+            assert token not in out, f"orphaned {token} rules survived"
 
 
-class TestOgImageHeroCaption:
-    """Direct unit tests on :func:`investing.webpage.og_image._hero_caption`
-    -- the share preview's headline caption.
+class TestOgImageHeroCopy:
+    """Direct unit tests on :func:`investing.webpage.og_image._hero_copy`
+    -- every string the share card's left-hand column renders.
 
-    Lives at unit-helper granularity rather than driving the full
-    PNG renderer because the rendered text isn't easily round-
-    trippable out of the raster output. Pinning the helper's
-    contract here guards against the share preview drifting back
-    to the historical bug where a negative CAGR delta still
-    rendered "Outperformance of S&P 500 on CAGR" (the red hero
-    number contradicting its own caption)."""
+    Lives at unit-helper granularity rather than driving the full PNG
+    renderer because the rendered text isn't round-trippable out of
+    the raster output. Two contracts are pinned here. The card leads
+    with the same claim the page leads with -- the *time-weighted*
+    delta, not the CAGR delta, which is what let the two assets argue
+    for different numbers (+1.3 pp on the card against +6.7 pp on the
+    page). And the wording flips with the sign, so a losing window
+    never ships a card claiming a lead."""
 
-    def test_positive_delta_claims_outperformance(self):
-        from investing.webpage.og_image import _hero_caption
+    @staticmethod
+    def _copy(twr, delta, label="S&P 500"):
+        from investing.webpage.og_image import _hero_copy
 
-        assert _hero_caption(5.2, "S&P 500") == (
-            "Outperformance of ",
-            "S&P 500",
-            " on CAGR",
-        )
+        return _hero_copy(twr, delta, label)
 
-    def test_zero_delta_still_reads_as_outperformance(self):
-        # A dead-flat tie sits on the positive side of the
-        # green / red split because the hero colour does too
-        # (``cagr_delta >= 0`` -> ``POS``). The caption and the
-        # colour must agree on the boundary so the preview never
-        # shows a green ``+0.0 pp`` hero with an "Underperformance"
-        # caption underneath it.
-        from investing.webpage.og_image import _hero_caption
+    def test_positive_delta_reads_as_ahead(self):
+        copy = self._copy(48.4, 6.7)
+        assert copy.number == "+6.7"
+        assert copy.unit == "pp"
+        assert copy.claim == "ahead of the S&P 500"
+        assert copy.eyebrow == "Time-weighted return vs S&P 500"
+        assert copy.positive
 
-        prefix, _, _ = _hero_caption(0.0, "S&P 500")
-        assert prefix == "Outperformance of "
+    def test_zero_delta_still_reads_as_ahead(self):
+        # A dead heat is not a loss; the sign colour and the wording
+        # have to agree, and both treat zero as non-negative.
+        copy = self._copy(41.7, 0.0)
+        assert copy.claim == "ahead of the S&P 500"
+        assert copy.positive
 
-    def test_negative_delta_claims_underperformance(self):
-        # The headline regression this whole helper exists for:
-        # the prior static "Outperformance of ..." copy stayed put
-        # even when ``cagr_delta`` was negative, so the share
-        # preview would claim a lead the portfolio didn't have.
-        from investing.webpage.og_image import _hero_caption
+    def test_negative_delta_reads_as_behind(self):
+        copy = self._copy(35.0, -3.4)
+        # U+2212 MINUS SIGN, not the ASCII hyphen: the card sets this
+        # beside signed positives and the two have to share an advance
+        # width. The vendored Roboto carries the glyph in both weights.
+        assert copy.number == "\u22123.4"
+        assert copy.claim == "behind the S&P 500"
+        assert not copy.positive
 
-        assert _hero_caption(-3.4, "S&P 500") == (
-            "Underperformance of ",
-            "S&P 500",
-            " on CAGR",
-        )
-
-    def test_uses_benchmark_label_in_emph_piece(self):
-        # The middle (bold) piece is the benchmark display name,
-        # not a hardcoded "S&P 500" -- so a non-S&P benchmark
-        # (e.g. swapped MSCI World) still reads correctly.
-        from investing.webpage.og_image import _hero_caption
-
-        assert _hero_caption(2.0, "MSCI World")[1] == "MSCI World"
-        assert _hero_caption(-2.0, "MSCI World")[1] == "MSCI World"
+    def test_uses_the_benchmark_label(self):
+        assert self._copy(20.0, 2.0, "MSCI World").claim == "ahead of the MSCI World"
+        assert self._copy(20.0, -2.0, "MSCI World").claim == "behind the MSCI World"
 
     def test_falls_back_to_sp500_when_bench_label_missing(self):
-        # ``bench_label`` can legitimately be ``None`` (no benchmark
-        # known to the display-name map *and* no ``name`` on the
-        # benchmark payload). The caption falls back to "S&P 500"
-        # so the rendered line stays a complete sentence rather
-        # than collapsing to "Outperformance of  on CAGR".
-        from investing.webpage.og_image import _hero_caption
+        # Never let the claim collapse to "ahead of the ".
+        assert self._copy(20.0, 1.0, None).claim == "ahead of the S&P 500"
+        assert self._copy(20.0, 1.0, "").claim == "ahead of the S&P 500"
 
-        assert _hero_caption(1.0, None)[1] == "S&P 500"
-        assert _hero_caption(1.0, "")[1] == "S&P 500"
+    def test_no_benchmark_reads_as_a_standalone_metric(self):
+        # With nothing to compare against, leading with a smaller true
+        # claim beats inventing a comparison the page cannot draw.
+        copy = self._copy(48.4, None)
+        assert copy.number == "48.4"
+        assert copy.unit == "%"
+        assert copy.claim == "total return since inception"
+        assert copy.eyebrow == "Time-weighted return"
+        assert copy.positive
 
-    def test_no_benchmark_reads_as_standalone_metric(self):
-        # Without a benchmark the OG hero shows the absolute CAGR
-        # rather than a delta, so the caption switches to a
-        # neutral "Annualized return (CAGR)" frame -- no
-        # out/underperformance claim against an absent reference.
-        from investing.webpage.og_image import _hero_caption
+    def test_negative_standalone_return_is_not_positive(self):
+        assert not self._copy(-12.0, None).positive
 
-        assert _hero_caption(None, "S&P 500") == (
-            "Annualized return (",
-            "CAGR",
-            ")",
-        )
-        # Same fallback even when no benchmark label is available.
-        assert _hero_caption(None, None) == (
-            "Annualized return (",
-            "CAGR",
-            ")",
-        )
+
+class TestOgImageFont:
+    """The card's typeface is committed, not discovered.
+
+    It used to probe the host -- DejaVu, then Arial, then Helvetica,
+    then Pillow's bitmap default -- so a local render and the CI
+    render of identical inputs came out in different faces. These
+    tests pin the fix: the file ships in the repo, and ``load_font``
+    actually loads it rather than silently falling back."""
+
+    def test_vendored_font_files_are_committed(self):
+        from pathlib import Path as _Path
+
+        from investing.webpage import og_image
+
+        for name in og_image._FONT_FILES.values():
+            path = _Path(og_image._FONT_DIR) / name
+            assert path.is_file(), f"missing vendored font {name}"
+        # The upstream licence ships beside them; redistributing the
+        # binaries without it is the one thing Apache-2.0 asks.
+        assert (_Path(og_image._FONT_DIR) / "LICENSE").is_file()
+
+    def test_load_font_returns_the_vendored_face_not_the_fallback(self):
+        from investing.webpage.og_image import load_font
+
+        for weight in ("regular", "bold"):
+            font = load_font(weight, 32)
+            # Pillow's bitmap default has no ``path``; a real
+            # FreeType face does, and it has to be ours.
+            assert getattr(font, "path", "").endswith("Roboto-Regular.ttf") or getattr(
+                font, "path", ""
+            ).endswith("Roboto-Bold.ttf"), f"{weight} fell back to a host font"
+            assert font.size == 32
+
+    def test_the_two_weights_are_actually_different_faces(self):
+        # A bold that silently resolves to the regular file would make
+        # every emphasis on the card a no-op.
+        from investing.webpage.og_image import load_font
+
+        assert load_font("regular", 32).path != load_font("bold", 32).path
+
+    def test_unknown_weight_falls_back_rather_than_raising(self):
+        # Best-effort is the contract for the whole OG path: never
+        # take the page build down over a missing glyph set.
+        from investing.webpage.og_image import load_font
+
+        assert load_font("ultralight", 32) is not None
+
+    def test_no_host_font_probing_survives(self):
+        # The candidate ladder is what made the card non-deterministic.
+        from investing.webpage import og_image
+
+        assert not hasattr(og_image, "_FONT_CANDIDATES")
 
 
 class TestSave:
     def test_writes_index_html_with_key_sections(self, stub_logo_lookup, chdir_tmp, freeze_today):
         freeze_today(datetime(2025, 6, 1))
         w = Webpage()
-        w.add_return(_total_return(), [_benchmark()])
         w.add_allocations(
             {"Equities": 95.4, "Cash & Cash Equivalents": 4.6},
             {"NMS:CURR": 100.0},
@@ -945,6 +860,7 @@ class TestSave:
                 periods=[{"start": datetime(2022, 1, 1), "end": datetime(2023, 1, 1)}],
             )
         )
+        w.add_return(_total_return(), [_benchmark()])
         w.save()
 
         out = (chdir_tmp / "index.html").read_text()
@@ -953,35 +869,47 @@ class TestSave:
         assert '<html lang="en">' in out
         # The descriptive title is what renders on SERPs/tabs.
         assert "<title>Jan Grzybek - Investment Portfolio</title>" in out
-        # Mobile readiness: viewport + theme-color metas, and at least one
-        # narrow-width media query in the embedded stylesheet.
+        # Mobile readiness: viewport + theme-color metas, and at least
+        # one narrow-width media query in the embedded stylesheet.
         assert 'name="viewport"' in out
         assert "width=device-width" in out
         assert 'name="theme-color"' in out
         from tests._css_helpers import contains_at_rule
 
-        assert contains_at_rule(out, "@media (max-width: 540px)")
-        # Page header with title + in-page nav anchored to each section.
+        assert contains_at_rule(out, "@media (max-width: 560px)")
+        # Brand lockup + in-page nav anchored to each section.
         assert '<header class="site-header">' in out
-        assert "Jan Grzybek Investment Portfolio" in out
+        assert '<p class="site-brand">' in out
+        assert "Jan Grzybek" in out
         assert '<nav class="site-nav"' in out
         assert 'href="#performance"' in out
-        assert 'href="#current"' in out
-        assert 'href="#historical"' in out
-        # Sections expose anchor IDs the nav links target.
-        assert 'id="performance"' in out
-        assert 'id="current"' in out
-        assert 'id="historical"' in out
-        assert "All-time performance" in out
-        assert "Current holdings" in out
-        assert "Historical holdings" in out
+        assert 'href="#holdings"' in out
+        assert 'href="#method"' in out
+        # Sections expose the anchor IDs the nav links target.
+        for section_id in ("performance", "allocation", "holdings", "closed", "method"):
+            assert f'id="{section_id}"' in out, f"missing #{section_id}"
+        # The claim is above the fold, before any section.
+        hero_idx = out.index('class="hero"')
+        performance_idx = out.index('id="performance"')
+        main_idx = out.index('<main id="main-content"')
+        assert main_idx < hero_idx < performance_idx
+        assert "ahead of the S&amp;P 500" in out
+        assert 'class="hero__figure' in out
+        # The freshness date rides in the hero, not the footer.
+        assert '<time datetime="2025-06-01">Jun 1, 2025</time>' in out
+        assert out.index("Updated") < performance_idx
+        # Section headings.
+        assert ">Cumulative return</h2>" in out
+        assert ">Allocation</h2>" in out
+        assert ">Holdings</h2>" in out
+        assert ">Closed positions</h2>" in out
         # Single semantic structure (no desktop/mobile duplication).
-        # <main> now carries an id so the skip link can target it
-        # and a tabindex so screen readers can move focus there.
+        # <main> carries an id so the skip link can target it and a
+        # tabindex so screen readers can move focus there.
         assert '<main id="main-content"' in out
         assert "</main>" in out
         assert "<footer" in out
-        assert 'class="holding"' in out
+        assert 'class="holdings__row"' in out
         # Skip link is the first interactive element in <body>, ahead
         # of the sticky header.
         assert 'class="skip-link" href="#main-content"' in out
@@ -989,73 +917,37 @@ class TestSave:
         skip_idx = out.index('class="skip-link"')
         header_idx = out.index('class="site-header"')
         assert body_idx < skip_idx < header_idx
-        # Marquee ticker is rendered at the top of <main>.
-        assert 'class="ticker"' in out
-        ticker_idx = out.index('class="ticker"')
-        main_idx = out.index('<main id="main-content"')
-        performance_idx = out.index('id="performance"')
-        assert main_idx < ticker_idx < performance_idx
-        # A current holding's ticker appears four times: twice in the
-        # marquee (two copies of the strip for the seamless loop,
-        # each carrying a ``title="TICKER - Name"`` tooltip) and
-        # twice in the treemap's JSON payload -- once as ``ticker``
-        # (identity: logo key, anchor, weights) and once as
-        # ``tickers`` (the tooltip's listing, which for a combined
-        # position spells out every constituent line). The ``href``
-        # uses the slugged ``holding-NMS-CURR`` form and so doesn't
-        # contribute to the raw count.
-        #
-        # The capsule no longer contributes: holdings are titled by
-        # company name, with the ticker left to the Trades table.
-        # The count is unchanged from before that switch only by
-        # coincidence -- the card's occurrence was traded for the
-        # payload's new ``tickers`` field.
-        assert out.count("NMS:CURR") == 4
-        # Historical positions are excluded from both the marquee and
-        # the treemap, and their capsule is name-only, so a closed
-        # position's ticker is absent from the page entirely.
-        assert out.count("NMS:OLD") == 0
-        # Asset-allocation bar chart still rendered; the previous
-        # ticker-level equities bar chart has been removed in
-        # favour of the sector treemap, so no ``<div class="bars
-        # bars--equities">`` container is emitted any more. The
-        # primitive is still defined in the embedded stylesheet
-        # (the ``_render_bars`` helper is general-purpose), so we
-        # specifically look for the rendered HTML container rather
-        # than the substring ``bars--equities``.
-        assert "bars--allocation" in out
-        assert '<div class="bars bars--equities"' not in out
-        assert '<figure class="treemap"' in out
-        # Dark mode and responsive media queries are present.
+        # The marquee is gone: its job -- "here are the brands I own"
+        # -- is done better by logos in the holdings table, which also
+        # carry numbers.
+        assert 'class="ticker"' not in out
+        assert '<figure class="treemap"' not in out
+        # An open position's listing appears once, in its row. The
+        # marquee used to print it twice more and the treemap payload
+        # twice again.
+        assert out.count("NMS:CURR") == 1
+        # A closed position's listing appears once too, in the closed
+        # table -- it used to be absent from the page entirely.
+        assert out.count("NMS:OLD") == 1
+        # Two stacked allocation bars replace the bar chart + treemap.
+        assert 'class="allocation"' in out
+        assert "By asset class" in out
+        # Dark mode and print rules are present.
         assert "prefers-color-scheme: dark" in out
         assert "@media print" in out
-        # Methodology bullets in the footer cover the base currency
-        # and the portfolio-level TWR scope.
-        assert 'class="footer__notes"' in out
-        assert "<strong>USD</strong> as the <strong>base currency</strong>" in out
-        assert "portfolio-level <strong>time-weighted return (TWR)</strong>" in out
-        # The frozen date appears in the footer, wrapped in a
-        # machine-readable <time> element. The "Updated on X"
-        # line reads as prose, so the human label uses the
-        # long-form ``%b %-d, %Y`` from ``_fmt_date_long`` (the
-        # slash-separated DD/MM/YYYY format used in the tabular
-        # parts of the page would break the sentence rhythm).
-        # The ISO ``datetime`` attribute stays in W3C YYYY-MM-DD.
-        assert '<time datetime="2025-06-01">Jun 1, 2025</time>' in out
 
-    def test_save_footer_has_methodology_and_disclaimer_headings(
+    def test_save_method_block_pairs_the_two_return_definitions(
         self,
         stub_logo_lookup,
         chdir_tmp,
         freeze_today,
     ):
-        # The footer is split into two labelled blocks: the
-        # "Methodology" heading sits above the bulleted notes
-        # (base currency / per-holding TSR / portfolio TWR / data
-        # source), and the "Disclaimer" heading sits above the
-        # informational-purposes paragraph and the logos/analytics
-        # legal note. Heading level mirrors ``.section__title`` (h2)
-        # inside ``<main>`` so the document outline stays linear.
+        # The two things a reader needs from the block are a *pair*:
+        # what the portfolio-level number means and what the
+        # per-holding numbers mean. Setting them side by side is the
+        # point -- the time-weighted / money-weighted distinction is
+        # the most misreadable thing on the page, and burying it as
+        # bullet three of four made it look like boilerplate.
         freeze_today(datetime(2025, 6, 1))
         w = Webpage()
         w.add_return(_total_return(), [_benchmark()])
@@ -1063,27 +955,27 @@ class TestSave:
         w.save()
 
         out = (chdir_tmp / "index.html").read_text()
-        # Both headings present, rendered as ``<h2 class="footer__title">``.
-        assert '<h2 class="footer__title">Methodology</h2>' in out
-        assert '<h2 class="footer__title">Disclaimer</h2>' in out
-        # Methodology heading sits above the bullet list; Disclaimer
-        # heading sits above the informational-purposes paragraph
-        # (and consequently above the logos/analytics legal note).
-        methodology_idx = out.index('<h2 class="footer__title">Methodology</h2>')
-        notes_idx = out.index('class="footer__notes"')
-        disclaimer_heading_idx = out.index('<h2 class="footer__title">Disclaimer</h2>')
-        disclaimer_para_idx = out.index('class="footer__disclaimer"')
-        legal_idx = out.index('class="footer__legal"')
-        assert methodology_idx < notes_idx < disclaimer_heading_idx
-        assert disclaimer_heading_idx < disclaimer_para_idx < legal_idx
-        # And explicitly: neither heading shows up in the in-page nav
-        # -- the nav only lists portfolio sections, the footer remains
-        # a tail-of-page reference without nav targets.
+        assert '<h2 class="method__title">Method &amp; disclaimer</h2>' in out
+        assert '<div class="method__grid">' in out
+        assert "<strong>Portfolio TWR</strong>" in out
+        assert "<strong>Per-holding Return and IRR</strong>" in out
+        assert "<strong>USD</strong>" in out
+        # The old bullet-list footer is fully retired.
+        assert "footer__notes" not in out
+        assert "footer__disclaimer" not in out
+        # Disclaimer and legal note follow the definitions.
+        twr_idx = out.index("<strong>Portfolio TWR</strong>")
+        legal_idx = out.index('class="method__legal"')
+        assert twr_idx < legal_idx
+        assert "informational purposes" in out
+        assert "no cookies or tracking identifiers are used." in out
+        # Unlike the old footer, Method IS a nav target: a reader who
+        # wants to know how a number was computed should not have to
+        # scroll to find out.
         nav_start = out.index('<nav class="site-nav"')
         nav_end = out.index("</nav>", nav_start)
-        nav_html = out[nav_start:nav_end]
-        assert "Methodology" not in nav_html
-        assert "Disclaimer" not in nav_html
+        assert 'href="#method"' in out[nav_start:nav_end]
+        assert '<footer id="method"' in out
 
     def test_save_emits_seo_metadata_in_head(
         self,
@@ -1287,69 +1179,51 @@ class TestSave:
         assert "Sitemap: https://jan-grzybek.github.io/investing/sitemap.xml" in robots
         assert "//sitemap.xml" not in robots
 
-    def test_save_wires_click_to_scroll_targets_across_sections(
+    def test_save_wires_nav_anchors_to_every_section(
         self,
         stub_logo_lookup,
         chdir_tmp,
         freeze_today,
     ):
-        # End-to-end contract for the click affordances that span
-        # multiple sections:
-        #   * a marquee logo links to the matching holding capsule;
-        #   * the "Equities" allocation bar links to the equities
-        #     sub-section right below the allocation chart;
-        #   * each tile in the sector treemap links to the matching
-        #     holding capsule below it (the older ticker-level
-        #     equities bar chart that used to provide this affordance
-        #     has been retired in favour of the treemap).
+        # The cross-section click affordances the marquee and the
+        # treemap used to provide are gone with them; what is left is
+        # the nav, and every link in it has to land on a real element.
         freeze_today(datetime(2025, 6, 1))
         w = Webpage()
-        w.add_return(_total_return(), [])
         w.add_allocations(
             {"Equities": 95.4, "Cash & Cash Equivalents": 4.6},
             {"NMS:AAA": 60.0, "NMS:BBB": 25.0, "Other equities": 10.0},
         )
         w.add_holding(_holding(ticker="NMS:AAA", name="Alpha"))
         w.add_holding(_holding(ticker="NMS:BBB", name="Beta"))
+        w.add_return(_total_return(), [])
         w.save()
         out = (chdir_tmp / "index.html").read_text()
 
-        # Holding capsules expose stable anchor ids.
+        nav_start = out.index('<nav class="site-nav"')
+        nav_end = out.index("</nav>", nav_start)
+        nav_html = out[nav_start:nav_end]
+        targets = re.findall(r'href="#([^"]+)"', nav_html)
+        assert targets
+        for target in targets:
+            assert f'id="{target}"' in out, f"nav points at missing #{target}"
+
+        # Rows still expose stable anchor ids so a future cross-
+        # reference (or a shared deep link) can scroll to them -- and,
+        # unlike before, every row is visible, so no script has to
+        # force-expand a list before the browser can find one.
         assert ' id="holding-NMS-AAA"' in out
         assert ' id="holding-NMS-BBB"' in out
-        # Equities sub-heading exposes the anchor the allocation
-        # chart's "Equities" row targets.
-        assert 'id="equities" class="section__subtitle"' in out
-        # Marquee logos link to the matching capsule.
-        assert 'href="#holding-NMS-AAA"' in out
-        assert 'href="#holding-NMS-BBB"' in out
-        # Allocation chart: "Equities" row links to the sub-section,
-        # cash row stays unlinked (no anchor block created for it).
-        assert 'href="#equities"' in out
-        # Both click-target classes are present: marquee links above
-        # the fold and the allocation chart's "Equities" row inside
-        # the allocation bars.
-        assert 'class="ticker__link"' in out
-        assert 'class="bars__row bars__row--link"' in out
-        # The sector treemap has replaced the older ticker-level
-        # equities bar chart and now provides the click-to-scroll
-        # affordance for individual holdings. Each tile links to
-        # the matching capsule and the synthetic "Other equities"
-        # bucket (carried purely in the OG-image / ``top_10``
-        # rollup) never reaches the rendered page any more.
-        assert '<figure class="treemap"' in out
-        # ``top_10`` may carry a synthetic ``Other equities`` rollup
+        # ``top_10`` may carry a synthetic "Other equities" rollup
         # label, but that bucket never becomes a holding anchor.
         assert "holding-Other" not in out
-        assert 'href="#holding-Other"' not in out
 
-    def test_save_without_current_holdings_skips_section(
+    def test_save_without_current_holdings_skips_the_holdings_section(
         self, stub_logo_lookup, chdir_tmp, freeze_today
     ):
         freeze_today(datetime(2025, 6, 1))
         w = Webpage()
-        w.add_return(_total_return(), [_benchmark()])
-        # Only a historical holding.
+        # Only a closed position.
         w.add_holding(
             _holding(
                 ticker="NMS:OLD",
@@ -1358,14 +1232,35 @@ class TestSave:
                 periods=[{"start": datetime(2022, 1, 1), "end": datetime(2023, 1, 1)}],
             )
         )
+        w.add_return(_total_return(), [_benchmark()])
         w.save()
 
         out = (chdir_tmp / "index.html").read_text()
-        assert "Historical holdings" in out
-        assert "Current holdings" not in out
-        # Nav drops the "Current" link and the corresponding anchor when
-        # there are no current holdings to point at.
-        assert 'href="#current"' not in out
-        assert 'id="current"' not in out
-        assert 'href="#historical"' in out
+        assert ">Closed positions</h2>" in out
+        assert ">Holdings</h2>" not in out
+        # Nav drops the Holdings link and the section anchor with it.
+        assert 'href="#holdings"' not in out
+        assert 'id="holdings"' not in out
         assert 'href="#performance"' in out
+        assert 'href="#method"' in out
+
+    def test_hero_counts_open_and_closed_positions(self, stub_logo_lookup, chdir_tmp, freeze_today):
+        freeze_today(datetime(2025, 6, 1))
+        w = Webpage()
+        w.add_holding(_holding(ticker="NMS:AAA"))
+        w.add_holding(_holding(ticker="NMS:BBB"))
+        w.add_holding(
+            _holding(
+                ticker="NMS:OLD",
+                is_current=False,
+                weight=None,
+                periods=[{"start": datetime(2022, 1, 1), "end": datetime(2023, 1, 1)}],
+            )
+        )
+        w.add_return(_total_return(), [_benchmark()])
+        w.save()
+        out = (chdir_tmp / "index.html").read_text()
+        hero = out[out.index('class="hero"') : out.index("</section>", out.index('class="hero"'))]
+        assert ">Positions</dt>" in hero
+        assert ">2<" in hero
+        assert "1 closed" in hero

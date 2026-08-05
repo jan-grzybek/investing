@@ -92,10 +92,18 @@ omit = ["tests/*"]
 show_missing = true
 skip_covered = false
 precision = 1
-# Baseline measured at ~87.7% after the expanded test suite; ratchet
-# downward only after a deliberate decision. A drop below this floor
-# fails CI rather than silently eroding the safety net.
-fail_under = 87
+# A one-way ratchet. The floor only ever moves *up*: whenever a change
+# lifts real coverage, raise this to match, and never lower it to make
+# a red build green. A drop below the floor fails CI rather than
+# silently eroding the safety net.
+#
+# 87 -> 95 when the edge-case suite landed. The gap that remains is
+# concentrated and known, not diffuse: the fd-redirection teardown in
+# ``safe_run``, the production entrypoints in ``cli``, the live-fetch
+# merge in ``market_data_store``, the SVG rasteriser in ``og_image``,
+# and the gspread batch fallback in ``sheets``. Each needs a harness
+# rather than a test, which is why they are last.
+fail_under = 95
 
 [tool.ruff]
 line-length = 100
