@@ -76,21 +76,6 @@ CLOSED_COLUMNS: tuple[tuple[str, str, str, str, str], ...] = (
 )
 
 
-# A note that hangs under a column header on the wide frame.
-#
-# The weight bars are normalised to the largest position, not to 100%
-# -- which is the right normalisation, since scaling ten holdings
-# against the whole portfolio leaves most of them as slivers. But it
-# means NVIDIA's bar runs the full track while the figure beside it
-# reads 21.4%, and a bar that disagrees with its own number needs one
-# line of explanation. It belongs on the column, where the reader is
-# looking, rather than in a footnote four screens down.
-#
-# The phone frame drops it: there the header is a sort chip, and a
-# chip is a control, not a place for prose.
-_COLUMN_NOTES: dict[str, str] = {"weight": "relative to largest"}
-
-
 def _weight_bar(weight: float, *, muted: bool) -> str:
     """Render the in-row weight bar plus its numeric label.
 
@@ -362,8 +347,6 @@ def build_table(
             )
         else:
             caption_html = html.escape(label)
-        note = _COLUMN_NOTES.get(key, "")
-        note_html = f'<span class="holdings__col-note">{html.escape(note)}</span>' if note else ""
         header_cells.append(
             f'<th class="holdings__col holdings__col--{modifier}" role="columnheader" '
             f'data-sort-key="{key}" data-sort-kind="{kind}" aria-sort="none">'
@@ -371,7 +354,6 @@ def build_table(
             f"{caption_html}"
             '<span class="holdings__indicator" aria-hidden="true"></span>'
             "</button>"
-            f"{note_html}"
             "</th>"
         )
     return (

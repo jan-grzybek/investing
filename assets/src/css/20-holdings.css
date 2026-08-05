@@ -50,19 +50,6 @@
    so each fixed column carries the design's content width plus the
    24px of cell padding that stands in for the gutter -- which lands
    the flexible name column within a few pixels of the design's 288. */
-/* A note under a column header -- see ``_COLUMN_NOTES``. Set in
-   sentence case at a smaller size so it reads as a gloss on the
-   header rather than as a second header. */
-.holdings__col-note {
-  display: block;
-  margin-top: 3px;
-  font-size: 0.625rem;
-  font-weight: 400;
-  letter-spacing: 0;
-  text-transform: none;
-  color: var(--muted-soft);
-  white-space: nowrap;
-}
 .holdings__col-logo { width: 58px; }
 /* Column headers carry both captions; each frame shows one. See
    ``holdings_view.OPEN_COLUMNS``. */
@@ -368,8 +355,6 @@
      a zero-width flex item -- invisible, but still charged a 6px gap
      before the first real chip. */
   .holdings thead .holdings__col-logo { display: none; }
-  /* The header is a sort chip here; a chip is a control, not prose. */
-  .holdings__col-note { display: none; }
   /* The chips take the short caption so five of them fit 358px
      without a scroll, which is how the design's phone frame reads. */
   .holdings__col-wide { display: none; }

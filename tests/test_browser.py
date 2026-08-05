@@ -811,7 +811,7 @@ def test_every_text_step_and_segment_label_clears_wcag_aa(page: Page, preview_in
                 const out = [];
                 document.querySelectorAll(
                     '.holdings__ticker, .holdings__band td, .section__note, '
-                    + '.holdings__since, .holdings__col-note'
+                    + '.holdings__since'
                 ).forEach(e => {
                     if (!e.textContent.trim()) return;
                     out.push({what: e.className.split(' ')[0],
