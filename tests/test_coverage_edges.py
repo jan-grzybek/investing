@@ -402,9 +402,9 @@ class TestMarketDataStoreDisabled:
     """
 
     def _store(self):
-        from investing.market_data_store import MarketDataStore
+        import investing.market_data_store as market_data_store
 
-        return MarketDataStore(None)
+        return market_data_store.MarketDataStore(None)
 
     def test_reads_return_empty_and_writes_do_nothing(self):
         import numpy as np
@@ -421,9 +421,9 @@ class TestMarketDataStoreDisabled:
     def test_a_read_only_store_never_writes(self, tmp_path):
         import numpy as np
 
-        from investing.market_data_store import MarketDataStore
+        import investing.market_data_store as market_data_store
 
-        store = MarketDataStore(tmp_path, persist=False)
+        store = market_data_store.MarketDataStore(tmp_path, persist=False)
         store.save_fx_history(
             "EUR",
             np.array(["2024-01-01"], dtype="datetime64[D]"),
@@ -435,67 +435,70 @@ class TestMarketDataStoreDisabled:
 
 class TestMarketDataRoot:
     def test_the_kill_switch_wins_over_a_configured_directory(self, monkeypatch, tmp_path):
-        import investing.market_data_store as mod
+        import investing.market_data_store as market_data_store
 
-        monkeypatch.setenv(mod._MARKET_DATA_DIR_ENV, str(tmp_path))
-        monkeypatch.setenv(mod._DISABLE_ENV, "1")
-        assert mod.market_data_root() is None
+        monkeypatch.setenv(market_data_store._MARKET_DATA_DIR_ENV, str(tmp_path))
+        monkeypatch.setenv(market_data_store._DISABLE_ENV, "1")
+        assert market_data_store.market_data_root() is None
 
     def test_an_empty_directory_setting_also_disables(self, monkeypatch):
-        import investing.market_data_store as mod
+        import investing.market_data_store as market_data_store
 
-        monkeypatch.delenv(mod._DISABLE_ENV, raising=False)
-        monkeypatch.setenv(mod._MARKET_DATA_DIR_ENV, "   ")
-        assert mod.market_data_root() is None
+        monkeypatch.delenv(market_data_store._DISABLE_ENV, raising=False)
+        monkeypatch.setenv(market_data_store._MARKET_DATA_DIR_ENV, "   ")
+        assert market_data_store.market_data_root() is None
 
     def test_a_configured_directory_expands_the_user_prefix(self, monkeypatch):
-        import investing.market_data_store as mod
+        import investing.market_data_store as market_data_store
 
-        monkeypatch.delenv(mod._DISABLE_ENV, raising=False)
-        monkeypatch.setenv(mod._MARKET_DATA_DIR_ENV, "~/snapshots")
-        root = mod.market_data_root()
+        monkeypatch.delenv(market_data_store._DISABLE_ENV, raising=False)
+        monkeypatch.setenv(market_data_store._MARKET_DATA_DIR_ENV, "~/snapshots")
+        root = market_data_store.market_data_root()
         assert root is not None and "~" not in str(root)
 
     def test_the_default_root_lives_beside_the_repo(self, monkeypatch):
-        import investing.market_data_store as mod
+        import investing.market_data_store as market_data_store
 
-        monkeypatch.delenv(mod._DISABLE_ENV, raising=False)
-        monkeypatch.delenv(mod._MARKET_DATA_DIR_ENV, raising=False)
-        assert mod.market_data_root().name == "market_data"
+        monkeypatch.delenv(market_data_store._DISABLE_ENV, raising=False)
+        monkeypatch.delenv(market_data_store._MARKET_DATA_DIR_ENV, raising=False)
+        assert market_data_store.market_data_root().name == "market_data"
 
     def test_persistence_is_on_unless_explicitly_switched_off(self, monkeypatch):
-        import investing.market_data_store as mod
+        import investing.market_data_store as market_data_store
 
-        monkeypatch.delenv(mod._PERSIST_ENV, raising=False)
-        assert mod._persist_enabled() is True
-        monkeypatch.setenv(mod._PERSIST_ENV, "0")
-        assert mod._persist_enabled() is False
+        monkeypatch.delenv(market_data_store._PERSIST_ENV, raising=False)
+        assert market_data_store._persist_enabled() is True
+        monkeypatch.setenv(market_data_store._PERSIST_ENV, "0")
+        assert market_data_store._persist_enabled() is False
 
 
 class TestMarketDataSerialisation:
     def test_history_survives_a_round_trip(self):
-        from investing.market_data_store import _deserialize_history, _serialize_history
+        import investing.market_data_store as market_data_store
 
         rows = [{"date": datetime(2024, 1, 2), "adj_close": 10.5}]
         splits = [{"date": datetime(2024, 3, 1), "split": 2.0}]
-        payload = _serialize_history(rows, splits=splits)
-        back_rows, back_splits = _deserialize_history(payload)
+        payload = market_data_store._serialize_history(rows, splits=splits)
+        back_rows, back_splits = market_data_store._deserialize_history(payload)
         assert back_rows[0]["adj_close"] == 10.5
         assert back_splits[0]["split"] == 2.0
         assert back_rows[0]["date"].date() == date(2024, 1, 2)
 
     def test_a_payload_missing_either_list_deserialises_to_empty(self):
-        from investing.market_data_store import _deserialize_history
+        import investing.market_data_store as market_data_store
 
-        assert _deserialize_history({}) == ([], [])
-        assert _deserialize_history({"adj_close": None, "splits": None}) == ([], [])
+        assert market_data_store._deserialize_history({}) == ([], [])
+        assert market_data_store._deserialize_history({"adj_close": None, "splits": None}) == (
+            [],
+            [],
+        )
 
     def test_unreadable_and_malformed_json_both_read_as_absent(self, tmp_path):
         # A truncated snapshot must not abort the build -- the run
         # falls back to fetching live data.
-        from investing.market_data_store import MarketDataStore
+        import investing.market_data_store as market_data_store
 
-        store = MarketDataStore(tmp_path)
+        store = market_data_store.MarketDataStore(tmp_path)
         assert store._load_json(tmp_path / "missing.json") is None
         broken = tmp_path / "broken.json"
         broken.write_text("{not json", encoding="utf-8")
@@ -504,9 +507,9 @@ class TestMarketDataSerialisation:
     def test_fx_snapshots_round_trip_and_survive_corruption(self, tmp_path):
         import numpy as np
 
-        from investing.market_data_store import MarketDataStore
+        import investing.market_data_store as market_data_store
 
-        store = MarketDataStore(tmp_path)
+        store = market_data_store.MarketDataStore(tmp_path)
         dates = np.array(["2024-01-01", "2024-01-02"], dtype="datetime64[D]")
         rates = np.array([1.10, 1.11])
         store.save_fx_history("EUR", dates, rates)
@@ -519,9 +522,9 @@ class TestMarketDataSerialisation:
         assert store.load_fx_history("GBP") is None
 
     def test_a_ticker_with_a_slash_gets_a_filesystem_safe_name(self, tmp_path):
-        from investing.market_data_store import MarketDataStore
+        import investing.market_data_store as market_data_store
 
-        store = MarketDataStore(tmp_path)
+        store = market_data_store.MarketDataStore(tmp_path)
         assert "/" not in store._history_path("BRK/B").name
 
     def test_rows_from_a_dataframe_skip_missing_closes(self):
@@ -529,30 +532,30 @@ class TestMarketDataSerialisation:
         # adjusted close is an absent observation, not a zero price.
         import pandas as pd
 
-        from investing.market_data_store import _history_rows_from_dataframe
+        import investing.market_data_store as market_data_store
 
         frame = pd.DataFrame(
             {"Adj Close": [1.0, float("nan"), 3.0]},
             index=pd.DatetimeIndex(["2024-01-01", "2024-01-02", "2024-01-03"]),
         )
-        rows = _history_rows_from_dataframe(frame)
+        rows = market_data_store._history_rows_from_dataframe(frame)
         assert [r["adj_close"] for r in rows] == [1.0, 3.0]
 
     def test_an_empty_row_set_still_produces_a_usable_frame(self):
-        from investing.market_data_store import MarketDataStore
+        import investing.market_data_store as market_data_store
 
-        frame = MarketDataStore._rows_to_history_frame([], "2024-01-01")
+        frame = market_data_store.MarketDataStore._rows_to_history_frame([], "2024-01-01")
         assert list(frame.columns) == ["Adj Close"]
         assert frame.empty
 
     def test_rows_before_the_requested_start_are_trimmed(self):
-        from investing.market_data_store import MarketDataStore
+        import investing.market_data_store as market_data_store
 
         rows = [
             {"date": datetime(2023, 1, 1), "adj_close": 1.0},
             {"date": datetime(2024, 6, 1), "adj_close": 2.0},
         ]
-        frame = MarketDataStore._rows_to_history_frame(rows, "2024-01-01")
+        frame = market_data_store.MarketDataStore._rows_to_history_frame(rows, "2024-01-01")
         assert frame["Adj Close"].tolist() == [2.0]
 
 
@@ -561,9 +564,9 @@ class TestMarketDataUniverse:
         # Callers pass the live holdings; the store adds anything it
         # has archived but no longer holds, so a sold-out position
         # keeps its history. Neither list may cause a double fetch.
-        from investing.market_data_store import MarketDataStore
+        import investing.market_data_store as market_data_store
 
-        store = MarketDataStore(tmp_path)
+        store = market_data_store.MarketDataStore(tmp_path)
         (tmp_path / "tickers").mkdir()
         (tmp_path / "tickers" / "NMS:OLD.json").write_text("{}", encoding="utf-8")
 
@@ -573,9 +576,9 @@ class TestMarketDataUniverse:
         assert seen == ["NMS:AAA", "NMS:BBB", "NMS:OLD"]
 
     def test_archived_tickers_come_back_sorted(self, tmp_path):
-        from investing.market_data_store import MarketDataStore
+        import investing.market_data_store as market_data_store
 
-        store = MarketDataStore(tmp_path)
+        store = market_data_store.MarketDataStore(tmp_path)
         assert store.list_archived_tickers() == []
         (tmp_path / "tickers").mkdir()
         for name in ("NMS:ZZZ", "NMS:AAA"):
@@ -587,105 +590,101 @@ class TestOgImageHelpers:
     def test_a_missing_font_falls_back_rather_than_failing_the_build(self, monkeypatch):
         # The card is decoration; a machine with no readable font must
         # still finish the page. ``load_font`` warns and degrades.
-        import investing.webpage.og_image as mod
+        import investing.webpage.og_image as og_image
 
-        monkeypatch.setattr(mod, "_FONT_DIR", "/nonexistent/fonts")
-        assert mod.load_font("bold", 24) is not None
+        monkeypatch.setattr(og_image, "_FONT_DIR", "/nonexistent/fonts")
+        assert og_image.load_font("bold", 24) is not None
 
     def test_an_unknown_weight_uses_the_default_face(self, monkeypatch):
-        import investing.webpage.og_image as mod
+        import investing.webpage.og_image as og_image
 
-        assert mod.load_font("ultralight", 24) is not None
+        assert og_image.load_font("ultralight", 24) is not None
 
     def test_iso_day_accepts_the_three_shapes_the_pipeline_produces(self):
-        from investing.webpage.og_image import _iso_day
+        import investing.webpage.og_image as og_image
 
-        assert _iso_day(None) is None
-        assert _iso_day(datetime(2024, 5, 6, 12, 30)) == "2024-05-06"
-        assert _iso_day(date(2024, 5, 6)) == "2024-05-06"
-        assert _iso_day("2024-05-06") == "2024-05-06"
+        assert og_image._iso_day(None) is None
+        assert og_image._iso_day(datetime(2024, 5, 6, 12, 30)) == "2024-05-06"
+        assert og_image._iso_day(date(2024, 5, 6)) == "2024-05-06"
+        assert og_image._iso_day("2024-05-06") == "2024-05-06"
 
     def test_the_sidecar_treats_anything_but_a_full_digest_as_cold(self, tmp_path):
         # A truncated sidecar means an interrupted write. Re-rendering
         # is cheap; trusting a partial digest is not.
-        from investing.webpage.og_image import (
-            _HASH_SIDECAR_FILENAME,
-            _read_sidecar,
-            _write_sidecar,
-        )
+        import investing.webpage.og_image as og_image
 
-        assert _read_sidecar(tmp_path) is None
-        (tmp_path / _HASH_SIDECAR_FILENAME).write_text("abc123\n", encoding="utf-8")
-        assert _read_sidecar(tmp_path) is None
+        assert og_image._read_sidecar(tmp_path) is None
+        (tmp_path / og_image._HASH_SIDECAR_FILENAME).write_text("abc123\n", encoding="utf-8")
+        assert og_image._read_sidecar(tmp_path) is None
         digest = "a" * 64
-        _write_sidecar(tmp_path, digest)
-        assert _read_sidecar(tmp_path) == digest
+        og_image._write_sidecar(tmp_path, digest)
+        assert og_image._read_sidecar(tmp_path) == digest
 
     def test_an_unwritable_sidecar_is_swallowed(self, tmp_path):
-        # Losing the cache marker costs one extra render next run --
+        # Losing the cache marker costs one extra og_image.render next run --
         # far cheaper than failing the build.
-        from investing.webpage.og_image import _HASH_SIDECAR_FILENAME, _write_sidecar
+        import investing.webpage.og_image as og_image
 
-        (tmp_path / _HASH_SIDECAR_FILENAME).mkdir()
-        _write_sidecar(tmp_path, "b" * 64)
+        (tmp_path / og_image._HASH_SIDECAR_FILENAME).mkdir()
+        og_image._write_sidecar(tmp_path, "b" * 64)
 
     def test_tracked_width_and_ink_height_are_zero_for_empty_text(self):
         from PIL import Image, ImageDraw
 
-        from investing.webpage.og_image import _text_height, _tracked_width, load_font
+        import investing.webpage.og_image as og_image
 
         draw = ImageDraw.Draw(Image.new("RGB", (10, 10)))
-        assert _tracked_width(draw, "", load_font("bold", 20), 2.0) == 0.0
-        assert _text_height(draw, "", load_font("bold", 20)) == 0.0
-        assert _tracked_width(draw, "AB", load_font("bold", 20), 5.0) > 5.0
+        assert og_image._tracked_width(draw, "", og_image.load_font("bold", 20), 2.0) == 0.0
+        assert og_image._text_height(draw, "", og_image.load_font("bold", 20)) == 0.0
+        assert og_image._tracked_width(draw, "AB", og_image.load_font("bold", 20), 5.0) > 5.0
 
     def test_a_label_that_cannot_shrink_enough_stops_at_the_floor(self):
         # Below ~22px the text stops surviving feed scaling, so the
         # fitter gives up rather than rendering something illegible.
         from PIL import Image, ImageDraw
 
-        from investing.webpage.og_image import _fit_font
+        import investing.webpage.og_image as og_image
 
         draw = ImageDraw.Draw(Image.new("RGB", (10, 10)))
-        font = _fit_font(draw, "a very long headline that will never fit", "bold", 60, 1.0)
+        font = og_image._fit_font(draw, "a very long headline that will never fit", "bold", 60, 1.0)
         assert font.size == 22
 
     def test_a_logo_row_with_no_tickers_draws_nothing(self):
         from PIL import Image, ImageDraw
 
-        from investing.webpage.og_image import draw_top_holdings_strip
+        import investing.webpage.og_image as og_image
 
         image = Image.new("RGB", (60, 20), "white")
         before = image.tobytes()
-        draw_top_holdings_strip(image, [], x=0, y=0, w=60, h=20)
+        og_image.draw_top_holdings_strip(image, [], x=0, y=0, w=60, h=20)
         assert image.tobytes() == before
 
     def test_an_unreadable_logo_falls_back_to_the_default_aspect(self, tmp_path, monkeypatch):
-        import investing.webpage.og_image as mod
+        import investing.webpage.og_image as og_image
 
         broken = tmp_path / "NMS_AAA.png"
         broken.write_bytes(b"not a png")
-        monkeypatch.setattr(mod, "_REPO_LOGOS_DIR", str(tmp_path))
-        assert mod._og_logo_aspect("NMS_AAA") == mod._DEFAULT_LOGO_ASPECT
-        assert mod.load_logo_for_og("NMS_AAA", max_w=10, max_h=10) is None
+        monkeypatch.setattr(og_image, "_REPO_LOGOS_DIR", str(tmp_path))
+        assert og_image._og_logo_aspect("NMS_AAA") == og_image._DEFAULT_LOGO_ASPECT
+        assert og_image.load_logo_for_og("NMS_AAA", max_w=10, max_h=10) is None
 
     def test_the_top_holdings_list_is_capped(self):
-        from investing.webpage.og_image import NON_TICKER_TOP10_KEYS, top_holdings_for_og
+        import investing.webpage.og_image as og_image
 
-        assert top_holdings_for_og(None) == []
-        assert top_holdings_for_og({}) == []
+        assert og_image.top_holdings_for_og(None) == []
+        assert og_image.top_holdings_for_og({}) == []
         weights = {f"NMS:T{i}": 10.0 - i for i in range(10)}
-        assert len(top_holdings_for_og(weights, limit=4)) == 4
+        assert len(og_image.top_holdings_for_og(weights, limit=4)) == 4
         # The synthetic roll-up bucket is not a ticker and has no logo.
-        synthetic = next(iter(NON_TICKER_TOP10_KEYS))
-        assert synthetic not in top_holdings_for_og({synthetic: 5.0, "NMS:AAA": 4.0})
+        synthetic = next(iter(og_image.NON_TICKER_TOP10_KEYS))
+        assert synthetic not in og_image.top_holdings_for_og({synthetic: 5.0, "NMS:AAA": 4.0})
 
     def test_render_is_a_no_op_without_pillow(self, monkeypatch, tmp_path):
         # The page build must survive an environment with no imaging
         # stack at all.
         import builtins
 
-        import investing.webpage.og_image as mod
+        import investing.webpage.og_image as og_image
 
         real_import = builtins.__import__
 
@@ -695,7 +694,7 @@ class TestOgImageHelpers:
             return real_import(name, *args, **kwargs)
 
         monkeypatch.setattr(builtins, "__import__", no_pil)
-        mod.render(
+        og_image.render(
             total_return={"twr%": 1.0, "cagr%": 1.0, "start_date": datetime(2024, 1, 1)},
             benchmarks=[],
             top_10=[],
@@ -703,16 +702,16 @@ class TestOgImageHelpers:
             now=datetime(2024, 6, 1),
             output_dir=tmp_path,
         )
-        assert not (tmp_path / mod.OUTPUT_FILENAME).exists()
+        assert not (tmp_path / og_image.OUTPUT_FILENAME).exists()
 
     def test_a_drawing_failure_never_fails_the_page(self, monkeypatch, tmp_path):
-        import investing.webpage.og_image as mod
+        import investing.webpage.og_image as og_image
 
         def boom(**_kwargs):
             raise RuntimeError("no fonts on this system")
 
-        monkeypatch.setattr(mod, "_render_unsafe", boom)
-        mod.render(
+        monkeypatch.setattr(og_image, "_render_unsafe", boom)
+        og_image.render(
             total_return={"twr%": 1.0, "cagr%": 1.0, "start_date": datetime(2024, 1, 1)},
             benchmarks=[],
             top_10=[],
@@ -720,8 +719,8 @@ class TestOgImageHelpers:
             now=datetime(2024, 6, 1),
             output_dir=tmp_path,
         )
-        # No sidecar either: a failed render must not look cached.
-        assert mod._read_sidecar(tmp_path) is None
+        # No sidecar either: a failed og_image.render must not look cached.
+        assert og_image._read_sidecar(tmp_path) is None
 
 
 class TestPageWiring:
@@ -890,14 +889,14 @@ class TestSheetsParsing:
     def test_an_unparseable_date_names_the_worksheet_and_row(self):
         # A bad cell in a 500-row sheet is only actionable if the error
         # says which sheet and which row it came from.
-        from investing.sheets import SheetParseError
+        import investing.sheets as sheets
 
-        assert issubclass(SheetParseError, Exception)
+        assert issubclass(sheets.SheetParseError, Exception)
 
     def test_credentials_come_from_the_environment_when_present(self, monkeypatch):
         # Inline JSON beats the file path, so CI can inject a secret
         # without writing it to disk.
-        import investing.sheets as mod
+        import investing.sheets as sheets
 
         captured = {}
 
@@ -912,14 +911,14 @@ class TestSheetsParsing:
                 captured["file"] = filename
                 return "client-from-file"
 
-        monkeypatch.setattr(mod, "gspread", _FakeGspread)
+        monkeypatch.setattr(sheets, "gspread", _FakeGspread)
         monkeypatch.setenv("GSHEET_CREDS", '{"type": "service_account"}')
-        assert mod._gspread_client() == "client-from-dict"
+        assert sheets._gspread_client() == "client-from-dict"
         assert captured["dict"] == {"type": "service_account"}
 
         monkeypatch.delenv("GSHEET_CREDS")
         monkeypatch.setenv("GSHEET_CREDS_FILE", "/tmp/creds.json")
-        assert mod._gspread_client() == "client-from-file"
+        assert sheets._gspread_client() == "client-from-file"
         assert captured["file"] == "/tmp/creds.json"
 
 
@@ -1143,11 +1142,11 @@ class TestMinusSign:
         silently breaking the one headline that can be negative."""
         from PIL import Image, ImageDraw
 
-        from investing.webpage.og_image import load_font
+        import investing.webpage.og_image as og_image
 
         draw = ImageDraw.Draw(Image.new("RGB", (10, 10)))
         for weight in ("regular", "bold"):
-            font = load_font(weight, 40)
+            font = og_image.load_font(weight, 40)
             minus = draw.textlength("\u2212", font=font)
             plus = draw.textlength("+", font=font)
             assert minus > 0, weight
