@@ -577,14 +577,31 @@ class TestHoldingsStyles:
         collapsed = widths[0].replace(" ", "")
         assert collapsed.startswith("calc(var(--w,0)/var(--holdings-weight-scale,100)*100%)")
 
-    def test_period_windows_wrap_after_the_dash_not_mid_date(self):
-        # The open table's date column is 128px against the closed
-        # table's 224px, so a full "start - end" range must be able to
-        # break -- and the ``li`` has no text spaces to break at, so
-        # flex wrapping is what makes the break possible at all.
-        bodies = blocks_for(_PAGE_STYLES, ".holdings__periods li")
+    def test_period_windows_never_break_mid_range(self):
+        # A window is one line, always. The open table's 128px date
+        # column is a floor, not a cap -- auto table layout grows a
+        # column to its cells' min-content width, and ``nowrap`` is
+        # what makes the full "start - end" range that minimum
+        # instead of letting it break after the dash.
+        bodies = blocks_for(_PAGE_STYLES, ".holdings__periods")
         assert bodies
-        assert any("flex-wrap:wrap" in b for b in bodies), bodies
+        assert any("white-space:nowrap" in b for b in bodies), bodies
+        # And no flex on the ``li``: a flex row may wrap between its
+        # pieces, which is exactly the mid-range break this rules out.
+        assert not blocks_for(_PAGE_STYLES, ".holdings__periods li")
+
+    def test_wide_frame_weight_is_a_number_the_phone_card_keeps_the_bar(self):
+        # The bar's 156px track paid for itself while the date column
+        # held one bare date; against one-line ownership ranges it was
+        # the name column that got squeezed. Wide shows the value
+        # only; the phone card re-draws the bar across its own bottom
+        # row, where the fit problem does not exist.
+        bodies = blocks_for(_PAGE_STYLES, ".holdings__bar")
+        assert bodies
+        assert any("display:none" in b for b in bodies), bodies
+        body = at_rule_body(_PAGE_STYLES, "@container holdings (max-width:620px)")
+        assert body
+        assert ".holdings__bar{display:block" in normalize(body)
 
     def test_reentered_card_steps_the_weight_bar_below_the_windows_list(self):
         # On the phone frame the windows list takes the card's third

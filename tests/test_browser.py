@@ -111,6 +111,9 @@ def test_numeric_columns_align_with_their_headers(preview_page: Page):
     the headers above them. Nothing about that is visible in the
     markup, and it survived several rounds of looking at screenshots,
     so it is asserted geometrically instead.
+
+    Weight joined the right-aligned figures when its wide-frame bar
+    retired, so the open table asserts three columns here, not two.
     """
     for scope in ("open", "closed"):
         table = preview_page.locator(f'table[data-holdings-table="{scope}"]')
@@ -126,7 +129,7 @@ def test_numeric_columns_align_with_their_headers(preview_page: Page):
                 const out = [];
                 [...t.querySelectorAll('thead th')].forEach((th, i) => {
                     const key = th.getAttribute('data-sort-key');
-                    if (key !== 'tsr' && key !== 'cagr') return;
+                    if (key !== 'tsr' && key !== 'cagr' && key !== 'weight') return;
                     const btn = th.querySelector('.holdings__sort');
                     const cell = row.children[i];
                     out.push({key, header: R(btn), value: R(cell),
@@ -136,7 +139,8 @@ def test_numeric_columns_align_with_their_headers(preview_page: Page):
                 return out;
             }"""
         )
-        assert len(edges) == 2, f"{scope}: expected a Return and an IRR column"
+        expected = 3 if scope == "open" else 2
+        assert len(edges) == expected, f"{scope}: expected {expected} right-aligned columns"
         for col in edges:
             assert col["align"] == "right", f"{scope}/{col['key']} is {col['align']}"
             assert abs(col["header"] - col["value"]) <= 1, (
@@ -237,6 +241,26 @@ def test_mobile_cards_place_every_item_on_the_right_grid_line(page: Page, previe
     irr = next(i for i in open_items if "holdings__num--soft" in i["cls"])
     assert ticker["right"] <= since["left"], (ticker, since)
     assert since["left"] - ticker["right"] < irr["left"] - since["right"], (ticker, since, irr)
+
+
+def test_ownership_windows_each_hold_a_single_line(page: Page, preview_index: Path):
+    """A date range is one line, always -- on the wide frame the date
+    column grows to the widest range a re-entered row brings (auto
+    table layout treats the 128px header width as a floor), rather
+    than breaking the range after the dash. Asserted as geometry on
+    every window on the page, open and closed tables, both frames."""
+    for width, height in ((1280, 900), (390, 844)):
+        page.set_viewport_size({"width": width, "height": height})
+        page.goto(preview_index.as_uri())
+        spreads = page.evaluate(
+            """() => [...document.querySelectorAll('.holdings__periods li')].map(li => {
+                const tops = [...li.querySelectorAll('time, span')]
+                    .map(e => Math.round(e.getBoundingClientRect().top));
+                return Math.max(...tops) - Math.min(...tops);
+            })"""
+        )
+        assert spreads, "no windows list rendered in the preview"
+        assert all(s <= 1 for s in spreads), (width, spreads)
 
 
 def test_mobile_activity_rows_are_two_lines(page: Page, preview_index: Path):

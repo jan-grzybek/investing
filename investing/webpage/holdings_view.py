@@ -10,9 +10,12 @@ layout defeats the one thing a reader wants from a holdings list --
 comparison -- because no two numbers ever share a column.
 
 So: one table, every row visible, click a column header to sort.
-Weight renders as an in-row bar so the shape of the book is legible
-without reading a single number, and the money-weighted metrics sit
-in single columns that run the length of the table.
+Weight is a number among the other figures on the wide frame -- the
+room its old in-row bar took now pays for one-line ownership ranges
+on re-entered rows and the name column's breathing space -- while
+the phone card still draws bar + value across its bottom row, where
+the width to do so exists. The money-weighted metrics sit in single
+columns that run the length of the table.
 
 Rows are grouped into ``<tbody>`` sections (equities, fixed income,
 closed) with a band row naming each group and its share of the
@@ -84,7 +87,12 @@ CLOSED_COLUMNS: tuple[tuple[str, str, str, str, str], ...] = (
 
 
 def _weight_bar(weight: float, *, muted: bool) -> str:
-    """Render the in-row weight bar plus its numeric label.
+    """Render the weight cell's contents: bar markup plus numeric label.
+
+    One DOM, two frames: the wide frame hides the bar and shows the
+    right-aligned number beside Return / IRR; the phone card turns
+    the bar back on across its own bottom row. Everything below about
+    the bar's scaling therefore describes the phone frame.
 
     The row publishes its own weight as ``--w`` and the stylesheet
     divides it by the table's ``--holdings-weight-scale`` (the

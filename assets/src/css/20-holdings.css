@@ -59,7 +59,20 @@
 .holdings__col--num { width: 102px; text-align: right; }
 .holdings__col--num:last-child { width: 92px; }
 .holdings__col--num .holdings__sort { justify-content: flex-end; }
-.holdings__col--weight { width: 156px; }
+/* Wide, the weight is a number among numbers. The in-row bar the
+   design drew here paid for itself while the date column held one
+   bare date; against one-line ownership ranges it was the flexible
+   name column that got squeezed, so the bar moved to the phone card
+   (see the container query) and the track's width buys the date
+   column its ranges and the names their room. */
+.holdings__col--weight { width: 88px; text-align: right; }
+.holdings__col--weight .holdings__sort { justify-content: flex-end; }
+/* 128px fits the bare date a single-window row shows. It is a floor,
+   not a cap: the table lays out auto, and auto layout never squeezes
+   a column below its cells' min-content width -- so when a
+   re-entered row brings full ``nowrap`` ranges, the column grows to
+   the widest one (taking the flexible name column's slack) and every
+   range stays on one line. A table of bare dates keeps all 128px. */
 .holdings__col--since { width: 128px; }
 .holdings__col--periods { width: 224px; }
 /* Sort buttons are visually identical to the surrounding header
@@ -200,26 +213,27 @@
   white-space: nowrap;
   font-size: 0.8125rem;
 }
-/* Weight: a bar and its number in one cell, so the shape of the
-   book is legible before a single figure is read. */
-/* The grid lives on an inner span rather than on the ``<td>``. A
-   ``display: grid`` table cell leaves the table's formatting context
-   -- the browser wraps it in an anonymous cell and stops applying
-   ``vertical-align`` -- which floated the weight clear of the Return
-   and IRR figures it lines up against. */
-.holdings__weight-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 40px;
-  align-items: center;
-  column-gap: 9px;
-}
+/* Weight: on the wide frame the cell holds just the number,
+   right-aligned with the Return / IRR figures beside it -- the
+   alignment sits on the ``<td>`` so it reads like theirs does. The
+   span is still there because it is the grid the phone card draws
+   bar + value in -- one DOM, two frames -- and because a grid
+   directly on a ``<td>`` leaves the table's formatting context and
+   stops honouring ``vertical-align``, which is why the grid never
+   sits on the cell itself. */
+.holdings__weight { text-align: right; }
+.holdings__weight-grid { display: block; }
 /* The unfilled track is derived from ``--fg``, not ``--line``: a
    line-coloured track is a clean light grey on the white card and
    almost exactly the card's own colour on the dark one, which left
    the fill reading as an orange stub floating in space. Tinting the
    foreground inverts with the theme and stays a track on both. */
 .holdings__bar {
-  display: block;
+  /* Phone-card only: the wide frame shows the number and spends the
+     track's width on one-line date ranges instead. The narrow frame
+     turns this back on where the card's bottom row has the full
+     width to draw it across. */
+  display: none;
   height: 7px;
   border-radius: 2px;
   /* Mixed from ``--line``, not ``--fg``. ``--fg`` flips to a
@@ -265,7 +279,12 @@
 /* Positions with more than one ownership window list every window,
    newest first. Closed rows always render this cell; open rows
    render it once a position has been re-entered, with the open
-   window on top as "start - Present". */
+   window on top as "start - Present".
+   ``nowrap`` is a contract, not a nicety: a window is one line,
+   always. In the open table that means the date column grows to the
+   widest range rather than letting a range break after the dash --
+   see ``.holdings__col--since`` for why the 128px there permits
+   that. */
 .holdings__periods {
   color: var(--muted);
   font-size: 0.8125rem;
@@ -278,19 +297,6 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-}
-/* Each window is a flex row so it can break after the dash rather
-   than mid-date. The open table's date column is 128px against the
-   closed table's 224px, and a full "start - end" range does not fit
-   128px on one line. The ``li`` carries no text spaces between its
-   pieces, so without flex there is nowhere to break at all; with it,
-   the wrap costs the closed table nothing -- at 224px every range
-   still fits one line and never wraps. The dates themselves stay
-   atomic via the cell's ``nowrap`` above. */
-.holdings__periods li {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
 }
 .holdings__periods span { padding: 0 4px; }
 /* Below ~620px the design stops being a table and becomes a list of
@@ -574,8 +580,17 @@
      row rather than sharing the third, where the two would stack
      into the same grid area. */
   .holdings__row--reentered .holdings__weight { grid-row: 4; }
-  .holdings__weight-grid { grid-template-columns: minmax(0, 1fr) 36px; column-gap: 8px; }
-  .holdings__bar { height: 6px; }
+  /* The card is where the bar lives: the design draws bar + value
+     across the card's own bottom row, which has the full width to
+     spend -- the wide frame's fit problem does not exist here. */
+  .holdings__weight-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 36px;
+    align-items: center;
+    column-gap: 8px;
+    text-align: left;
+  }
+  .holdings__bar { display: block; height: 6px; }
   .holdings__weight-value { font-size: 0.6875rem; color: var(--muted); }
 }
 
