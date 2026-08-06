@@ -301,7 +301,7 @@ def test_mobile_sort_chips_follow_the_designs_order(page: Page, preview_index: P
     # scanning the strip is looking at the same row of cards either
     # way: name, the line under it, the two figures on the right, then
     # the bar across the bottom.
-    assert order == ["Name", "Held since", "Return", "IRR", "Weight"], order
+    assert order == ["Name", "Dates", "Return", "IRR", "Weight"], order
     order = page.evaluate(
         """(sel) => [...document.querySelectorAll(sel)]
             .filter(t => getComputedStyle(t).display !== 'none')

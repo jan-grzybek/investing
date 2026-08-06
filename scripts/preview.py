@@ -127,6 +127,7 @@ def _holding(
     asset_class: str = "equity",
     tickers: list[str] | None = None,
     short_label: str = "",
+    past_periods: list[dict] | None = None,
 ) -> dict:
     holding = {
         "ticker": ticker,
@@ -136,7 +137,11 @@ def _holding(
         "is_current": True,
         "current_weight%": weight,
         "current_value_usd": weight * 1000,
-        "periods": [{"start": period_start, "end": None}],
+        # ``past_periods`` marks a re-entered position: closed
+        # ownership windows that sit under the open one in the
+        # "Dates held" column, so the preview exercises the
+        # ``holdings__row--reentered`` rendering on a current row.
+        "periods": [*(past_periods or []), {"start": period_start, "end": None}],
         # Click target for the capsule logo. The production path
         # fills this from yfinance's ``website`` / ``irWebsite`` fields
         # (with a Google-search fallback in ``resolve_company_url``);
@@ -247,6 +252,11 @@ def _build_dataset() -> dict:
             website="https://www.abc.xyz",
             sector="Communication Services",
         ),
+        # META is the re-entered current position: a closed earlier
+        # window under the open one, so the preview (and the
+        # Playwright suite driving it) exercises the open table's
+        # windows list -- including the phone frame's weight-bar
+        # step-down -- on a row that also carries a weight bar.
         _holding(
             "NMS:META",
             "Meta Platforms, Inc.",
@@ -256,6 +266,7 @@ def _build_dataset() -> dict:
             datetime(2023, 1, 12),
             website="https://investor.atmeta.com",
             sector="Communication Services",
+            past_periods=[{"start": datetime(2020, 5, 11), "end": datetime(2022, 2, 3)}],
         ),
         _holding(
             "NMS:ADBE",

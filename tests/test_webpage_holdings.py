@@ -70,19 +70,23 @@ class TestAddHolding:
         # colour either.
         assert "value--positive" not in w.current[0].split("TBA")[0].rsplit("<td", 1)[1]
 
-    def test_open_position_renders_held_since_not_present(self, stub_logo_lookup):
-        # An open row answers "how long have you held this", which is
-        # a date -- the "start to Present" range belongs to the closed
-        # table, where the end date is the information.
+    def test_open_position_renders_a_bare_date_not_present(self, stub_logo_lookup):
+        # An open row with a single window answers "how long have you
+        # held this", which is a date -- a "start to Present" range
+        # would restate what the table already says of every row.
         w = Webpage()
         w.add_holding(_holding(periods=[{"start": datetime(2024, 3, 7), "end": None}]))
         row = w.current[0]
         assert "Present" not in row
         assert '<time datetime="2024-03-07">07/03/2024</time>' in row
+        assert "holdings__since" in row
+        assert "holdings__row--reentered" not in row
 
-    def test_held_since_prefers_the_open_period(self, stub_logo_lookup):
-        # A re-entered position has several windows; "Held since" means
-        # the one that is still open, not the earliest ever.
+    def test_reentered_position_lists_every_window_open_first(self, stub_logo_lookup):
+        # A re-entered position owes the reader its earlier windows:
+        # showing only the latest start would claim a shorter history
+        # than the position has. The open window tops the stack as
+        # "start -- Present", same grammar as the closed table.
         w = Webpage()
         w.add_holding(
             _holding(
@@ -92,8 +96,19 @@ class TestAddHolding:
                 ],
             )
         )
-        assert 'datetime="2024-06-01"' in w.current[0]
-        assert 'data-sort-since="2024-06-01"' in w.current[0]
+        row = w.current[0]
+        assert "holdings__periods" in row
+        assert "holdings__since" not in row
+        assert "Present" in row
+        assert row.count("<li>") == 2
+        assert row.index("2024-06-01") < row.index("2020-01-01")
+        # The weight bar survives; the modifier is what lets the phone
+        # frame step it below the windows list instead of dropping it.
+        assert "holdings__row--reentered" in row
+        assert "holdings__weight" in row
+        # The ``since`` sort contract is unchanged: the open window's
+        # start, not the earliest ever.
+        assert 'data-sort-since="2024-06-01"' in row
 
     def test_negative_holding_returns_get_negative_class(self, stub_logo_lookup):
         w = Webpage()
@@ -561,6 +576,23 @@ class TestHoldingsStyles:
         assert widths
         collapsed = widths[0].replace(" ", "")
         assert collapsed.startswith("calc(var(--w,0)/var(--holdings-weight-scale,100)*100%)")
+
+    def test_period_windows_wrap_after_the_dash_not_mid_date(self):
+        # The open table's date column is 128px against the closed
+        # table's 224px, so a full "start - end" range must be able to
+        # break -- and the ``li`` has no text spaces to break at, so
+        # flex wrapping is what makes the break possible at all.
+        bodies = blocks_for(_PAGE_STYLES, ".holdings__periods li")
+        assert bodies
+        assert any("flex-wrap:wrap" in b for b in bodies), bodies
+
+    def test_reentered_card_steps_the_weight_bar_below_the_windows_list(self):
+        # On the phone frame the windows list takes the card's third
+        # row -- the same one the weight bar lives on. Without this
+        # rule the two stack into the same grid area.
+        body = at_rule_body(_PAGE_STYLES, "@container holdings (max-width:620px)")
+        assert body
+        assert ".holdings__row--reentered .holdings__weight{grid-row:4}" in normalize(body)
 
     def test_sorted_column_indicator_is_driven_by_aria_sort(self):
         for selector in (

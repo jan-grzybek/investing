@@ -187,8 +187,8 @@
 }
 /* The listing sits a step below ``--muted``: it identifies the line
    the holding trades on, which the reader wants available but almost
-   never reads. Putting it on the same grey as the "held since" date
-   beside it made the two compete. */
+   never reads. Putting it on the same grey as the date beside it
+   made the two compete. */
 .holdings__ticker {
   display: block;
   font-size: 0.71875rem;
@@ -262,8 +262,10 @@
    same colour at a lighter weight. */
 .holdings__num--soft { font-weight: 500; }
 .holdings__num--tba { color: var(--muted); font-weight: 500; }
-/* Closed positions list every window the position was held over,
-   newest first, since a re-entered position has more than one. */
+/* Positions with more than one ownership window list every window,
+   newest first. Closed rows always render this cell; open rows
+   render it once a position has been re-entered, with the open
+   window on top as "start - Present". */
 .holdings__periods {
   color: var(--muted);
   font-size: 0.8125rem;
@@ -276,6 +278,19 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+/* Each window is a flex row so it can break after the dash rather
+   than mid-date. The open table's date column is 128px against the
+   closed table's 224px, and a full "start - end" range does not fit
+   128px on one line. The ``li`` carries no text spaces between its
+   pieces, so without flex there is nowhere to break at all; with it,
+   the wrap costs the closed table nothing -- at 224px every range
+   still fits one line and never wraps. The dates themselves stay
+   atomic via the cell's ``nowrap`` above. */
+.holdings__periods li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
 }
 .holdings__periods span { padding: 0 4px; }
 /* Below ~620px the design stops being a table and becomes a list of
@@ -380,7 +395,7 @@
      the chips is looking at the same row of cards either way, and a
      control strip whose order contradicts the thing it controls costs
      a moment of translation on every single use.
-       open:   Name / Held since / Return / IRR / Weight
+       open:   Name / Dates / Return / IRR / Weight
        closed: Name / Dates / Return / IRR
      One rule set serves both -- the closed table has no weight bar
      and its date column is ``--periods`` rather than ``--since``. */
@@ -553,6 +568,12 @@
     grid-column: 2 / -1;
     grid-row: 3;
   }
+  /* A re-entered open row carries both the windows list and the
+     weight bar, and the list takes the card's third row -- the same
+     one the closed card gives it. The bar steps down to a fourth
+     row rather than sharing the third, where the two would stack
+     into the same grid area. */
+  .holdings__row--reentered .holdings__weight { grid-row: 4; }
   .holdings__weight-grid { grid-template-columns: minmax(0, 1fr) 36px; column-gap: 8px; }
   .holdings__bar { height: 6px; }
   .holdings__weight-value { font-size: 0.6875rem; color: var(--muted); }

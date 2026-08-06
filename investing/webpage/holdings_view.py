@@ -54,15 +54,22 @@ from .anchors import holding_anchor
 #
 # Two labels, because the header is two different things in the two
 # frames. Wide, it captions a column and has the room to say what the
-# column holds: "Held since", "Dates held". Narrow, the same element
-# is a sort chip in a row of five that has to fit 358px -- and there
-# "Held since" and "Dates held" are what pushed the row into a
-# horizontal scroll it should never have needed. The design writes the
-# short forms on its phone frame for exactly that reason. An empty
-# narrow label means the wide one serves both.
+# column holds: "Dates held". Narrow, the same element is a sort chip
+# in a row of five that has to fit 358px -- and there "Dates held" is
+# what pushed the row into a horizontal scroll it should never have
+# needed. The design writes the short forms on its phone frame for
+# exactly that reason. An empty narrow label means the wide one
+# serves both.
+#
+# Both tables caption their date column "Dates held": a re-entered
+# open position lists every ownership window just as a closed one
+# does, so "Held since" -- which promises a single date -- would be
+# wrong the moment a second window appears. The ``since`` key stays,
+# like ``tsr`` / ``cagr``: it names the sort contract (the open
+# window's start), not the label.
 OPEN_COLUMNS: tuple[tuple[str, str, str, str, str], ...] = (
     ("name", "Holding", "Name", "text", "name"),
-    ("since", "Held since", "", "text", "since"),
+    ("since", "Dates held", "Dates", "text", "since"),
     ("weight", "Weight", "", "number", "weight"),
     ("tsr", "Return", "", "number", "num"),
     ("cagr", "IRR", "", "number", "num"),
@@ -153,7 +160,8 @@ def _period_start(holding: dict) -> date:
     """The date the position the reader is looking at was opened.
 
     A re-entered position has several periods; the open one is what
-    "Held since" means, so prefer the period with no end date and
+    the ``since`` sort key means (and what the cell shows when there
+    is only one window), so prefer the period with no end date and
     fall back to the most recent start when every period is closed.
     """
     periods = holding["periods"]
@@ -162,11 +170,14 @@ def _period_start(holding: dict) -> date:
 
 
 def _periods_cell(holding: dict) -> str:
-    """Render every ownership window of a closed position, newest first.
+    """Render every ownership window of a position, newest first.
 
-    ``Holding.summary`` already returns newest-first in production,
-    but preview / synthetic data might not, and the visual order is a
-    UX guarantee rather than an upstream accident.
+    Closed rows always render this cell; open rows render it once a
+    position has been re-entered, with the open window on top as
+    "start -- Present". ``Holding.summary`` already returns
+    newest-first in production, but preview / synthetic data might
+    not, and the visual order is a UX guarantee rather than an
+    upstream accident.
     """
     ordered = sorted(holding["periods"], key=lambda p: p["start"], reverse=True)
     items = []
@@ -208,11 +219,15 @@ def _metric_cells(holding: dict) -> str:
 def build_row(holding: dict, *, logo_url_for: Callable[[str], str]) -> str:
     """Render one holding as a ``<tr>``.
 
-    Open positions get a "Held since" date and a weight bar; closed
-    ones get the list of windows they were held over instead, and no
-    weight at all -- they have none.
+    Open positions get a date column and a weight bar; closed ones
+    get the list of windows they were held over instead, and no
+    weight at all -- they have none. An open position that was also
+    held before gets the same windows list a closed one does, open
+    window on top: showing only the latest start would claim a
+    shorter history than the position has.
     """
     is_current = holding["is_current"]
+    row_class = "holdings__row"
     website_url = holding.get("website") or google_search_url(holding["name"])
     sort_attrs = {
         "name": holding["name"].casefold(),
@@ -239,11 +254,18 @@ def build_row(holding: dict, *, logo_url_for: Callable[[str], str]) -> str:
         start = _period_start(holding)
         sort_attrs["since"] = start.strftime("%Y-%m-%d")
         sort_attrs["weight"] = _format_sort_number(weight)
-        cells.append(
-            f'<td class="holdings__since" role="cell">'
-            f'<time datetime="{start.strftime("%Y-%m-%d")}">{_fmt_date(start)}</time>'
-            "</td>"
-        )
+        if len(holding["periods"]) > 1:
+            # The modifier is for the phone frame, where the windows
+            # list takes the card row the weight bar lives on -- the
+            # flagged row steps its bar down one grid row.
+            row_class = "holdings__row holdings__row--reentered"
+            cells.append(_periods_cell(holding))
+        else:
+            cells.append(
+                f'<td class="holdings__since" role="cell">'
+                f'<time datetime="{start.strftime("%Y-%m-%d")}">{_fmt_date(start)}</time>'
+                "</td>"
+            )
         muted = holding.get("asset_class") == "fixed_income"
         # The grid goes on an inner span, not on the ``<td>``. A
         # ``display: grid`` cell leaves the table's formatting context
@@ -270,7 +292,7 @@ def build_row(holding: dict, *, logo_url_for: Callable[[str], str]) -> str:
         f' data-sort-{key}="{html.escape(sort_attrs[key])}"' for key in sorted(sort_attrs)
     )
     return (
-        f'<tr class="holdings__row" role="row" id="{html.escape(holding_anchor(holding["ticker"]))}"{attrs}>'
+        f'<tr class="{row_class}" role="row" id="{html.escape(holding_anchor(holding["ticker"]))}"{attrs}>'
         f"{''.join(cells)}"
         "</tr>"
     )
