@@ -523,11 +523,13 @@
     white-space: nowrap;
     font-size: 0.65625rem;
   }
+  /* Inherits the base ``nowrap``: a window is one line on the card
+     too. If the date format ever grows a space, the loud failure is
+     an overflowing range, not a silent mid-range wrap. */
   .holdings__periods {
     grid-column: 2 / -1;
     grid-row: 3;
     font-size: 0.65625rem;
-    white-space: normal;
   }
   .holdings__num {
     grid-column: 4;
@@ -562,7 +564,6 @@
     grid-template-columns: minmax(0, 1fr) 36px;
     align-items: center;
     column-gap: 8px;
-    text-align: left;
   }
   .holdings__bar { display: block; height: 6px; }
   .holdings__weight-value { font-size: 0.6875rem; color: var(--muted); }

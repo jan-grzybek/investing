@@ -405,10 +405,11 @@ def _build_dataset() -> dict:
             "is_current": False,
             "current_weight%": None,
             "current_value_usd": 0.0,
-            # Listed in chronological order on purpose -- the renderer
-            # in ``Webpage._build_card`` re-sorts to newest-first so
-            # whichever order we hand it over in, the most recent
-            # ownership window ends up on top of the stack.
+            # Listed in chronological order on purpose -- the windows
+            # cell (``holdings_view._periods_cell``) re-sorts to
+            # newest-first so whichever order we hand it over in, the
+            # most recent ownership window ends up on top of the
+            # stack.
             "periods": [
                 {"start": datetime(2022, 8, 5), "end": datetime(2023, 6, 9)},
                 {"start": datetime(2025, 7, 22), "end": datetime(2025, 12, 30)},

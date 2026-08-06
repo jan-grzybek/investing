@@ -253,6 +253,44 @@ def test_ownership_windows_each_hold_a_single_line(page: Page, preview_index: Pa
         assert all(s <= 1 for s in spreads), (width, spreads)
 
 
+def test_dates_chip_sorts_the_open_table_by_open_window_start(page: Page, preview_index: Path):
+    """Clicking "Dates held" orders rows by ``data-sort-since``. The
+    unit tier pins that a re-entered row's sort value is its open
+    window's start (not its earliest ever); this pins that the click
+    actually applies that order -- text kind, so first click sorts
+    ascending, oldest position first."""
+    page.set_viewport_size({"width": 1280, "height": 900})
+    page.goto(preview_index.as_uri())
+    table = page.locator('table[data-holdings-table="open"]')
+    table.locator('th[data-sort-key="since"] .holdings__sort').click()
+    expect(table.locator('th[data-sort-key="since"]')).to_have_attribute("aria-sort", "ascending")
+    values = (
+        table.locator("tbody.holdings__section")
+        .first.locator(".holdings__row")
+        .evaluate_all("els => els.map(el => el.getAttribute('data-sort-since'))")
+    )
+    assert len(values) > 1, values
+    assert values == sorted(values), values
+
+
+def test_open_table_fits_narrow_desktop_without_a_scrollbar(page: Page, preview_index: Path):
+    """The date column's growth must come out of the name column's
+    slack, not out of new horizontal scroll. 700px sits in the sliver
+    between the 620px card threshold and a comfortable desktop --
+    exactly where a too-greedy column would first push the table wide
+    of its wrap."""
+    page.set_viewport_size({"width": 700, "height": 900})
+    page.goto(preview_index.as_uri())
+    overflow = page.evaluate(
+        """() => {
+            const wrap = document.querySelector(
+                'table[data-holdings-table="open"]').closest('.holdings__wrap');
+            return wrap.scrollWidth - wrap.clientWidth;
+        }"""
+    )
+    assert overflow <= 0, f"open table overflows its wrap by {overflow}px at 700px"
+
+
 def test_present_starts_where_the_end_date_below_it_starts(page: Page, preview_index: Path):
     """In a stacked windows list the end tokens form a column of
     their own: "Present" must start at the same x as the end date on

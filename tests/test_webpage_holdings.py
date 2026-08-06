@@ -105,6 +105,35 @@ class TestAddHolding:
         # start, not the earliest ever.
         assert 'data-sort-since="2024-06-01"' in row
 
+    def test_sort_key_falls_back_to_latest_start_when_no_window_is_open(self, stub_logo_lookup):
+        # Production guarantees a current row an open window (a
+        # position with quantity has an unstamped period), but preview
+        # / synthetic data may not; the ``since`` key then means the
+        # most recent start rather than a crash on a missing window.
+        w = Webpage()
+        w.add_holding(
+            _holding(
+                periods=[
+                    {"start": datetime(2020, 1, 1), "end": datetime(2021, 1, 1)},
+                    {"start": datetime(2022, 5, 5), "end": datetime(2023, 1, 1)},
+                ],
+            )
+        )
+        row = w.current[0]
+        assert 'data-sort-since="2022-05-05"' in row
+        assert "Present" not in row
+
+    def test_the_dash_alone_is_classed_for_padding(self, stub_logo_lookup):
+        # The stylesheet pads ``.holdings__dash`` and nothing else in
+        # the cell, so "Present" must be a bare span sitting directly
+        # against the classed dash -- that adjacency is what starts it
+        # at the same x as the end date on the line below. The CSS
+        # half of the contract has its own style test; the rendered
+        # geometry is pinned in the Playwright suite.
+        w = Webpage()
+        w.add_holding(_holding(periods=[{"start": datetime(2024, 3, 7), "end": None}]))
+        assert '<span class="holdings__dash">&ndash;</span><span>Present</span>' in w.current[0]
+
     def test_negative_holding_returns_get_negative_class(self, stub_logo_lookup):
         w = Webpage()
         w.add_holding(_holding(tsr=-5.0, cagr=-2.0))
