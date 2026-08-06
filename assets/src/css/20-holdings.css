@@ -67,12 +67,12 @@
    column its ranges and the names their room. */
 .holdings__col--weight { width: 88px; text-align: right; }
 .holdings__col--weight .holdings__sort { justify-content: flex-end; }
-/* 128px fits the bare date a single-window row shows. It is a floor,
-   not a cap: the table lays out auto, and auto layout never squeezes
-   a column below its cells' min-content width -- so when a
-   re-entered row brings full ``nowrap`` ranges, the column grows to
-   the widest one (taking the flexible name column's slack) and every
-   range stays on one line. A table of bare dates keeps all 128px. */
+/* A floor, not a cap: the table lays out auto, and auto layout never
+   squeezes a column below its cells' min-content width -- every cell
+   here is a ``nowrap`` "start - end" range now, so the column sits
+   at the widest one (taking the flexible name column's slack) and a
+   range never breaks across lines. The declared width only bounds
+   the header when the table is empty. */
 .holdings__col--since { width: 128px; }
 .holdings__col--periods { width: 224px; }
 /* Sort buttons are visually identical to the surrounding header
@@ -208,11 +208,6 @@
   letter-spacing: 0.03em;
   color: var(--muted-soft);
 }
-.holdings__since {
-  color: var(--muted);
-  white-space: nowrap;
-  font-size: 0.8125rem;
-}
 /* Weight: on the wide frame the cell holds just the number,
    right-aligned with the Return / IRR figures beside it -- the
    alignment sits on the ``<td>`` so it reads like theirs does. The
@@ -298,14 +293,21 @@
   flex-direction: column;
   gap: 2px;
 }
-.holdings__periods span { padding: 0 4px; }
+/* The padding lives on the dash and nowhere else. "Present" and an
+   end date must start at the same x -- the start dates above one
+   another are equal-width (same format, tabular numerals), so the
+   dash's symmetric padding is the whole horizontal rhythm, and any
+   padding on the end tokens themselves would push "Present" out of
+   line with the date below it. */
+.holdings__periods .holdings__dash { padding: 0 4px; }
 /* Below ~620px the design stops being a table and becomes a list of
    cards -- because a six-column grid on a 358px screen is not a
    narrower table, it is an unreadable one. What follows rebuilds the
    design's mobile row out of the same cells:
 
        [logo] [name              ] [return    ]
-              [listing    since  ] [IRR  x.x% ]
+              [listing           ] [IRR  x.x% ]
+              [start - end, newest first      ]
               [====== bar =======] [   weight ]
 
    and turns the header row into the design's pill chips above it.
@@ -435,34 +437,24 @@
     color: var(--fg);
   }
 
-  /* Four columns, because the second line carries three things, not
-     two: the listing, the date it was bought, and the IRR. The design
-     writes the first two as one span -- "NMS:NVDA - 14/08/2024" --
-     directly under the holding's name. A three-column grid had no
-     cell for the date, so it was pinned to the far end of the row and
-     read as a caption on the IRR beside it rather than on the ticker
-     it belongs to.
-     Column 2 sizes to the listing and column 3 takes the slack, with
-     the date pinned to its left edge -- that ordering is what keeps
-     the pair together. Reversed, the listing sat at the left of a
-     flexible column and the date began only where that column ended,
-     which put 107px of nothing between them and left the date reading
-     as a caption on the IRR at the far end of the row.
+  /* Four columns: the listing's own track, the slack after it, and
+     the figures at the far end. The date used to sit inline after
+     the listing in column 3 ("NMS:NVDA - 14/08/2024"); it now lives
+     on the windows line below (every position renders its ranges,
+     open ones as "start - Present"), but the column stays: it is the
+     slack that keeps a wide listing from crowding the IRR on its
+     line.
      The cap goes on the listing itself, not on its track: a track
-     with a percentage maximum grows to that percentage, so a short
-     ticker would sit at the left of a fixed-width column and the date
-     would start where the column ended -- the very gap this is trying
-     to close. ``max-width`` in container units caps the *element*, and
-     the ``auto`` track then sizes to it, giving the shrink-to-fit the
-     track alone cannot express. It exists so the listing can never be
-     the reason the date runs out of room: a dual-listed holding
+     with a percentage maximum grows to that percentage, while
+     ``max-width`` in container units caps the *element* and the
+     ``auto`` track then sizes to it -- the shrink-to-fit a track
+     alone cannot express. A dual-listed holding
      ("DUS:SSU.DU + IOB:SMSN.IL") is half again as wide as a plain
-     ticker and at 320px it pushed the date under the IRR. Past the
-     cap the listing ellipses, which is the right thing to lose --
-     the exchange prefixes are recoverable, a truncated date is not.
+     ticker; past the cap it ellipses, which is the right thing to
+     lose -- the exchange prefixes are recoverable.
      Gaps are set per item rather than by ``column-gap``, since the
-     listing and its date want to sit tight against their separator
-     while the logo and the figures want the design's 10px. */
+     logo and the figures want the design's 10px and the middle
+     columns want none. */
   .holdings__row {
     display: grid;
     grid-template-columns: 40px minmax(0, auto) minmax(0, 1fr) auto;
@@ -531,21 +523,6 @@
     white-space: nowrap;
     font-size: 0.65625rem;
   }
-  /* Immediately after the listing, joined by the design's middot.
-     The two are separate cells in the table and cannot be merged into
-     one span without duplicating the date, so the separator is drawn
-     by the date's own ``::before`` instead. */
-  .holdings__since {
-    grid-column: 3;
-    grid-row: 2;
-    justify-self: start;
-    white-space: nowrap;
-    font-size: 0.65625rem;
-  }
-  .holdings__since::before {
-    content: "\00b7";
-    margin: 0 4px;
-  }
   .holdings__periods {
     grid-column: 2 / -1;
     grid-row: 3;
@@ -570,16 +547,13 @@
     content: "IRR ";
     color: var(--muted);
   }
+  /* Row 4, under the windows line every open card now carries --
+     sharing row 3 would stack the two into the same grid area. A
+     closed card simply has no weight cell and ends at row 3. */
   .holdings__weight {
     grid-column: 2 / -1;
-    grid-row: 3;
+    grid-row: 4;
   }
-  /* A re-entered open row carries both the windows list and the
-     weight bar, and the list takes the card's third row -- the same
-     one the closed card gives it. The bar steps down to a fourth
-     row rather than sharing the third, where the two would stack
-     into the same grid area. */
-  .holdings__row--reentered .holdings__weight { grid-row: 4; }
   /* The card is where the bar lives: the design draws bar + value
      across the card's own bottom row, which has the full width to
      spend -- the wide frame's fit problem does not exist here. */

@@ -12,10 +12,10 @@ comparison -- because no two numbers ever share a column.
 So: one table, every row visible, click a column header to sort.
 Weight is a number among the other figures on the wide frame -- the
 room its old in-row bar took now pays for one-line ownership ranges
-on re-entered rows and the name column's breathing space -- while
-the phone card still draws bar + value across its bottom row, where
-the width to do so exists. The money-weighted metrics sit in single
-columns that run the length of the table.
+and the name column's breathing space -- while the phone card still
+draws bar + value across its bottom row, where the width to do so
+exists. The money-weighted metrics sit in single columns that run
+the length of the table.
 
 Rows are grouped into ``<tbody>`` sections (equities, fixed income,
 closed) with a band row naming each group and its share of the
@@ -64,12 +64,12 @@ from .anchors import holding_anchor
 # exactly that reason. An empty narrow label means the wide one
 # serves both.
 #
-# Both tables caption their date column "Dates held": a re-entered
-# open position lists every ownership window just as a closed one
-# does, so "Held since" -- which promises a single date -- would be
-# wrong the moment a second window appears. The ``since`` key stays,
-# like ``tsr`` / ``cagr``: it names the sort contract (the open
-# window's start), not the label.
+# Both tables caption their date column "Dates held": every open
+# position renders its windows as ranges -- the open one as
+# "start - Present" -- in the same grammar the closed table uses, so
+# "Held since", which promises a single date, stopped being what the
+# column holds. The ``since`` key stays, like ``tsr`` / ``cagr``: it
+# names the sort contract (the open window's start), not the label.
 OPEN_COLUMNS: tuple[tuple[str, str, str, str, str], ...] = (
     ("name", "Holding", "Name", "text", "name"),
     ("since", "Dates held", "Dates", "text", "since"),
@@ -168,9 +168,9 @@ def _period_start(holding: dict) -> date:
     """The date the position the reader is looking at was opened.
 
     A re-entered position has several periods; the open one is what
-    the ``since`` sort key means (and what the cell shows when there
-    is only one window), so prefer the period with no end date and
-    fall back to the most recent start when every period is closed.
+    the ``since`` sort key means, so prefer the period with no end
+    date and fall back to the most recent start when every period is
+    closed.
     """
     periods = holding["periods"]
     open_periods = [p for p in periods if p["end"] is None]
@@ -180,12 +180,17 @@ def _period_start(holding: dict) -> date:
 def _periods_cell(holding: dict) -> str:
     """Render every ownership window of a position, newest first.
 
-    Closed rows always render this cell; open rows render it once a
-    position has been re-entered, with the open window on top as
-    "start -- Present". ``Holding.summary`` already returns
-    newest-first in production, but preview / synthetic data might
-    not, and the visual order is a UX guarantee rather than an
-    upstream accident.
+    Every row renders this cell -- open rows put their open window on
+    top as "start -- Present", so the column reads in one grammar
+    whether a position is held, closed, or re-entered.
+    ``Holding.summary`` already returns newest-first in production,
+    but preview / synthetic data might not, and the visual order is a
+    UX guarantee rather than an upstream accident.
+
+    The separator carries a class because it alone is padded:
+    "Present" and an end date must start at the same x, and any
+    padding of their own would push them apart (see
+    ``.holdings__dash`` in the stylesheet).
     """
     ordered = sorted(holding["periods"], key=lambda p: p["start"], reverse=True)
     items = []
@@ -196,7 +201,7 @@ def _periods_cell(holding: dict) -> str:
             end_html = "<span>Present</span>"
         else:
             end_html = f'<time datetime="{end.strftime("%Y-%m-%d")}">{_fmt_date(end)}</time>'
-        items.append(f"<li>{start_html}<span>&ndash;</span>{end_html}</li>")
+        items.append(f'<li>{start_html}<span class="holdings__dash">&ndash;</span>{end_html}</li>')
     return f'<td class="holdings__periods" role="cell"><ul>{"".join(items)}</ul></td>'
 
 
@@ -227,15 +232,15 @@ def _metric_cells(holding: dict) -> str:
 def build_row(holding: dict, *, logo_url_for: Callable[[str], str]) -> str:
     """Render one holding as a ``<tr>``.
 
-    Open positions get a date column and a weight bar; closed ones
-    get the list of windows they were held over instead, and no
-    weight at all -- they have none. An open position that was also
-    held before gets the same windows list a closed one does, open
-    window on top: showing only the latest start would claim a
-    shorter history than the position has.
+    Every position renders its ownership windows the same way: open
+    rows lead with "start -- Present", re-entered ones list their
+    earlier windows underneath (showing only the latest start would
+    claim a shorter history than the position has), and closed rows
+    list the windows they were held over. What separates open from
+    closed is the weight cell -- closed positions have no weight at
+    all.
     """
     is_current = holding["is_current"]
-    row_class = "holdings__row"
     website_url = holding.get("website") or google_search_url(holding["name"])
     sort_attrs = {
         "name": holding["name"].casefold(),
@@ -262,18 +267,7 @@ def build_row(holding: dict, *, logo_url_for: Callable[[str], str]) -> str:
         start = _period_start(holding)
         sort_attrs["since"] = start.strftime("%Y-%m-%d")
         sort_attrs["weight"] = _format_sort_number(weight)
-        if len(holding["periods"]) > 1:
-            # The modifier is for the phone frame, where the windows
-            # list takes the card row the weight bar lives on -- the
-            # flagged row steps its bar down one grid row.
-            row_class = "holdings__row holdings__row--reentered"
-            cells.append(_periods_cell(holding))
-        else:
-            cells.append(
-                f'<td class="holdings__since" role="cell">'
-                f'<time datetime="{start.strftime("%Y-%m-%d")}">{_fmt_date(start)}</time>'
-                "</td>"
-            )
+        cells.append(_periods_cell(holding))
         muted = holding.get("asset_class") == "fixed_income"
         # The grid goes on an inner span, not on the ``<td>``. A
         # ``display: grid`` cell leaves the table's formatting context
@@ -300,7 +294,7 @@ def build_row(holding: dict, *, logo_url_for: Callable[[str], str]) -> str:
         f' data-sort-{key}="{html.escape(sort_attrs[key])}"' for key in sorted(sort_attrs)
     )
     return (
-        f'<tr class="{row_class}" role="row" id="{html.escape(holding_anchor(holding["ticker"]))}"{attrs}>'
+        f'<tr class="holdings__row" role="row" id="{html.escape(holding_anchor(holding["ticker"]))}"{attrs}>'
         f"{''.join(cells)}"
         "</tr>"
     )

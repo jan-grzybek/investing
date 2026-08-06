@@ -70,23 +70,21 @@ class TestAddHolding:
         # colour either.
         assert "value--positive" not in w.current[0].split("TBA")[0].rsplit("<td", 1)[1]
 
-    def test_open_position_renders_a_bare_date_not_present(self, stub_logo_lookup):
-        # An open row with a single window answers "how long have you
-        # held this", which is a date -- a "start to Present" range
-        # would restate what the table already says of every row.
+    def test_open_position_renders_its_window_as_start_to_present(self, stub_logo_lookup):
+        # One grammar for the whole column: an open row's window is a
+        # range like any other, it just has no end date yet.
         w = Webpage()
         w.add_holding(_holding(periods=[{"start": datetime(2024, 3, 7), "end": None}]))
         row = w.current[0]
-        assert "Present" not in row
+        assert "holdings__periods" in row
         assert '<time datetime="2024-03-07">07/03/2024</time>' in row
-        assert "holdings__since" in row
-        assert "holdings__row--reentered" not in row
+        assert row.count("<li>") == 1
+        assert "Present" in row
 
     def test_reentered_position_lists_every_window_open_first(self, stub_logo_lookup):
         # A re-entered position owes the reader its earlier windows:
         # showing only the latest start would claim a shorter history
-        # than the position has. The open window tops the stack as
-        # "start -- Present", same grammar as the closed table.
+        # than the position has. The open window tops the stack.
         w = Webpage()
         w.add_holding(
             _holding(
@@ -98,13 +96,10 @@ class TestAddHolding:
         )
         row = w.current[0]
         assert "holdings__periods" in row
-        assert "holdings__since" not in row
         assert "Present" in row
         assert row.count("<li>") == 2
         assert row.index("2024-06-01") < row.index("2020-01-01")
-        # The weight bar survives; the modifier is what lets the phone
-        # frame step it below the windows list instead of dropping it.
-        assert "holdings__row--reentered" in row
+        # Open rows keep their weight cell alongside the windows list.
         assert "holdings__weight" in row
         # The ``since`` sort contract is unchanged: the open window's
         # start, not the earliest ever.
@@ -603,13 +598,27 @@ class TestHoldingsStyles:
         assert body
         assert ".holdings__bar{display:block" in normalize(body)
 
-    def test_reentered_card_steps_the_weight_bar_below_the_windows_list(self):
-        # On the phone frame the windows list takes the card's third
-        # row -- the same one the weight bar lives on. Without this
-        # rule the two stack into the same grid area.
+    def test_card_weight_bar_sits_below_the_windows_line(self):
+        # On the phone frame every open card carries the windows list
+        # on its third row, so the weight bar lives on a fourth --
+        # sharing row 3 would stack the two into the same grid area.
         body = at_rule_body(_PAGE_STYLES, "@container holdings (max-width:620px)")
         assert body
-        assert ".holdings__row--reentered .holdings__weight{grid-row:4}" in normalize(body)
+        # Compared with spaces collapsed: csscompressor keeps a space
+        # around the ``/`` in ``grid-column``, and that spacing is its
+        # business rather than the contract's.
+        assert ".holdings__weight{grid-column:2/-1;grid-row:4}" in normalize(body).replace(" ", "")
+
+    def test_only_the_dash_is_padded_so_present_aligns_with_end_dates(self):
+        # "Present" and the end date under it must start at the same
+        # x. The start dates are equal-width (one format, tabular
+        # numerals), so the dash's symmetric padding is the whole
+        # horizontal rhythm -- padding on every span put 4px before
+        # "Present" that no end date carried.
+        bodies = blocks_for(_PAGE_STYLES, ".holdings__periods .holdings__dash")
+        assert bodies
+        assert any("padding:0 4px" in b for b in bodies), bodies
+        assert not blocks_for(_PAGE_STYLES, ".holdings__periods span")
 
     def test_sorted_column_indicator_is_driven_by_aria_sort(self):
         for selector in (

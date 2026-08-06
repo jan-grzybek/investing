@@ -138,9 +138,9 @@ def _holding(
         "current_weight%": weight,
         "current_value_usd": weight * 1000,
         # ``past_periods`` marks a re-entered position: closed
-        # ownership windows that sit under the open one in the
-        # "Dates held" column, so the preview exercises the
-        # ``holdings__row--reentered`` rendering on a current row.
+        # ownership windows that stack under the open
+        # "start - Present" one in the "Dates held" column, so the
+        # preview exercises the multi-window list on a current row.
         "periods": [*(past_periods or []), {"start": period_start, "end": None}],
         # Click target for the capsule logo. The production path
         # fills this from yfinance's ``website`` / ``irWebsite`` fields
@@ -253,10 +253,10 @@ def _build_dataset() -> dict:
             sector="Communication Services",
         ),
         # META is the re-entered current position: a closed earlier
-        # window under the open one, so the preview (and the
-        # Playwright suite driving it) exercises the open table's
-        # windows list -- including the phone frame's weight-bar
-        # step-down -- on a row that also carries a weight bar.
+        # window under the open "start - Present" one, so the preview
+        # (and the Playwright suite driving it) exercises the
+        # multi-window list -- and the alignment of "Present" over an
+        # end date -- on a row that also carries a weight cell.
         _holding(
             "NMS:META",
             "Meta Platforms, Inc.",
