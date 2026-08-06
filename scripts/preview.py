@@ -127,6 +127,7 @@ def _holding(
     asset_class: str = "equity",
     tickers: list[str] | None = None,
     short_label: str = "",
+    past_periods: list[dict] | None = None,
 ) -> dict:
     holding = {
         "ticker": ticker,
@@ -136,7 +137,11 @@ def _holding(
         "is_current": True,
         "current_weight%": weight,
         "current_value_usd": weight * 1000,
-        "periods": [{"start": period_start, "end": None}],
+        # ``past_periods`` marks a re-entered position: closed
+        # ownership windows that stack under the open
+        # "start - Present" one in the "Dates held" column, so the
+        # preview exercises the multi-window list on a current row.
+        "periods": [*(past_periods or []), {"start": period_start, "end": None}],
         # Click target for the capsule logo. The production path
         # fills this from yfinance's ``website`` / ``irWebsite`` fields
         # (with a Google-search fallback in ``resolve_company_url``);
@@ -247,6 +252,11 @@ def _build_dataset() -> dict:
             website="https://www.abc.xyz",
             sector="Communication Services",
         ),
+        # META is the re-entered current position: a closed earlier
+        # window under the open "start - Present" one, so the preview
+        # (and the Playwright suite driving it) exercises the
+        # multi-window list -- and the alignment of "Present" over an
+        # end date -- on a row that also carries a weight cell.
         _holding(
             "NMS:META",
             "Meta Platforms, Inc.",
@@ -256,6 +266,7 @@ def _build_dataset() -> dict:
             datetime(2023, 1, 12),
             website="https://investor.atmeta.com",
             sector="Communication Services",
+            past_periods=[{"start": datetime(2020, 5, 11), "end": datetime(2022, 2, 3)}],
         ),
         _holding(
             "NMS:ADBE",
@@ -394,10 +405,11 @@ def _build_dataset() -> dict:
             "is_current": False,
             "current_weight%": None,
             "current_value_usd": 0.0,
-            # Listed in chronological order on purpose -- the renderer
-            # in ``Webpage._build_card`` re-sorts to newest-first so
-            # whichever order we hand it over in, the most recent
-            # ownership window ends up on top of the stack.
+            # Listed in chronological order on purpose -- the windows
+            # cell (``holdings_view._periods_cell``) re-sorts to
+            # newest-first so whichever order we hand it over in, the
+            # most recent ownership window ends up on top of the
+            # stack.
             "periods": [
                 {"start": datetime(2022, 8, 5), "end": datetime(2023, 6, 9)},
                 {"start": datetime(2025, 7, 22), "end": datetime(2025, 12, 30)},

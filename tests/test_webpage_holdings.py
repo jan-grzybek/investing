@@ -70,19 +70,21 @@ class TestAddHolding:
         # colour either.
         assert "value--positive" not in w.current[0].split("TBA")[0].rsplit("<td", 1)[1]
 
-    def test_open_position_renders_held_since_not_present(self, stub_logo_lookup):
-        # An open row answers "how long have you held this", which is
-        # a date -- the "start to Present" range belongs to the closed
-        # table, where the end date is the information.
+    def test_open_position_renders_its_window_as_start_to_present(self, stub_logo_lookup):
+        # One grammar for the whole column: an open row's window is a
+        # range like any other, it just has no end date yet.
         w = Webpage()
         w.add_holding(_holding(periods=[{"start": datetime(2024, 3, 7), "end": None}]))
         row = w.current[0]
-        assert "Present" not in row
+        assert "holdings__periods" in row
         assert '<time datetime="2024-03-07">07/03/2024</time>' in row
+        assert row.count("<li>") == 1
+        assert "Present" in row
 
-    def test_held_since_prefers_the_open_period(self, stub_logo_lookup):
-        # A re-entered position has several windows; "Held since" means
-        # the one that is still open, not the earliest ever.
+    def test_reentered_position_lists_every_window_open_first(self, stub_logo_lookup):
+        # A re-entered position owes the reader its earlier windows:
+        # showing only the latest start would claim a shorter history
+        # than the position has. The open window tops the stack.
         w = Webpage()
         w.add_holding(
             _holding(
@@ -92,8 +94,45 @@ class TestAddHolding:
                 ],
             )
         )
-        assert 'datetime="2024-06-01"' in w.current[0]
-        assert 'data-sort-since="2024-06-01"' in w.current[0]
+        row = w.current[0]
+        assert "holdings__periods" in row
+        assert "Present" in row
+        assert row.count("<li>") == 2
+        assert row.index("2024-06-01") < row.index("2020-01-01")
+        # Open rows keep their weight cell alongside the windows list.
+        assert "holdings__weight" in row
+        # The ``since`` sort contract is unchanged: the open window's
+        # start, not the earliest ever.
+        assert 'data-sort-since="2024-06-01"' in row
+
+    def test_sort_key_falls_back_to_latest_start_when_no_window_is_open(self, stub_logo_lookup):
+        # Production guarantees a current row an open window (a
+        # position with quantity has an unstamped period), but preview
+        # / synthetic data may not; the ``since`` key then means the
+        # most recent start rather than a crash on a missing window.
+        w = Webpage()
+        w.add_holding(
+            _holding(
+                periods=[
+                    {"start": datetime(2020, 1, 1), "end": datetime(2021, 1, 1)},
+                    {"start": datetime(2022, 5, 5), "end": datetime(2023, 1, 1)},
+                ],
+            )
+        )
+        row = w.current[0]
+        assert 'data-sort-since="2022-05-05"' in row
+        assert "Present" not in row
+
+    def test_the_dash_alone_is_classed_for_padding(self, stub_logo_lookup):
+        # The stylesheet pads ``.holdings__dash`` and nothing else in
+        # the cell, so "Present" must be a bare span sitting directly
+        # against the classed dash -- that adjacency is what starts it
+        # at the same x as the end date on the line below. The CSS
+        # half of the contract has its own style test; the rendered
+        # geometry is pinned in the Playwright suite.
+        w = Webpage()
+        w.add_holding(_holding(periods=[{"start": datetime(2024, 3, 7), "end": None}]))
+        assert '<span class="holdings__dash">&ndash;</span><span>Present</span>' in w.current[0]
 
     def test_negative_holding_returns_get_negative_class(self, stub_logo_lookup):
         w = Webpage()
@@ -561,6 +600,54 @@ class TestHoldingsStyles:
         assert widths
         collapsed = widths[0].replace(" ", "")
         assert collapsed.startswith("calc(var(--w,0)/var(--holdings-weight-scale,100)*100%)")
+
+    def test_period_windows_never_break_mid_range(self):
+        # A window is one line, always. The open table's 128px date
+        # column is a floor, not a cap -- auto table layout grows a
+        # column to its cells' min-content width, and ``nowrap`` is
+        # what makes the full "start - end" range that minimum
+        # instead of letting it break after the dash.
+        bodies = blocks_for(_PAGE_STYLES, ".holdings__periods")
+        assert bodies
+        assert any("white-space:nowrap" in b for b in bodies), bodies
+        # And no flex on the ``li``: a flex row may wrap between its
+        # pieces, which is exactly the mid-range break this rules out.
+        assert not blocks_for(_PAGE_STYLES, ".holdings__periods li")
+
+    def test_wide_frame_weight_is_a_number_the_phone_card_keeps_the_bar(self):
+        # The bar's 156px track paid for itself while the date column
+        # held one bare date; against one-line ownership ranges it was
+        # the name column that got squeezed. Wide shows the value
+        # only; the phone card re-draws the bar across its own bottom
+        # row, where the fit problem does not exist.
+        bodies = blocks_for(_PAGE_STYLES, ".holdings__bar")
+        assert bodies
+        assert any("display:none" in b for b in bodies), bodies
+        body = at_rule_body(_PAGE_STYLES, "@container holdings (max-width:620px)")
+        assert body
+        assert ".holdings__bar{display:block" in normalize(body)
+
+    def test_card_weight_bar_sits_below_the_windows_line(self):
+        # On the phone frame every open card carries the windows list
+        # on its third row, so the weight bar lives on a fourth --
+        # sharing row 3 would stack the two into the same grid area.
+        body = at_rule_body(_PAGE_STYLES, "@container holdings (max-width:620px)")
+        assert body
+        # Compared with spaces collapsed: csscompressor keeps a space
+        # around the ``/`` in ``grid-column``, and that spacing is its
+        # business rather than the contract's.
+        assert ".holdings__weight{grid-column:2/-1;grid-row:4}" in normalize(body).replace(" ", "")
+
+    def test_only_the_dash_is_padded_so_present_aligns_with_end_dates(self):
+        # "Present" and the end date under it must start at the same
+        # x. The start dates are equal-width (one format, tabular
+        # numerals), so the dash's symmetric padding is the whole
+        # horizontal rhythm -- padding on every span put 4px before
+        # "Present" that no end date carried.
+        bodies = blocks_for(_PAGE_STYLES, ".holdings__periods .holdings__dash")
+        assert bodies
+        assert any("padding:0 4px" in b for b in bodies), bodies
+        assert not blocks_for(_PAGE_STYLES, ".holdings__periods span")
 
     def test_sorted_column_indicator_is_driven_by_aria_sort(self):
         for selector in (

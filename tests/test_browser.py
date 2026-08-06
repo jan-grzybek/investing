@@ -111,6 +111,9 @@ def test_numeric_columns_align_with_their_headers(preview_page: Page):
     the headers above them. Nothing about that is visible in the
     markup, and it survived several rounds of looking at screenshots,
     so it is asserted geometrically instead.
+
+    Weight joined the right-aligned figures when its wide-frame bar
+    retired, so the open table asserts three columns here, not two.
     """
     for scope in ("open", "closed"):
         table = preview_page.locator(f'table[data-holdings-table="{scope}"]')
@@ -126,7 +129,7 @@ def test_numeric_columns_align_with_their_headers(preview_page: Page):
                 const out = [];
                 [...t.querySelectorAll('thead th')].forEach((th, i) => {
                     const key = th.getAttribute('data-sort-key');
-                    if (key !== 'tsr' && key !== 'cagr') return;
+                    if (key !== 'tsr' && key !== 'cagr' && key !== 'weight') return;
                     const btn = th.querySelector('.holdings__sort');
                     const cell = row.children[i];
                     out.push({key, header: R(btn), value: R(cell),
@@ -136,7 +139,8 @@ def test_numeric_columns_align_with_their_headers(preview_page: Page):
                 return out;
             }"""
         )
-        assert len(edges) == 2, f"{scope}: expected a Return and an IRR column"
+        expected = 3 if scope == "open" else 2
+        assert len(edges) == expected, f"{scope}: expected {expected} right-aligned columns"
         for col in edges:
             assert col["align"] == "right", f"{scope}/{col['key']} is {col['align']}"
             assert abs(col["header"] - col["value"]) <= 1, (
@@ -152,7 +156,8 @@ def test_mobile_cards_place_every_item_on_the_right_grid_line(page: Page, previe
     """The phone layout is a card, and each part has one place in it.
 
         [logo] [name              ] [return ]
-               [listing     since ] [IRR    ]
+               [listing           ] [IRR    ]
+               [start - end, newest first   ]
                [======= bar ======] [ weight]
 
     This is the geometry, not the CSS, because the layout depends on
@@ -160,8 +165,8 @@ def test_mobile_cards_place_every_item_on_the_right_grid_line(page: Page, previe
     blanket ``.holdings__row th`` reset at (0,1,1) sits in front of
     that (0,1,0) declaration and will silently win if anyone reorders
     or re-adds it. When that happened the cell stayed intact and every
-    sibling auto-placed around it: the listing, the date and the IRR
-    each ended up on their own line.
+    sibling auto-placed around it: the listing, the windows line and
+    the IRR each ended up on their own line.
     """
     page.set_viewport_size({"width": 390, "height": 844})
     page.goto(preview_index.as_uri())
@@ -195,18 +200,17 @@ def test_mobile_cards_place_every_item_on_the_right_grid_line(page: Page, previe
         assert hit, f"no cell matching {needle}"
         return hit[0]
 
-    # Four columns: logo, listing, date, figures. The date has a cell
-    # of its own so it can sit immediately after the listing -- with
-    # three columns there was nowhere to put it but the far end of the
-    # row, where it read as a caption on the IRR instead.
+    # Both cards share rows 1-3; the weight bar is what tells them
+    # apart -- an open card carries it on a fourth row under the
+    # windows line, a closed card simply ends at row 3.
     for scope, expected in (
         (
             "open",
             {
                 "holdings__name": ("1", "2"),
                 "holdings__ticker": ("2", "2"),
-                "holdings__since": ("2", "3"),
-                "holdings__weight": ("3", "2"),
+                "holdings__periods": ("3", "2"),
+                "holdings__weight": ("4", "2"),
             },
         ),
         (
@@ -228,15 +232,88 @@ def test_mobile_cards_place_every_item_on_the_right_grid_line(page: Page, previe
         assert {n["col"] for n in nums} == {"4"}, nums
         assert {n["row"] for n in nums} == {"1", "2"}, nums
 
-    # The date follows its listing directly, and is nearer to it than
-    # to the IRR at the other end of the line -- which is the whole
-    # point of giving it a column instead of pinning it right.
-    open_items = placement["open"]
-    ticker = find(open_items, "holdings__ticker")
-    since = find(open_items, "holdings__since")
-    irr = next(i for i in open_items if "holdings__num--soft" in i["cls"])
-    assert ticker["right"] <= since["left"], (ticker, since)
-    assert since["left"] - ticker["right"] < irr["left"] - since["right"], (ticker, since, irr)
+
+def test_ownership_windows_each_hold_a_single_line(page: Page, preview_index: Path):
+    """A date range is one line, always -- on the wide frame the date
+    column grows to the widest range a re-entered row brings (auto
+    table layout treats the 128px header width as a floor), rather
+    than breaking the range after the dash. Asserted as geometry on
+    every window on the page, open and closed tables, both frames."""
+    for width, height in ((1280, 900), (390, 844)):
+        page.set_viewport_size({"width": width, "height": height})
+        page.goto(preview_index.as_uri())
+        spreads = page.evaluate(
+            """() => [...document.querySelectorAll('.holdings__periods li')].map(li => {
+                const tops = [...li.querySelectorAll('time, span')]
+                    .map(e => Math.round(e.getBoundingClientRect().top));
+                return Math.max(...tops) - Math.min(...tops);
+            })"""
+        )
+        assert spreads, "no windows list rendered in the preview"
+        assert all(s <= 1 for s in spreads), (width, spreads)
+
+
+def test_dates_chip_sorts_the_open_table_by_open_window_start(page: Page, preview_index: Path):
+    """Clicking "Dates held" orders rows by ``data-sort-since``. The
+    unit tier pins that a re-entered row's sort value is its open
+    window's start (not its earliest ever); this pins that the click
+    actually applies that order -- text kind, so first click sorts
+    ascending, oldest position first."""
+    page.set_viewport_size({"width": 1280, "height": 900})
+    page.goto(preview_index.as_uri())
+    table = page.locator('table[data-holdings-table="open"]')
+    table.locator('th[data-sort-key="since"] .holdings__sort').click()
+    expect(table.locator('th[data-sort-key="since"]')).to_have_attribute("aria-sort", "ascending")
+    values = (
+        table.locator("tbody.holdings__section")
+        .first.locator(".holdings__row")
+        .evaluate_all("els => els.map(el => el.getAttribute('data-sort-since'))")
+    )
+    assert len(values) > 1, values
+    assert values == sorted(values), values
+
+
+def test_open_table_fits_narrow_desktop_without_a_scrollbar(page: Page, preview_index: Path):
+    """The date column's growth must come out of the name column's
+    slack, not out of new horizontal scroll. 700px sits in the sliver
+    between the 620px card threshold and a comfortable desktop --
+    exactly where a too-greedy column would first push the table wide
+    of its wrap."""
+    page.set_viewport_size({"width": 700, "height": 900})
+    page.goto(preview_index.as_uri())
+    overflow = page.evaluate(
+        """() => {
+            const wrap = document.querySelector(
+                'table[data-holdings-table="open"]').closest('.holdings__wrap');
+            return wrap.scrollWidth - wrap.clientWidth;
+        }"""
+    )
+    assert overflow <= 0, f"open table overflows its wrap by {overflow}px at 700px"
+
+
+def test_present_starts_where_the_end_date_below_it_starts(page: Page, preview_index: Path):
+    """In a stacked windows list the end tokens form a column of
+    their own: "Present" must start at the same x as the end date on
+    the line under it. The start dates are equal-width (one format,
+    tabular numerals) and only the dash is padded, so any drift here
+    means someone padded an end token again."""
+    page.set_viewport_size({"width": 1280, "height": 900})
+    page.goto(preview_index.as_uri())
+    lefts = page.evaluate(
+        """() => {
+            const lists = [...document.querySelectorAll(
+                'table[data-holdings-table="open"] .holdings__periods ul')]
+                .filter(ul => ul.children.length > 1);
+            return lists.map(ul => {
+                const end = li => li.querySelector('.holdings__dash')
+                    .nextElementSibling.getBoundingClientRect().left;
+                return [...ul.children].map(end);
+            });
+        }"""
+    )
+    assert lefts, "no re-entered row in the preview"
+    for column in lefts:
+        assert max(column) - min(column) <= 1, lefts
 
 
 def test_mobile_activity_rows_are_two_lines(page: Page, preview_index: Path):
@@ -301,7 +378,7 @@ def test_mobile_sort_chips_follow_the_designs_order(page: Page, preview_index: P
     # scanning the strip is looking at the same row of cards either
     # way: name, the line under it, the two figures on the right, then
     # the bar across the bottom.
-    assert order == ["Name", "Held since", "Return", "IRR", "Weight"], order
+    assert order == ["Name", "Dates", "Return", "IRR", "Weight"], order
     order = page.evaluate(
         """(sel) => [...document.querySelectorAll(sel)]
             .filter(t => getComputedStyle(t).display !== 'none')
@@ -811,7 +888,7 @@ def test_every_text_step_and_segment_label_clears_wcag_aa(page: Page, preview_in
                 const out = [];
                 document.querySelectorAll(
                     '.holdings__ticker, .holdings__band td, .section__note, '
-                    + '.holdings__since'
+                    + '.holdings__periods'
                 ).forEach(e => {
                     if (!e.textContent.trim()) return;
                     out.push({what: e.className.split(' ')[0],
