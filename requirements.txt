@@ -103,7 +103,7 @@ webencodings==0.5.1
     # via
     #   cssselect2
     #   tinycss2
-websockets==16.1.1
+websockets==17.0.1
     # via yfinance
 yfinance==1.5.2
     # via jg-investing (pyproject.toml)
