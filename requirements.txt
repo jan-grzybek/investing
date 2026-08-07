@@ -14,7 +14,7 @@ certifi==2026.7.22
     # via
     #   curl-cffi
     #   requests
-cffi==2.1.0
+cffi==2.1.1
     # via
     #   cairocffi
     #   cryptography
@@ -25,7 +25,7 @@ cryptography==50.0.0
     # via google-auth
 cssselect2==0.9.0
     # via cairosvg
-curl-cffi==0.15.0
+curl-cffi==0.16.0
     # via yfinance
 defusedxml==0.7.1
     # via cairosvg
@@ -54,7 +54,7 @@ oauthlib==3.3.1
     # via requests-oauthlib
 pandas==3.0.5
     # via yfinance
-peewee==4.2.6
+peewee==4.3.0
     # via yfinance
 pillow==12.3.0
     # via
