@@ -423,3 +423,156 @@ class TestRunSnapshotSafely:
         captured = capfd.readouterr()
         assert "investing failed: _BoomError" in captured.err
         assert _LEAK_CANARY not in captured.err
+
+
+class TestSnapshotExitPaths:
+    """``_run_snapshot_safely`` mirrors the main wrapper's exit handling."""
+
+    def test_systemexit_zero_from_snapshot_is_honoured(self, monkeypatch, capfd):
+        """An explicit clean exit is not rewritten into a failure."""
+
+        def fake_snapshot():
+            raise SystemExit(0)
+
+        monkeypatch.setattr(_safe_run, "snapshot_market_data", fake_snapshot)
+        _safe_run._run_snapshot_safely()
+
+        captured = capfd.readouterr()
+        assert "investing failed" not in captured.err
+
+    def test_systemexit_nonzero_from_snapshot_is_a_failure(self, monkeypatch, capfd):
+        def fake_snapshot():
+            raise SystemExit(3)
+
+        monkeypatch.setattr(_safe_run, "snapshot_market_data", fake_snapshot)
+        with pytest.raises(SystemExit) as exc_info:
+            _safe_run._run_snapshot_safely()
+
+        assert exc_info.value.code == 1
+        assert "investing failed: SystemExit" in capfd.readouterr().err
+
+    def test_a_non_integer_exit_code_from_snapshot_is_a_failure(self, monkeypatch, capfd):
+        """``sys.exit("message")`` carries a string; treat it as failure."""
+
+        def fake_snapshot():
+            raise SystemExit("something went wrong")
+
+        monkeypatch.setattr(_safe_run, "snapshot_market_data", fake_snapshot)
+        with pytest.raises(SystemExit) as exc_info:
+            _safe_run._run_snapshot_safely()
+
+        assert exc_info.value.code == 1
+
+    def test_keyboard_interrupt_during_snapshot_is_reported(self, monkeypatch, capfd):
+        def fake_snapshot():
+            raise KeyboardInterrupt
+
+        monkeypatch.setattr(_safe_run, "snapshot_market_data", fake_snapshot)
+        with pytest.raises(SystemExit):
+            _safe_run._run_snapshot_safely()
+
+        assert "investing failed: KeyboardInterrupt" in capfd.readouterr().err
+
+    def test_snapshot_restores_stderr_after_a_failure(self, monkeypatch, capfd):
+        def fake_snapshot():
+            raise _BoomError("boom")
+
+        monkeypatch.setattr(_safe_run, "snapshot_market_data", fake_snapshot)
+        with pytest.raises(SystemExit):
+            _safe_run._run_snapshot_safely()
+
+        capfd.readouterr()
+        sys.stderr.write("visible again\n")
+        assert "visible again" in capfd.readouterr().err
+
+
+class TestSetupFailureTeardown:
+    """Resources are allocated one at a time so teardown can be partial.
+
+    ``_restore`` tears down exactly what was allocated and skips the
+    rest -- each saved fd is tracked separately behind a ``!= -1``
+    sentinel. If a mid-sequence allocation fails (fd table exhausted,
+    say), the wrapper must not dup2 or close a descriptor it never
+    obtained, because that number would belong to somebody else by
+    then.
+
+    The fake ``os.dup`` is armed only for the duration of the wrapper
+    call: ``os.dup`` is process-global, and pytest's own capture
+    machinery calls it during teardown.
+    """
+
+    @staticmethod
+    @contextlib.contextmanager
+    def _dup_failing_after(n: int):
+        """Let ``n`` ``os.dup`` calls through, then fail every one."""
+        real_dup = os.dup
+        seen = {"n": 0}
+
+        def flaky_dup(fd):
+            seen["n"] += 1
+            if seen["n"] > n:
+                raise OSError(24, "Too many open files")
+            return real_dup(fd)
+
+        os.dup = flaky_dup
+        try:
+            yield
+        finally:
+            os.dup = real_dup
+
+    def _assert_streams_usable(self, capfd):
+        capfd.readouterr()
+        sys.stderr.write("stderr restored\n")
+        sys.stdout.write("stdout restored\n")
+        captured = capfd.readouterr()
+        assert "stderr restored" in captured.err
+        assert "stdout restored" in captured.out
+
+    def test_a_failure_on_the_second_dup_still_tears_down_cleanly(self, monkeypatch, capfd):
+        """stderr was saved, stdout was not: teardown must handle the mix."""
+        monkeypatch.setattr(_safe_run, "main", lambda: None)
+
+        with self._dup_failing_after(1), pytest.raises(OSError, match="Too many open files"):
+            _safe_run._run_main_safely()
+
+        self._assert_streams_usable(capfd)
+
+    def test_a_failure_on_the_first_dup_still_tears_down_cleanly(self, monkeypatch, capfd):
+        """Nothing was saved; teardown must not touch fd 1 or 2 at all."""
+        monkeypatch.setattr(_safe_run, "main", lambda: None)
+
+        with self._dup_failing_after(0), pytest.raises(OSError):
+            _safe_run._run_main_safely()
+
+        self._assert_streams_usable(capfd)
+
+    def test_the_snapshot_wrapper_tears_down_the_same_way(self, monkeypatch, capfd):
+        monkeypatch.setattr(_safe_run, "snapshot_market_data", lambda: None)
+
+        with self._dup_failing_after(1), pytest.raises(OSError):
+            _safe_run._run_snapshot_safely()
+
+        self._assert_streams_usable(capfd)
+
+
+class TestFramesWithoutSource:
+    def test_a_frame_with_no_source_line_is_still_listed(self, monkeypatch, capfd):
+        """Compiled-from-string frames have a lineno but no source text.
+
+        The traceback walker prints the source line only when it can
+        read one back; a synthetic frame must still contribute its
+        ``file:lineno in function`` breadcrumb rather than being
+        skipped or crashing the summary.
+        """
+        namespace: dict = {}
+        exec(
+            compile("def boom():\n    raise RuntimeError('x')\n", "<generated>", "exec"), namespace
+        )
+
+        monkeypatch.setattr(_safe_run, "main", namespace["boom"])
+        with pytest.raises(SystemExit):
+            _safe_run._run_main_safely()
+
+        err = capfd.readouterr().err
+        assert "investing failed: RuntimeError" in err
+        assert "<generated>:2 in boom" in err

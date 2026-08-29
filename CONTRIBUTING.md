@@ -52,11 +52,21 @@ GitHub Pages receives only the public site tree assembled by [`scripts/stage_sit
 4. Skip browser tests during quick iteration: `pytest -m "not browser"`
 5. Render synthetic preview locally: `python scripts/preview.py --out preview/`
 
-The CI matrix runs against Python 3.12, 3.13 and 3.14, with branch
-coverage reported via `pytest-cov`. A separate lint job on 3.13 runs
-`ruff` and `mypy` so PRs cannot merge with lint/type errors even when
-pre-commit was skipped locally. The production deployment workflow
-uses 3.13.
+The CI matrix runs against Python 3.12, 3.13 and 3.14 — the whole range
+`requires-python` declares — with branch coverage reported via
+`pytest-cov`. A separate lint job on 3.14 runs `ruff`, `mypy` and the
+full `pre-commit` set (which is where stylelint and eslint are
+enforced) so PRs cannot merge with lint/type errors even when
+pre-commit was skipped locally. The deploy, lint and security jobs all
+run 3.14, matching `.python-version` and the interpreter the lock files
+are compiled with.
+
+**Branch coverage must stay at or above 99%** (`fail_under` in
+`pyproject.toml`). The floor only ever moves up: a change that drops
+coverage is missing tests, and those tests are part of the change. See
+the ratchet section in [AGENTS.md](AGENTS.md) for what "covered" means
+here — a test that would fail if the branch were wrong, not one that
+merely executes it.
 
 Browser smoke tests (Playwright + axe-core) live in
 [`tests/test_browser.py`](tests/test_browser.py). Structural HTML validation

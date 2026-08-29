@@ -11,6 +11,7 @@ from datetime import datetime
 import pytest
 
 from investing.holdings import DAYS_YEAR, WITHHOLDING_TAX_RATE, Holding, _xirr
+from investing.market_data_store import ResolvedTicker
 from investing.trades import Trade
 
 
@@ -1035,3 +1036,121 @@ class TestSameDayClosingSell:
         ledger = holding.ledger()
         assert ledger.is_current is False
         assert ledger.current_value_usd == pytest.approx(0.0)
+
+
+class TestSplitApplicationEdges:
+    def test_no_split_in_the_window_leaves_the_quantity_alone(
+        self, install_ticker, stub_exchange_rate
+    ):
+        install_ticker(_make_ticker(splits={_date_key(datetime(2015, 1, 1)): 2.0}))
+        holding = Holding("TST", now=lambda: datetime(2024, 6, 1))
+
+        # Window sits entirely after the only split.
+        assert holding._apply_splits_between(10, datetime(2020, 1, 1), datetime(2021, 1, 1)) == 10
+
+    def test_a_split_inside_the_window_scales_the_quantity(
+        self, install_ticker, stub_exchange_rate
+    ):
+        install_ticker(
+            _make_ticker(
+                splits={
+                    _date_key(datetime(2020, 6, 1)): 2.0,
+                    _date_key(datetime(2020, 9, 1)): 3.0,
+                }
+            )
+        )
+        holding = Holding("TST", now=lambda: datetime(2024, 6, 1))
+
+        # Both splits fall strictly inside: 10 * 2 * 3.
+        assert holding._apply_splits_between(10, datetime(2020, 1, 1), datetime(2021, 1, 1)) == 60
+
+    def test_a_split_on_the_only_trade_date_is_caught_by_the_ledger(
+        self, install_ticker, stub_exchange_rate
+    ):
+        """A single trade never triggers the pairwise walk, so the
+        ledger carries its own collision check as the backstop."""
+        from investing.errors import InvariantError
+
+        install_ticker(_make_ticker(splits={_date_key(datetime(2021, 6, 1)): 2.0}))
+        holding = Holding("TST", now=lambda: datetime(2024, 6, 1))
+        holding.buy(Trade(datetime(2021, 6, 1), "TST", 10, 50.0, "BUY"))
+
+        with pytest.raises(InvariantError, match="coincides with a trade boundary"):
+            holding.ledger()
+
+
+class TestStoreBackedHistory:
+    def test_market_history_is_read_through_the_store(self, install_ticker, stub_exchange_rate):
+        """With a store wired in, history merges against the archive."""
+        from unittest.mock import MagicMock
+
+        import pandas as pd
+
+        install_ticker(_make_ticker())
+        frame = pd.DataFrame(
+            {"Adj Close": [1.0]},
+            index=pd.DatetimeIndex([datetime(2024, 1, 2)]),
+        )
+        store = MagicMock()
+        store.enabled = True
+        store.resolve_ticker.return_value = ResolvedTicker(
+            info={
+                "currency": "USD",
+                "exchange": "NMS",
+                "symbol": "TST",
+                "longName": "Test Co.",
+                "regularMarketPrice": 100.0,
+            },
+            splits=[],
+            dividends=[],
+        )
+        store.resolve_price_history.return_value = frame
+
+        holding = Holding("TST", store=store, now=lambda: datetime(2024, 6, 1))
+        result = holding.fetch_market_history(start="2024-01-01")
+
+        assert result is frame
+        assert store.resolve_price_history.call_args[0][0] == "TST"
+
+
+class TestTradeActionBackstop:
+    """``get_holdings`` re-checks the action it was handed.
+
+    ``combine_and_sort`` already rejects unknown tokens, so this is a
+    backstop rather than the primary gate -- but it guards the loop
+    that decides whether a trade adds or removes shares. Reaching it
+    means the parser and the ledger have diverged, and guessing the
+    direction would corrupt every downstream number silently.
+    """
+
+    def test_an_unknown_action_is_rejected(self, install_ticker, stub_exchange_rate, monkeypatch):
+        from investing.errors import InvariantError
+        from investing.performance import get_holdings
+
+        install_ticker(_make_ticker())
+
+        class _Rogue:
+            ticker = "TST"
+            date = datetime(2024, 1, 1)
+            quantity = 1
+            price = 1.0
+            action = "TRANSFER"
+
+        monkeypatch.setattr(
+            "investing.performance.combine_and_sort",
+            lambda _txns: [_Rogue()],
+        )
+
+        with pytest.raises(InvariantError, match="is not one of"):
+            get_holdings(
+                [
+                    {
+                        "ticker": "TST",
+                        "date": "01-01-2024",
+                        "quantity": 1,
+                        "price_per_share": 1.0,
+                        "action": "BUY",
+                    }
+                ],
+                fx=stub_exchange_rate,
+            )

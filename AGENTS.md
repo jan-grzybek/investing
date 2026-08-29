@@ -29,10 +29,14 @@ Cursor runs [`.cursor/hooks/post-edit-verify.sh`](.cursor/hooks/post-edit-verify
 
 ## Coverage is a one-way ratchet
 
-`fail_under` in `pyproject.toml` is a floor that only ever moves **up**. When a
-change lifts real coverage, raise it to match. Never lower it to turn a red
-build green — if a change drops coverage, the missing tests are part of that
-change, not a follow-up.
+**The floor is 99%.** `fail_under` in `pyproject.toml` enforces it, and it only
+ever moves **up**. When a change lifts real coverage, raise it to match. Never
+lower it to turn a red build green — if a change drops coverage, the missing
+tests are part of that change, not a follow-up.
+
+At 99% the headroom is roughly a dozen statements, so this is a real gate
+rather than a target: a new module landing with an untested branch will fail
+CI, which is the point.
 
 New code arrives with its branches covered. "Covered" means a test that would
 fail if the branch were wrong, not one that merely executes it: write the test

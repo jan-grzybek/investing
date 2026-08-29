@@ -1259,3 +1259,95 @@ class TestOgLogoLoading:
         import investing.webpage.og_image as og_image
 
         assert og_image._og_logo_aspect("NMS:NOSUCHTICKER") > 0
+
+
+class TestGenerateWebpageBuckets:
+    """``generate_webpage`` routes four holding buckets, not two.
+
+    Equities and fixed income each split into current and historical,
+    and the fixed-income keys are optional so a portfolio without a
+    bond sleeve renders unchanged.
+    """
+
+    def test_all_four_buckets_reach_the_renderer(self, tmp_path, monkeypatch):
+        from unittest.mock import MagicMock
+
+        import investing.webpage._page as page_mod
+
+        added: list[str] = []
+        webpage = MagicMock()
+        webpage.add_holding.side_effect = lambda h: added.append(h["ticker"])
+
+        monkeypatch.setattr(page_mod, "Webpage", lambda **_kwargs: webpage)
+        page_mod.generate_webpage(
+            {"twr%": 1.0, "cagr%": 1.0, "history": []},
+            [],
+            {
+                "current": [{"ticker": "CUR"}],
+                "current_fixed_income": [{"ticker": "CUR_FI"}],
+                "historical": [{"ticker": "HIST"}],
+                "historical_fixed_income": [{"ticker": "HIST_FI"}],
+                "allocation%": None,
+                "top_10": None,
+            },
+            output_dir=tmp_path,
+        )
+
+        assert added == ["CUR", "CUR_FI", "HIST", "HIST_FI"]
+
+    def test_absent_fixed_income_keys_are_tolerated(self, tmp_path, monkeypatch):
+        from unittest.mock import MagicMock
+
+        import investing.webpage._page as page_mod
+
+        added: list[str] = []
+        webpage = MagicMock()
+        webpage.add_holding.side_effect = lambda h: added.append(h["ticker"])
+
+        monkeypatch.setattr(page_mod, "Webpage", lambda **_kwargs: webpage)
+        page_mod.generate_webpage(
+            {"twr%": 1.0, "cagr%": 1.0, "history": []},
+            [],
+            {
+                "current": [{"ticker": "CUR"}],
+                "historical": [{"ticker": "HIST"}],
+                "allocation%": None,
+                "top_10": None,
+            },
+            output_dir=tmp_path,
+        )
+
+        assert added == ["CUR", "HIST"]
+
+
+class TestSectorOverridesCaching:
+    """A default-path parse is cached; an explicit path is not.
+
+    Tests pass their own file and must not poison the process-wide
+    cache the production build reads from the repo root.
+    """
+
+    def test_a_malformed_file_on_the_default_path_caches_the_empty_result(
+        self, tmp_path, monkeypatch
+    ):
+        import investing.sector_overrides as so
+
+        bad = tmp_path / "sector_overrides.toml"
+        bad.write_text("this is not : valid toml [[[", encoding="utf-8")
+        monkeypatch.setattr(so, "_SECTOR_OVERRIDES_PATH", str(bad))
+        so._clear_overrides_cache()
+        assert so._load_overrides() == {}
+        # Cached, so a second call does not re-read the broken file.
+        bad.unlink()
+        assert so._load_overrides() == {}
+
+    def test_a_non_table_sectors_entry_caches_the_empty_result(self, tmp_path, monkeypatch):
+        import investing.sector_overrides as so
+
+        odd = tmp_path / "sector_overrides.toml"
+        odd.write_text('sectors = "not a table"\n', encoding="utf-8")
+        monkeypatch.setattr(so, "_SECTOR_OVERRIDES_PATH", str(odd))
+        so._clear_overrides_cache()
+        assert so._load_overrides() == {}
+        odd.unlink()
+        assert so._load_overrides() == {}

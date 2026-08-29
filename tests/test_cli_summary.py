@@ -408,3 +408,86 @@ class TestArchivedTickerUpkeep:
         _refresh_departed_archives(store, [], [])
 
         assert store.refresh_ticker.call_count == 0
+
+
+class TestNotifierFailureLine:
+    def test_failed_lookups_are_listed_by_ticker(self, capsys):
+        """A notifier failure names the tickers it could not file.
+
+        Successes are counted; failures are enumerated, because the
+        maintainer has to go and check those by hand and a bare count
+        would not tell them which.
+        """
+        outcome = NotifierOutcome(
+            enabled=True,
+            opened=["NMS:AAA"],
+            already_tracked=["NMS:BBB"],
+            failed=["NMS:CCC", "NMS:DDD"],
+        )
+        line = _format_notifier_outcome(outcome)
+
+        assert "NMS:CCC" in line
+        assert "NMS:DDD" in line
+        assert "1 already tracked" in line
+
+
+class TestBuildPageWiring:
+    def test_the_store_backed_exchange_rate_is_used_when_no_fx_is_passed(
+        self, tmp_path, monkeypatch
+    ):
+        """Production shares one FX cache, wired to the snapshot store."""
+        from unittest.mock import MagicMock
+
+        import investing.cli as cli
+
+        built: list[object] = []
+
+        class _Recorder:
+            def __init__(self, **kwargs):
+                built.append(kwargs.get("store"))
+
+            def __call__(self, currency, date=None):  # noqa: ARG002
+                return 1.0
+
+        monkeypatch.setattr(cli, "ExchangeRate", _Recorder)
+
+        store = MagicMock()
+        store.enabled = True
+        store.persist = False
+        store.list_archived_tickers.return_value = []
+
+        cli.build_page(
+            pull=MagicMock(return_value=([], [], [], [])),
+            store=store,
+            save=lambda *_a, **_k: None,
+            output_dir=tmp_path,
+        )
+
+        assert built == [store], "the FX cache must be wired to the same store"
+
+    def test_snapshot_builds_its_own_store_from_the_environment(self, monkeypatch):
+        """With no store injected the entrypoint resolves one itself."""
+        from unittest.mock import MagicMock
+
+        import investing.cli as cli
+
+        monkeypatch.setenv("INVESTING_MARKET_DATA_DISABLE", "1")
+        pull = MagicMock()
+
+        cli.snapshot_market_data(pull=pull)
+
+        # Disabled via the environment, so it short-circuits before
+        # touching the spreadsheet.
+        assert pull.call_count == 0
+
+
+class TestProductionEntrypoints:
+    def test_main_delegates_to_build_page(self, monkeypatch):
+        import investing.cli as cli
+
+        called: list[bool] = []
+        monkeypatch.setattr(cli, "build_page", lambda: called.append(True))
+
+        cli.main()
+
+        assert called == [True]

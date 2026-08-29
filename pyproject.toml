@@ -107,18 +107,21 @@ precision = 1
 # silently eroding the safety net.
 #
 # 87 -> 95 when the edge-case suite landed. 95 -> 96 when the retry /
-# archive-fallback work added tests for the Sheets retry path and the
-# archive boundary. 96 -> 97 when the review pass covered what was
-# left: ``get_benchmarks``, the gspread per-worksheet fallback, the
+# archive-fallback work landed. 96 -> 97 -> 99 when the review pass
+# closed what was left: the leak-safe wrapper's partial-teardown paths
+# (an ``os.dup`` that fails mid-sequence), ``get_benchmarks``, the
+# gspread per-worksheet fallback and row-parse diagnostics, the
 # store-backed FX merge, the split-on-trade-boundary invariant, the OG
-# logo rasteriser, and the history-persistence branches.
+# logo rasteriser, the four renderer buckets, and the production
+# entrypoints.
 #
-# What remains is concentrated and known, not diffuse: the
-# fd-redirection teardown in ``safe_run`` (needs a subprocess harness,
-# not a test) and the bare production entrypoints in ``cli``. Those
-# are last for a reason -- exercising them means driving real file
-# descriptors and real credentials.
-fail_under = 97
+# **99 is the standing floor, not a high-water mark to be admired.**
+# New code arrives with its branches covered or the build fails. The
+# remaining ~1% is a handful of defensive guards behind other guards
+# (a merged position group with no BUY, reachable only if a leg's own
+# ledger check is bypassed first) -- the kind of belt-and-braces that
+# is correct to keep and dishonest to fake a test for.
+fail_under = 99
 
 [tool.ruff]
 line-length = 100

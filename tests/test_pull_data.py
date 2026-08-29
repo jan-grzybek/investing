@@ -704,3 +704,31 @@ class TestRowParseDiagnostics:
             pull_data()
         assert excinfo.value.worksheet == "Equities"
         assert excinfo.value.field in {"quantity", "price_per_share"}
+
+
+class TestReturnSheetParseErrors:
+    def test_an_unparseable_flow_names_the_field(self, patch_gspread):
+        """The Return sheet's flow column feeds the TWR walk."""
+        sh = _build_spreadsheet(
+            equities=[],
+            returns=[_return_row("01-01-2024", "1000.00", "not-a-number")],
+            cash=[],
+        )
+        patch_gspread(sh)
+
+        with pytest.raises(SheetParseError) as excinfo:
+            pull_data()
+        assert excinfo.value.worksheet == "Return"
+        assert excinfo.value.field == "value/flow"
+
+    def test_an_unparseable_value_names_the_field(self, patch_gspread):
+        sh = _build_spreadsheet(
+            equities=[],
+            returns=[_return_row("01-01-2024", "not-a-number", "0.00")],
+            cash=[],
+        )
+        patch_gspread(sh)
+
+        with pytest.raises(SheetParseError) as excinfo:
+            pull_data()
+        assert excinfo.value.worksheet == "Return"

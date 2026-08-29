@@ -723,3 +723,75 @@ class TestRefreshEntrypoints:
 
         assert merged[0]["dividend"] == pytest.approx(0.90)
         assert "differs after re-base" in caplog.text
+
+
+class TestMergeHelperEdges:
+    def test_a_revised_factor_on_a_known_date_counts_as_changed(self):
+        """Yahoo restating a split factor must invalidate the archive.
+
+        A date already on file with a *different* factor is a revision,
+        not a no-op: every dividend and close before it needs re-basing
+        into the corrected share frame.
+        """
+        archived = [{"date": _dt(2020, 1, 1), "split": 2.0}]
+        merged = [{"date": _dt(2020, 1, 1), "split": 3.0}]
+        assert split_inventory_changed(archived, merged) is True
+
+    def test_an_identical_inventory_is_unchanged(self):
+        splits = [{"date": _dt(2020, 1, 1), "split": 2.0}]
+        assert split_inventory_changed(splits, list(splits)) is False
+
+    def test_rebasing_across_no_new_splits_is_the_identity(self):
+        """A row after every new split needs no adjustment at all."""
+        from investing.market_data_store import _rebase_amount
+
+        new_splits = [{"date": _dt(2020, 1, 1), "split": 2.0}]
+        # Dividend dated *after* the split: factor stays 1.0.
+        assert _rebase_amount(1.25, _dt(2021, 6, 1), new_splits) == pytest.approx(1.25)
+
+    def test_rebasing_before_a_new_split_divides_it_out(self):
+        from investing.market_data_store import _rebase_amount
+
+        new_splits = [{"date": _dt(2020, 1, 1), "split": 2.0}]
+        assert _rebase_amount(1.00, _dt(2019, 6, 1), new_splits) == pytest.approx(0.5)
+
+
+class TestDisabledStore:
+    """With no root every read is a miss and every write a no-op."""
+
+    def test_loading_a_snapshot_returns_nothing(self):
+        store = MarketDataStore(None)
+        assert store.enabled is False
+        assert store._load_ticker_snapshot("TST") is None
+
+    def test_touching_the_manifest_is_a_no_op(self):
+        store = MarketDataStore(None)
+        store._touch_manifest("tickers", "TST", "deadbeef")  # must not raise
+
+    def test_loading_fx_history_returns_nothing(self):
+        assert MarketDataStore(None).load_fx_history("EUR") is None
+
+    def test_saving_fx_history_is_a_no_op(self):
+        MarketDataStore(None).save_fx_history(
+            "EUR",
+            np.array(["2024-01-01"], dtype="datetime64[D]"),
+            np.array([1.1], dtype=float),
+        )
+
+    def test_an_unwritable_fx_path_is_swallowed(self, tmp_path, monkeypatch):
+        """A failed snapshot write must not take the build down.
+
+        The FX archive is a convenience, not a correctness input: the
+        live series was already fetched and is in memory. Losing the
+        write costs one refetch next run.
+        """
+        monkeypatch.delenv("INVESTING_MARKET_DATA_DISABLE", raising=False)
+        store = MarketDataStore(tmp_path, persist=True)
+        # A *file* where the ``fx/`` directory needs to be: mkdir fails.
+        (tmp_path / "fx").write_text("not a directory", encoding="utf-8")
+
+        store.save_fx_history(
+            "EUR",
+            np.array(["2024-01-01"], dtype="datetime64[D]"),
+            np.array([1.1], dtype=float),
+        )
