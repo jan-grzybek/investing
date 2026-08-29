@@ -24,6 +24,25 @@ Merge policy (split-aware):
 * **``info``** — slow-changing metadata (``sector``, names, …) is
   merged with archive filling gaps when live is blank; ``regularMarketPrice``
   is live-only and is never written to disk.
+
+Fallback policy (what happens when the *fetch itself* fails):
+
+The merge policy above assumes both sides are in hand. When a vendor
+read fails outright, the archive may stand in only where doing so
+cannot misstate the portfolio as of today:
+
+* **``info`` / splits** — no fallback; the failure propagates and the
+  build fails. ``regularMarketPrice`` is the mark on every open
+  position, and the split inventory sets its share count. Neither can
+  be served from an archive without asserting something the run has
+  not actually verified today.
+* **Dividends** — archive-eligible. They feed the historical return
+  series, not the current mark or share count.
+* **Adjusted-close history** — archive-eligible, for the same reason:
+  it draws the return chart and the benchmark line, both retrospective.
+
+A publish that is late is recoverable; a publish that misreports what
+is held is not. That asymmetry is the whole rule.
 """
 
 from __future__ import annotations
@@ -500,7 +519,39 @@ class MarketDataStore:
             manifest["schema_version"] = SCHEMA_VERSION
             _atomic_write_json(self._manifest_path, manifest)
 
-    def _fetch_live_ticker(self, ticker: str) -> tuple[dict, list, list]:
+    def _fetch_live_ticker(
+        self,
+        ticker: str,
+        *,
+        archived_dividends: list[dict[str, Any]] | None = None,
+    ) -> tuple[dict, list, list]:
+        """Fetch ``(info, splits, dividends)`` from yfinance.
+
+        The three reads carry different fallback rights, and the split
+        follows one rule: **the archive may stand in for history, never
+        for the state of a position as of today.** A page that quietly
+        served yesterday's share count would be asserting something
+        untrue about the portfolio right now, which is worse than not
+        publishing at all.
+
+        * ``info`` -- live-only. It carries ``regularMarketPrice``,
+          which is the mark on every open position. No archived value
+          can substitute for today's price.
+        * ``splits`` -- live-only. The split inventory rebases the
+          share count, so a split that landed after the last archive
+          refresh would silently misstate the size of a *current*
+          holding. There is no way to tell "no new splits" from
+          "couldn't ask", so the read has to succeed.
+        * ``dividends`` -- archive-eligible. Dividends feed the
+          historical return series (TSR / XIRR); they neither move the
+          current mark nor change how many shares are held. A stale
+          tail understates a past return slightly, which is a
+          different class of wrong from misreporting the position.
+
+        ``archived_dividends`` is the series to fall back on, or
+        ``None`` when no snapshot exists (in which case the failure
+        propagates -- there is nothing to fall back to).
+        """
         yf_ticker = yf.Ticker(ticker)
         info = _curate_info(
             _call_with_retry(
@@ -515,12 +566,21 @@ class MarketDataStore:
                 description="yfinance splits",
             )
         )
-        dividends = _dividends_from_yfinance(
-            _call_with_retry(
-                yf_ticker.get_dividends,
-                description="yfinance get_dividends",
+        try:
+            dividends = _dividends_from_yfinance(
+                _call_with_retry(
+                    yf_ticker.get_dividends,
+                    description="yfinance get_dividends",
+                )
             )
-        )
+        except MarketDataError:
+            if archived_dividends is None:
+                raise
+            logger.warning(
+                "yfinance get_dividends failed for %s; serving the archived series",
+                ticker,
+            )
+            dividends = [dict(row) for row in archived_dividends]
         return info, splits, dividends
 
     def resolve_ticker(self, ticker: str) -> tuple[dict[str, Any], list, list]:
@@ -538,7 +598,10 @@ class MarketDataStore:
             return info, splits, dividends
 
         arch_info, arch_splits, arch_dividends = archived
-        live_info, live_splits, live_dividends = self._fetch_live_ticker(ticker)
+        live_info, live_splits, live_dividends = self._fetch_live_ticker(
+            ticker,
+            archived_dividends=arch_dividends,
+        )
         merged_splits = merge_splits(arch_splits, live_splits)
         merged_dividends = merge_time_series(
             arch_dividends,
@@ -564,10 +627,31 @@ class MarketDataStore:
         *,
         merged_splits: list[dict[str, Any]],
     ) -> Any:
-        """Return a pandas DataFrame merged with any on-disk history."""
+        """Return a pandas DataFrame merged with any on-disk history.
+
+        Unlike :meth:`_fetch_live_ticker`, a failed fetch here can fall
+        back to the archive wholesale. The adjusted-close series drives
+        the return chart and the benchmark comparison -- both are
+        statements about the past, and neither feeds a current position
+        or its mark. Serving the archived tail loses the last stretch of
+        chart rather than misreporting what is held today.
+
+        With no archived rows there is nothing to serve, so the failure
+        propagates.
+        """
         archived_rows, archived_splits = self._load_history_bundle(ticker)
-        live_frame = fetch_history()
-        live_rows = _history_rows_from_dataframe(live_frame, value_key="adj_close")
+        try:
+            live_frame = fetch_history()
+        except MarketDataError:
+            if not archived_rows:
+                raise
+            logger.warning(
+                "yfinance history failed for %s; serving the archived series",
+                ticker,
+            )
+            live_rows: list[dict[str, Any]] = []
+        else:
+            live_rows = _history_rows_from_dataframe(live_frame, value_key="adj_close")
         merged_rows = merge_time_series(
             archived_rows,
             live_rows,

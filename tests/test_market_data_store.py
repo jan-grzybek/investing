@@ -327,3 +327,170 @@ class TestSplitInventoryChanged:
     def test_unchanged(self):
         splits = [{"date": _dt(2020, 1, 1), "split": 2.0}]
         assert not split_inventory_changed(splits, splits)
+
+
+class TestArchiveFallbackBoundary:
+    """Where the archive may stand in for a failed fetch -- and where it may not.
+
+    The rule these tests pin down: the archive covers history, never
+    the state of a position as of today. A build that cannot verify
+    today's price or today's share count must fail rather than publish
+    a number it has not confirmed.
+    """
+
+    @staticmethod
+    def _archived_ticker(tmp_path, symbol="TST"):
+        path = tmp_path / "tickers" / f"{symbol}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "info": {
+                        "currency": "USD",
+                        "exchange": "NMS",
+                        "symbol": symbol,
+                        "longName": "Test Corp",
+                    },
+                    "splits": [{"date": "2015-06-01", "split": 2.0}],
+                    "dividends": [{"date": "2015-06-01", "dividend": 0.2}],
+                }
+            ),
+            encoding="utf-8",
+        )
+        return path
+
+    @staticmethod
+    def _install(monkeypatch, mock):
+        monkeypatch.setattr(
+            "investing.market_data_store.yf.Ticker",
+            lambda _symbol: mock,
+        )
+        monkeypatch.setattr(
+            "investing.market_data_store._call_with_retry",
+            lambda fn, **kwargs: fn(),
+        )
+
+    def _store(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("INVESTING_MARKET_DATA_DISABLE", raising=False)
+        monkeypatch.setenv("INVESTING_MARKET_DATA_DIR", str(tmp_path))
+        return MarketDataStore(tmp_path, persist=False)
+
+    def test_dividend_failure_falls_back_to_archive(self, tmp_path, monkeypatch):
+        """Dividends are historical: the archived series is served."""
+        store = self._store(tmp_path, monkeypatch)
+        self._archived_ticker(tmp_path)
+
+        mock = MagicMock()
+        mock.get_info.return_value = {
+            "currency": "USD",
+            "exchange": "NMS",
+            "symbol": "TST",
+            "regularMarketPrice": 10.0,
+        }
+        mock.splits = {}
+        mock.get_dividends.side_effect = MarketDataError("yfinance get_dividends failed")
+        self._install(monkeypatch, mock)
+
+        info, _splits, dividends = store.resolve_ticker("TST")
+
+        # The live mark still came from the live read...
+        assert info["regularMarketPrice"] == pytest.approx(10.0)
+        # ...and the dividend tail fell back to what was on disk.
+        assert [d["dividend"] for d in dividends] == [pytest.approx(0.2)]
+
+    def test_dividend_failure_without_archive_still_raises(self, tmp_path, monkeypatch):
+        """No archive means nothing to fall back to."""
+        store = self._store(tmp_path, monkeypatch)
+
+        mock = MagicMock()
+        mock.get_info.return_value = {
+            "currency": "USD",
+            "exchange": "NMS",
+            "symbol": "TST",
+            "regularMarketPrice": 10.0,
+        }
+        mock.splits = {}
+        mock.get_dividends.side_effect = MarketDataError("yfinance get_dividends failed")
+        self._install(monkeypatch, mock)
+
+        with pytest.raises(MarketDataError, match="get_dividends"):
+            store.resolve_ticker("TST")
+
+    def test_split_failure_raises_even_with_archive(self, tmp_path, monkeypatch):
+        """Splits set the current share count -- a stale inventory would lie.
+
+        There is no way to distinguish "no new splits" from "couldn't
+        ask", so an unavailable split feed has to fail the build even
+        though a perfectly good archived inventory is sitting on disk.
+        """
+        store = self._store(tmp_path, monkeypatch)
+        self._archived_ticker(tmp_path)
+
+        mock = MagicMock()
+        mock.get_info.return_value = {
+            "currency": "USD",
+            "exchange": "NMS",
+            "symbol": "TST",
+            "regularMarketPrice": 10.0,
+        }
+        type(mock).splits = property(
+            lambda _self: (_ for _ in ()).throw(MarketDataError("yfinance splits failed"))
+        )
+        self._install(monkeypatch, mock)
+
+        with pytest.raises(MarketDataError, match="splits"):
+            store.resolve_ticker("TST")
+
+    def test_live_price_failure_raises_even_with_archive(self, tmp_path, monkeypatch):
+        """The mark on every open position must be today's."""
+        store = self._store(tmp_path, monkeypatch)
+        self._archived_ticker(tmp_path)
+
+        mock = MagicMock()
+        mock.get_info.side_effect = MarketDataError("yfinance get_info failed")
+        mock.splits = {}
+        mock.get_dividends.return_value = {}
+        self._install(monkeypatch, mock)
+
+        with pytest.raises(MarketDataError, match="get_info"):
+            store.resolve_ticker("TST")
+
+    def test_history_failure_falls_back_to_archive(self, tmp_path, monkeypatch):
+        """Adjusted-close history is retrospective: the archive serves it."""
+        store = self._store(tmp_path, monkeypatch)
+        history_path = tmp_path / "history" / "TST.json"
+        history_path.parent.mkdir(parents=True, exist_ok=True)
+        history_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "splits": [],
+                    "adj_close": [
+                        {"date": "2020-01-02", "adj_close": 100.0},
+                        {"date": "2020-01-03", "adj_close": 101.0},
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        def boom():
+            raise MarketDataError("yfinance ticker history failed")
+
+        frame = store.resolve_price_history(
+            "TST",
+            "2020-01-01",
+            boom,
+            merged_splits=[],
+        )
+        assert len(frame) == 2
+
+    def test_history_failure_without_archive_raises(self, tmp_path, monkeypatch):
+        store = self._store(tmp_path, monkeypatch)
+
+        def boom():
+            raise MarketDataError("yfinance ticker history failed")
+
+        with pytest.raises(MarketDataError, match="history"):
+            store.resolve_price_history("TST", "2020-01-01", boom, merged_splits=[])

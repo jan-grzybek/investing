@@ -11,7 +11,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from investing.sheets import SheetParseError, _pad_rows, pull_data
+from investing import retry
+from investing.sheets import SheetDataError, SheetParseError, _pad_rows, pull_data
 
 
 def _equities_header():
@@ -520,3 +521,77 @@ class TestPadRows:
             ["a", "b", "c"],
             ["", ""],
         ]
+
+
+class TestSheetsRetry:
+    """``pull_data``'s two network calls are retried.
+
+    Both ``open_by_key`` and the batched value read are live HTTPS
+    round-trips against an API that fails transiently in production.
+    Neither had a retry before, and ``open_by_key`` in particular was
+    the observed cause of failed scheduled deploys.
+    """
+
+    def test_open_by_key_is_retried(self, patch_gspread, monkeypatch):
+        monkeypatch.setattr(retry.time, "sleep", lambda d: None)  # noqa: ARG005
+        sh = _build_spreadsheet(
+            equities=[_equity_row("01-01-2024", "AAPL", "10", "150.50", "BUY")],
+            returns=[_return_row("01-01-2024", "1000.00", "0.00")],
+            cash=[_cash_row("USD", "250.00")],
+        )
+        gc = patch_gspread(sh)
+        # Two transient faults, then the handle. gspread surfaces the
+        # real-world failures as ``APIError`` / ``ConnectionError``;
+        # a bare exception is enough to drive the retry contract.
+        gc.open_by_key.side_effect = [
+            ConnectionError("transient"),
+            ConnectionError("transient"),
+            sh,
+        ]
+
+        transactions, _, _, _ = pull_data()
+
+        assert gc.open_by_key.call_count == 3
+        assert len(transactions) == 1
+
+    def test_open_by_key_failure_raises_sheet_data_error(self, patch_gspread, monkeypatch):
+        monkeypatch.setenv("INVESTING_DISABLE_RETRY", "1")
+        sh = _build_spreadsheet(equities=[], returns=[], cash=[])
+        gc = patch_gspread(sh)
+        gc.open_by_key.side_effect = ConnectionError("down")
+
+        with pytest.raises(SheetDataError):
+            pull_data()
+
+    def test_batched_read_is_retried(self, patch_gspread, monkeypatch):
+        """A fault that survives the per-worksheet fallback is retried.
+
+        ``_batch_get_values`` already degrades from the batch call to
+        four per-worksheet reads internally, so the retry wraps the
+        whole helper -- otherwise the fallback path stays unguarded.
+        """
+        monkeypatch.setattr(retry.time, "sleep", lambda d: None)  # noqa: ARG005
+        sh = _build_spreadsheet(
+            equities=[_equity_row("01-01-2024", "AAPL", "10", "150.50", "BUY")],
+            returns=[_return_row("01-01-2024", "1000.00", "0.00")],
+            cash=[_cash_row("USD", "250.00")],
+        )
+        patch_gspread(sh)
+
+        healthy = sh.worksheet.side_effect
+        state = {"calls": 0}
+
+        def flaky_worksheet(name):
+            state["calls"] += 1
+            if state["calls"] == 1:
+                raise ConnectionError("transient")
+            return healthy(name)
+
+        sh.worksheet.side_effect = flaky_worksheet
+
+        transactions, _, _, _ = pull_data()
+
+        assert len(transactions) == 1
+        # First attempt died on the opening worksheet; the retry drove
+        # all four reads through cleanly.
+        assert state["calls"] == 5
