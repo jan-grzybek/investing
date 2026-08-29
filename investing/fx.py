@@ -141,21 +141,20 @@ class ExchangeRate:
         if currency == "USD":
             return 1.0
         if currency not in self._history:
+            # Only the loose ``INVESTING_FX_CACHE_DIR`` cache can
+            # short-circuit the fetch. The store deliberately cannot:
+            # an FX series has a new row every trading day, so the
+            # committed archive is always behind and the live response
+            # is what makes today's rate available. Its role is to
+            # supply the *older* rows Yahoo may have dropped, which
+            # ``merge_fx_history`` folds in below -- and which it loads
+            # itself, so reading the archive here as well would be two
+            # reads of the same file to use one of them.
             cached = None
-            if self._store is not None and self._store.enabled:
-                cached = self._store.load_fx_history(currency)
-            elif self._cache_dir is not None:
+            if self._store is None and self._cache_dir is not None:
                 cached = _load_history_from_disk(self._cache_dir, currency)
 
-            use_cache_only = (
-                cached is not None and self._store is None and self._cache_dir is not None
-            )
-
-            if use_cache_only:
-                # ``use_cache_only`` is only true when ``cached`` is not
-                # ``None``, so there is no empty-cache case to handle
-                # here -- a cold cache falls through to the fetch below.
-                assert cached is not None
+            if cached is not None:
                 date_arr, rate_arr = cached
             else:
                 hist = _call_with_retry(

@@ -141,7 +141,11 @@ def build_csp(jsonld: SafeHtml) -> SafeHtml:
         "style-src 'self' 'unsafe-inline'; "
         f"style-src-elem 'self' 'sha256-{style_hash}'; "
         "style-src-attr 'unsafe-inline'; "
-        "img-src 'self' https: data:; "
+        # ``'self'`` suffices now that logos are same-origin relative
+        # paths; this used to read ``https:``, allowing an image from
+        # any host on the internet, because the logo ``<img src>`` was
+        # an absolute URL. ``data:`` stays for the inline SVG bullets.
+        "img-src 'self' data:; "
         "connect-src 'self' https://cloudflareinsights.com; "
         "font-src 'self'; "
         "base-uri 'self'; "

@@ -29,7 +29,7 @@ from __future__ import annotations
 import html
 from collections.abc import Iterable, Sequence
 
-from ..formatting import _fmt_pct
+from ..formatting import _fmt_pct, apportion_pct
 
 _OTHER_SECTOR = "Other"
 
@@ -160,9 +160,21 @@ def _bar(
     """
     if not segments:
         return ""
+    # Apportion before rendering so the figures the reader can see add
+    # up. Each segment is a share of the same whole, so the raw values
+    # sum to 100 by construction -- but rounded one at a time they need
+    # not: 86.04 / 13.83 / 0.13 renders as 86.0 + 13.8 + 0.1 = 99.9%,
+    # and a reader totting up the legend finds a tenth missing with no
+    # way to tell whether the page lost it or the portfolio did.
+    #
+    # The apportioned value drives both the label and the segment
+    # width, so the bar provably fills its track exactly rather than
+    # leaving a sliver of background showing at the right edge. Width
+    # precision drops to 0.1% -- under a pixel on any real bar.
+    apportioned = apportion_pct([pct for _, pct, _ in segments])
     parts = []
     chips = []
-    for label, pct, color in segments:
+    for (label, _raw_pct, color), pct in zip(segments, apportioned, strict=True):
         value = f"{_fmt_pct(pct)}%"
         parts.append(
             f'<div class="allocation__segment" style="width: {pct:.2f}%; '

@@ -24,6 +24,44 @@ Merge policy (split-aware):
 * **``info``** — slow-changing metadata (``sector``, names, …) is
   merged with archive filling gaps when live is blank; ``regularMarketPrice``
   is live-only and is never written to disk.
+
+Fallback policy (what happens when the *fetch itself* fails):
+
+The merge policy above assumes both sides are in hand. When a vendor
+read fails outright, the rule is **position-scoped**: a position the
+portfolio has already exited can be served from the archive in full,
+while one still held must be refreshed or the build fails.
+
+That asymmetry is the whole rule. A closed position makes no claim
+about today — its share count is zero, no later split changes zero,
+and every cashflow fixing its return already happened. An open one
+claims both a size and a valuation as of the moment of publication,
+and neither can come off a disk snapshot without asserting something
+this run never verified.
+
+Which case applies is not knowable here. It falls out of replaying the
+trade ledger, which happens later, so this module records rather than
+decides:
+
+* **``info``** — on failure, archived metadata is served *without*
+  ``regularMarketPrice`` (no stale price is ever invented) and the
+  snapshot is flagged ``from_archive``.
+* **Splits** — on failure, the archived inventory is served and the
+  snapshot is flagged. A stale inventory would misstate the *size* of
+  an open holding, and nothing distinguishes "no new splits" from
+  "couldn't ask".
+* **Dividends** — archive-eligible with no flag. They feed the
+  historical return series, not the current mark or share count.
+* **Adjusted-close history** — archive-eligible with no flag, for the
+  same reason: it draws the return chart and the benchmark line, both
+  retrospective.
+
+:meth:`investing.holdings.Holding.ledger` is where a flagged snapshot
+is finally accepted (position closed) or rejected (position open).
+
+Degraded reads are never persisted: the archive is the fallback of
+record, and refreshing its ``updated_at`` during an outage would claim
+a currency the data does not have.
 """
 
 from __future__ import annotations
@@ -36,7 +74,8 @@ import math
 import os
 import tempfile
 import threading
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -44,6 +83,7 @@ from typing import Any
 import numpy as np
 import yfinance as yf
 
+from .clock import default_now
 from .formatting import _ts_to_datetime
 from .log import logger
 from .market_data import MarketDataError, _call_with_retry
@@ -259,8 +299,17 @@ def merge_info(
     live: dict[str, Any],
     *,
     ticker: str,
+    require_live_price: bool = True,
 ) -> dict[str, Any]:
-    """Merge curated ``info`` dicts; archive fills gaps for persisted metadata only."""
+    """Merge curated ``info`` dicts; archive fills gaps for persisted metadata only.
+
+    ``require_live_price=False`` is the degraded path: ``live`` is
+    archived metadata standing in for a failed fetch, so there is no
+    live price to demand and the key is simply absent from the result.
+    A consumer that needs it (an open position marking to market) fails
+    on the missing key rather than on a stale value -- see
+    :class:`ResolvedTicker`.
+    """
     merged: dict[str, Any] = {}
     for key in PERSISTED_INFO_KEYS:
         live_val = live.get(key)
@@ -269,7 +318,8 @@ def merge_info(
     for key in PERSISTED_INFO_KEYS:
         if key not in merged and key in archived:
             merged[key] = archived[key]
-    merged["regularMarketPrice"] = _require_live_regular_market_price(live, ticker=ticker)
+    if require_live_price:
+        merged["regularMarketPrice"] = _require_live_regular_market_price(live, ticker=ticker)
     return merged
 
 
@@ -401,6 +451,36 @@ def _atomic_write_json(path: Path, payload: Any) -> None:
     _atomic_write_bytes(path, text.encode())
 
 
+@dataclass(frozen=True)
+class ResolvedTicker:
+    """One ticker's merged market data, plus whether it is current.
+
+    ``from_archive`` is the whole point of the type. It marks a
+    snapshot whose *current-state* inputs -- the live price, or the
+    split inventory that fixes the share count -- could not be
+    refreshed and were served from disk instead.
+
+    That is safe for a position the portfolio has already exited: its
+    share count is zero, no later split changes zero, and its return
+    is fixed by cashflows that all happened in the past. It is not
+    safe for a position still held, where both inputs describe how
+    much is owned and what it is worth right now.
+
+    Which case applies is not known here -- it falls out of replaying
+    the trade ledger, which happens later in :meth:`Holding.ledger`.
+    So the store records the fact and lets the holding decide.
+    """
+
+    info: dict[str, Any]
+    splits: list[dict[str, Any]]
+    dividends: list[dict[str, Any]]
+    from_archive: bool = False
+
+    def __iter__(self) -> Iterator[Any]:
+        """Unpack as ``(info, splits, dividends)``."""
+        return iter((self.info, self.splits, self.dividends))
+
+
 class MarketDataStore:
     """Read-through / write-through snapshot of yfinance market feeds."""
 
@@ -450,7 +530,14 @@ class MarketDataStore:
 
     def _fx_path(self, currency: str) -> Path:
         assert self._root is not None
-        return self._root / "fx" / f"{currency}.npz"
+        # Sanitised like ``_ticker_path`` / ``_history_path``. The
+        # currency code comes from the spreadsheet rather than from a
+        # fixed enum, and a value containing a separator would resolve
+        # the write outside the snapshot tree. Low stakes given the
+        # sheet is the maintainer's own, but the inconsistency was the
+        # kind that survives until the one time it matters.
+        safe = currency.replace("/", "-").replace("\\", "-")
+        return self._root / "fx" / f"{safe}.npz"
 
     def _load_json(self, path: Path) -> dict[str, Any] | None:
         if not path.is_file():
@@ -495,66 +582,166 @@ class MarketDataStore:
             }
             manifest.setdefault(section, {})[key] = {
                 "content_hash": digest,
-                "updated_at": _iso_date(datetime.today()),
+                "updated_at": _iso_date(default_now()),
             }
             manifest["schema_version"] = SCHEMA_VERSION
             _atomic_write_json(self._manifest_path, manifest)
 
-    def _fetch_live_ticker(self, ticker: str) -> tuple[dict, list, list]:
-        yf_ticker = yf.Ticker(ticker)
-        info = _curate_info(
-            _call_with_retry(
-                yf_ticker.get_info,
-                description="yfinance get_info",
-            ),
-            ticker=ticker,
-        )
-        splits = _splits_from_yfinance(
-            _call_with_retry(
-                lambda: yf_ticker.splits,
-                description="yfinance splits",
-            )
-        )
-        dividends = _dividends_from_yfinance(
-            _call_with_retry(
-                yf_ticker.get_dividends,
-                description="yfinance get_dividends",
-            )
-        )
-        return info, splits, dividends
+    def _fetch_live_ticker(
+        self,
+        ticker: str,
+        *,
+        archived: tuple[dict, list, list] | None = None,
+    ) -> ResolvedTicker:
+        """Fetch ``(info, splits, dividends)``, falling back per read.
 
-    def resolve_ticker(self, ticker: str) -> tuple[dict[str, Any], list, list]:
-        """Return merged ``(info, splits, dividends)`` for ``ticker``."""
+        Each of the three reads carries a different consequence when it
+        fails, and the split follows one rule: **the archive may stand
+        in for history, and for a position already exited, but never
+        for what is held right now.**
+
+        * ``info`` -- carries ``regularMarketPrice``, the mark on an
+          open position. Falling back drops the price entirely rather
+          than serving a stale one, and flags the snapshot.
+        * ``splits`` -- the split inventory rebases the share count, so
+          a stale one would misstate the *size* of an open holding.
+          Nothing distinguishes "no new splits" from "couldn't ask", so
+          falling back also flags the snapshot.
+        * ``dividends`` -- feeds the historical return series only.
+          Neither the current mark nor the share count moves with it,
+          so a fallback here is not a staleness flag.
+
+        A flagged snapshot is only rejected if the position turns out
+        to still be open, which is decided in :meth:`Holding.ledger`
+        after the trade ledger has been replayed.
+
+        With no archive there is nothing to fall back to and every
+        failure propagates.
+        """
+        arch_info, arch_splits, arch_dividends = archived or (None, None, None)
+        yf_ticker = yf.Ticker(ticker)
+        from_archive = False
+
+        try:
+            info = _curate_info(
+                _call_with_retry(
+                    yf_ticker.get_info,
+                    description="yfinance get_info",
+                ),
+                ticker=ticker,
+            )
+        except MarketDataError:
+            if arch_info is None:
+                raise
+            logger.warning(
+                "yfinance get_info failed for %s; serving archived metadata "
+                "with no live price (usable only if the position is closed)",
+                ticker,
+            )
+            # Deliberately *without* ``regularMarketPrice``: there is no
+            # archived price to serve and a stale one would be a lie.
+            info = _info_for_persistence(arch_info)
+            from_archive = True
+
+        try:
+            splits = _splits_from_yfinance(
+                _call_with_retry(
+                    lambda: yf_ticker.splits,
+                    description="yfinance splits",
+                )
+            )
+        except MarketDataError:
+            if arch_splits is None:
+                raise
+            logger.warning(
+                "yfinance splits failed for %s; serving the archived inventory "
+                "(usable only if the position is closed)",
+                ticker,
+            )
+            splits = [dict(row) for row in arch_splits]
+            from_archive = True
+
+        try:
+            dividends = _dividends_from_yfinance(
+                _call_with_retry(
+                    yf_ticker.get_dividends,
+                    description="yfinance get_dividends",
+                )
+            )
+        except MarketDataError:
+            if arch_dividends is None:
+                raise
+            logger.warning(
+                "yfinance get_dividends failed for %s; serving the archived series",
+                ticker,
+            )
+            dividends = [dict(row) for row in arch_dividends]
+
+        return ResolvedTicker(
+            info=info,
+            splits=splits,
+            dividends=dividends,
+            from_archive=from_archive,
+        )
+
+    def resolve_ticker(self, ticker: str) -> ResolvedTicker:
+        """Return merged market data for ``ticker``.
+
+        The result carries ``from_archive``; see :class:`ResolvedTicker`
+        for what that means and who acts on it.
+        """
         archived = self._load_ticker_snapshot(ticker)
 
         if archived is None:
-            info, splits, dividends = self._fetch_live_ticker(ticker)
+            resolved = self._fetch_live_ticker(ticker)
             self._save_ticker_snapshot(
                 ticker,
-                info=info,
-                splits=splits,
-                dividends=dividends,
+                info=resolved.info,
+                splits=resolved.splits,
+                dividends=resolved.dividends,
             )
-            return info, splits, dividends
+            return resolved
 
         arch_info, arch_splits, arch_dividends = archived
-        live_info, live_splits, live_dividends = self._fetch_live_ticker(ticker)
-        merged_splits = merge_splits(arch_splits, live_splits)
+        live = self._fetch_live_ticker(ticker, archived=archived)
+        merged_splits = merge_splits(arch_splits, live.splits)
         merged_dividends = merge_time_series(
             arch_dividends,
-            live_dividends,
+            live.dividends,
             value_key="dividend",
             archived_splits=arch_splits,
             merged_splits=merged_splits,
         )
-        merged_info = merge_info(arch_info, live_info, ticker=ticker)
-        self._save_ticker_snapshot(
-            ticker,
+        # Keyed on the ``info`` read specifically, not on the overall
+        # ``from_archive`` flag: a failed *splits* read flags the
+        # snapshot while leaving a perfectly good live price in hand,
+        # and dropping that price would be throwing away fresh data.
+        # ``_curate_info`` always sets the key on a live read and the
+        # degraded path never does, so its presence *is* the signal.
+        merged_info = merge_info(
+            arch_info,
+            live.info,
+            ticker=ticker,
+            require_live_price="regularMarketPrice" in live.info,
+        )
+        if not live.from_archive:
+            # Never persist a degraded read. The snapshot on disk is the
+            # fallback of record; overwriting it with a copy of itself
+            # taken during an outage would at best be a no-op and at
+            # worst refresh its ``updated_at`` to claim a currency the
+            # data does not have.
+            self._save_ticker_snapshot(
+                ticker,
+                info=merged_info,
+                splits=merged_splits,
+                dividends=merged_dividends,
+            )
+        return ResolvedTicker(
             info=merged_info,
             splits=merged_splits,
             dividends=merged_dividends,
+            from_archive=live.from_archive,
         )
-        return merged_info, merged_splits, merged_dividends
 
     def resolve_price_history(
         self,
@@ -564,10 +751,31 @@ class MarketDataStore:
         *,
         merged_splits: list[dict[str, Any]],
     ) -> Any:
-        """Return a pandas DataFrame merged with any on-disk history."""
+        """Return a pandas DataFrame merged with any on-disk history.
+
+        Unlike :meth:`_fetch_live_ticker`, a failed fetch here can fall
+        back to the archive wholesale. The adjusted-close series drives
+        the return chart and the benchmark comparison -- both are
+        statements about the past, and neither feeds a current position
+        or its mark. Serving the archived tail loses the last stretch of
+        chart rather than misreporting what is held today.
+
+        With no archived rows there is nothing to serve, so the failure
+        propagates.
+        """
         archived_rows, archived_splits = self._load_history_bundle(ticker)
-        live_frame = fetch_history()
-        live_rows = _history_rows_from_dataframe(live_frame, value_key="adj_close")
+        try:
+            live_frame = fetch_history()
+        except MarketDataError:
+            if not archived_rows:
+                raise
+            logger.warning(
+                "yfinance history failed for %s; serving the archived series",
+                ticker,
+            )
+            live_rows: list[dict[str, Any]] = []
+        else:
+            live_rows = _history_rows_from_dataframe(live_frame, value_key="adj_close")
         merged_rows = merge_time_series(
             archived_rows,
             live_rows,

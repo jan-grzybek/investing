@@ -87,11 +87,65 @@ def attr(value: SafeHtmlConvertible) -> SafeHtml:
 
     Differs from :func:`escape` only conceptually -- ``html.escape``
     handles both contexts -- but a named helper makes the call site
-    self-documenting and gives a single edit surface should the
-    attribute-vs-text distinction ever need to diverge (e.g. URL
-    attribute escaping).
+    self-documenting. For ``href`` / ``src`` specifically, reach for
+    :func:`safe_url` instead: escaping alone is not sufficient there.
     """
     return escape(value)
+
+
+# Schemes allowed to appear in a rendered ``href``. Anything else --
+# ``javascript:``, ``data:``, ``vbscript:``, or a scheme invented
+# later -- is replaced by :data:`_UNSAFE_URL_FALLBACK`.
+_ALLOWED_URL_SCHEMES = frozenset({"http", "https", "mailto"})
+
+# Where a rejected URL points instead. The page wraps logos in
+# ``<a href>``; an empty href would make the wrapper swallow clicks
+# rather than route them anywhere, so the fallback is a real
+# destination.
+_UNSAFE_URL_FALLBACK = "https://www.google.com/"
+
+
+def safe_url(value: str | None, *, fallback: str = _UNSAFE_URL_FALLBACK) -> str:
+    """Return ``value`` if it carries an allowed scheme, else ``fallback``.
+
+    ``html.escape`` does not neutralise a dangerous URL: it escapes the
+    delimiters, so ``javascript:alert(1)`` survives the escape intact
+    and stays live as an ``href``. Scheme validation is a separate
+    obligation from escaping, and this is where the page discharges it.
+
+    The URLs that reach the page's ``href`` attributes are not all
+    ours. :func:`investing.holdings.resolve_company_url` forwards
+    ``info["website"]`` straight out of the yfinance payload -- a
+    third-party feed the build does not control -- so the value is
+    untrusted input by the time it is rendered.
+
+    Path-relative URLs (the logo ``src`` values) carry no scheme and
+    pass through: they can only resolve against the page's own origin,
+    which is the point of using them. A *scheme-relative* ``//host/...``
+    URL is rejected -- it looks relative but names another origin, and
+    nothing this page emits uses that form.
+    """
+    if not value:
+        return fallback
+    candidate = value.strip()
+    if not candidate:
+        return fallback
+    # ``//host/path`` inherits the page's scheme but not its origin, so
+    # it is an absolute URL wearing a relative costume. Rejected before
+    # the scheme test below, which would otherwise see no colon in the
+    # leading (empty) segment and wave it through.
+    if candidate.startswith("//"):
+        return fallback
+    # A colon before any slash / query / fragment marks a scheme. No
+    # colon in that leading segment means a path-relative URL, which is
+    # same-origin by construction.
+    head = candidate.split("/", 1)[0].split("?", 1)[0].split("#", 1)[0]
+    if ":" not in head:
+        return candidate
+    scheme = head.split(":", 1)[0].strip().lower()
+    if scheme in _ALLOWED_URL_SCHEMES:
+        return candidate
+    return fallback
 
 
 def join(separator: SafeHtmlConvertible, parts: Iterable[SafeHtmlConvertible]) -> SafeHtml:

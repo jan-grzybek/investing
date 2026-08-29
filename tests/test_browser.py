@@ -1310,3 +1310,33 @@ def _format_violations(violations: list[dict]) -> str:
         targets = ", ".join(str(node.get("target", "?")) for node in nodes[:3])
         lines.append(f"- [{impact}] {rule}: {help_text} ({targets})")
     return "Accessibility violations:\n" + "\n".join(lines)
+
+
+def test_every_holding_logo_actually_loads(page: Page, preview_index: Path):
+    """Logo ``<img>`` elements resolve to real bytes, not broken images.
+
+    The rendered ``src`` used to be an absolute production URL, so the
+    preview pulled every logo from the deployed site: a logo added
+    locally showed as broken until after it shipped, and the preview
+    did not render at all offline. The paths are relative now and the
+    preview stages ``logos/tight/`` beside ``index.html``.
+
+    ``naturalWidth`` is the assertion that matters -- a broken image
+    still has a ``src`` and still occupies its reserved box, so only
+    the decoded intrinsic size distinguishes "loaded" from "404".
+    """
+    page.goto(preview_index.as_uri())
+    page.wait_for_load_state("networkidle")
+
+    logos = page.locator("img[src*='logos/']")
+    count = logos.count()
+    assert count > 0, "preview rendered no logo images at all"
+
+    broken = []
+    for i in range(count):
+        img = logos.nth(i)
+        src = img.get_attribute("src") or ""
+        assert not src.startswith("http"), f"logo src should be relative, got {src!r}"
+        if img.evaluate("el => el.naturalWidth") == 0:
+            broken.append(src)
+    assert not broken, f"logo images failed to load: {broken}"

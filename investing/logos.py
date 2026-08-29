@@ -28,7 +28,13 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-from .paths import _REPO_LOGOS_DIR, COURAGE_LOGO, LOGO_EXTENSIONS, LOGOS_ADDRESS
+from .paths import (
+    _REPO_LOGOS_DIR,
+    COURAGE_LOGO,
+    LOGO_EXTENSIONS,
+    LOGOS_ADDRESS,
+    LOGOS_PROBE_BASE,
+)
 from .sector_overrides import record_missing_logo
 
 # Per-request budget for a single HEAD probe (connect, read). Pages
@@ -188,9 +194,15 @@ class LogoCache:
                     self._cache[ticker] = url
                     return url
         for extension in LOGO_EXTENSIONS:
+            # Probe the deployed site with an absolute URL, but hand
+            # back the relative one: the page embeds a same-origin
+            # path, while the existence check has to name a host.
             url = LOGOS_ADDRESS + encoded + extension
             try:
-                response = self._session.head(url, timeout=_HEAD_TIMEOUT_S)
+                response = self._session.head(
+                    LOGOS_PROBE_BASE + encoded + extension,
+                    timeout=_HEAD_TIMEOUT_S,
+                )
             except requests.RequestException:
                 # Network-level failure (DNS, refused, timeout that
                 # exhausted retries). Drop to the next extension; if

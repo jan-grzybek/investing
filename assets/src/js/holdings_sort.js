@@ -17,6 +17,9 @@
  * way". The first click on a column picks the direction its datatype
  * reads naturally in -- A-Z for text, high-to-low for numbers --
  * and subsequent clicks toggle.
+ *
+ * Kept as a small IIFE so the inline payload gets a single stable
+ * SHA-256, which is what `investing/webpage/head.py` pins in the CSP.
  */
 (function () {
   function key(row, name) {

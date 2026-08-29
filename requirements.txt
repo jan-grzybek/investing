@@ -39,10 +39,8 @@ gspread==6.2.1
     # via jg-investing (pyproject.toml)
 idna==3.19
     # via requests
-markdown-it-py==4.2.0
-    # via rich
-mdurl==0.1.2
-    # via markdown-it-py
+lxml==6.1.2
+    # via yfinance
 multitasking==0.0.13
     # via yfinance
 numpy==2.5.2
@@ -70,8 +68,6 @@ pyasn1-modules==0.4.2
     # via google-auth
 pycparser==3.0
     # via cffi
-pygments==2.21.0
-    # via rich
 python-dateutil==2.9.0.post0
     # via
     #   jg-investing (pyproject.toml)
@@ -85,8 +81,6 @@ requests==2.34.2
     #   yfinance
 requests-oauthlib==2.0.0
     # via google-auth-oauthlib
-rich==15.0.0
-    # via curl-cffi
 six==1.17.0
     # via python-dateutil
 soupsieve==2.9.2

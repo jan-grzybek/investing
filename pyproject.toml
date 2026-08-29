@@ -11,21 +11,30 @@ requires-python = ">=3.12"
 authors = [{ name = "Jan Grzybek" }]
 license = "MIT"
 license-files = ["LICENSE"]
-# Minimum floors keep Dependabot's bumps reviewable: a major upgrade
-# that breaks the integration shape (e.g. yfinance dropping
-# ``Ticker.get_info``) will fail to install rather than fail at runtime
-# in CI. ``pip-compile`` reads the floors below directly from this
-# ``pyproject.toml`` when regenerating ``requirements.txt`` -- see
-# CONTRIBUTING.md for the one-liner. Dev deps install from
-# ``[project.optional-dependencies.dev]`` via ``pip install -e '.[dev]'``.
+# Floors AND ceilings. The floors alone used to carry a promise they
+# could not keep: the comment here claimed a major upgrade that broke
+# the integration shape "will fail to install rather than fail at
+# runtime in CI", but ``>=`` cannot block a major bump. yfinance went
+# from the declared ``>=0.2.40`` to a locked 1.6.0 -- two majors -- with
+# nothing objecting, and Pillow from ``>=10`` to 12.
+#
+# The upper bounds are what actually enforce it. A vendor major now
+# fails at ``pip install`` and has to be widened by hand, which is the
+# review the comment always described. Ceilings are pinned one major
+# above the floor, so a minor/patch bump still flows through Dependabot
+# untouched and only a major stops the line.
+#
+# ``pip-compile`` reads these directly from this ``pyproject.toml`` when
+# regenerating ``requirements.txt`` / ``requirements-dev.txt`` -- see
+# CONTRIBUTING.md for the one-liners.
 dependencies = [
-  "gspread>=6",
-  "yfinance>=0.2.40",
-  "requests>=2.32",
-  "python-dateutil>=2.9",
-  "Pillow>=10",
-  "cairosvg>=2.7",
-  "numpy>=2.0",
+  "gspread>=6.2,<7",
+  "yfinance>=1.6,<2",
+  "requests>=2.32,<3",
+  "python-dateutil>=2.9,<3",
+  "Pillow>=12,<13",
+  "cairosvg>=2.7,<3",
+  "numpy>=2.0,<3",
 ]
 
 [project.optional-dependencies]
@@ -97,13 +106,22 @@ precision = 1
 # a red build green. A drop below the floor fails CI rather than
 # silently eroding the safety net.
 #
-# 87 -> 95 when the edge-case suite landed. The gap that remains is
-# concentrated and known, not diffuse: the fd-redirection teardown in
-# ``safe_run``, the production entrypoints in ``cli``, the live-fetch
-# merge in ``market_data_store``, the SVG rasteriser in ``og_image``,
-# and the gspread batch fallback in ``sheets``. Each needs a harness
-# rather than a test, which is why they are last.
-fail_under = 95
+# 87 -> 95 when the edge-case suite landed. 95 -> 96 when the retry /
+# archive-fallback work landed. 96 -> 97 -> 99 when the review pass
+# closed what was left: the leak-safe wrapper's partial-teardown paths
+# (an ``os.dup`` that fails mid-sequence), ``get_benchmarks``, the
+# gspread per-worksheet fallback and row-parse diagnostics, the
+# store-backed FX merge, the split-on-trade-boundary invariant, the OG
+# logo rasteriser, the four renderer buckets, and the production
+# entrypoints.
+#
+# **99 is the standing floor, not a high-water mark to be admired.**
+# New code arrives with its branches covered or the build fails. The
+# remaining ~1% is a handful of defensive guards behind other guards
+# (a merged position group with no BUY, reachable only if a leg's own
+# ledger check is bypassed first) -- the kind of belt-and-braces that
+# is correct to keep and dishonest to fake a test for.
+fail_under = 99
 
 [tool.ruff]
 line-length = 100
@@ -163,26 +181,13 @@ warn_redundant_casts = true
 warn_unused_ignores = true
 no_implicit_optional = true
 check_untyped_defs = true
-# Strict by default: a freshly added module ships with type
-# annotations on every public surface, or mypy fails the build.
-# New modules therefore do NOT need to be added anywhere -- only
-# the legacy permissive holdouts below stay opt-out, and that list
-# is intended to shrink to zero over time.
+# Strict, with no exemptions. The permissive-holdout list that used
+# to sit below is gone: the five modules on it (holdings, performance,
+# sheets, webpage._page, webpage.og_image) needed 24 annotations
+# between them, and typing them surfaced real drift -- the view layer
+# was taking bare ``dict`` where ``HoldingSummary`` / ``TotalReturn``
+# already existed, so the TypedDicts were not actually being checked
+# at the boundary they were written for. Do NOT reintroduce the list;
+# a new module ships annotated or the build fails.
 disallow_untyped_defs = true
 ignore_missing_imports = true
-
-# Permissive holdouts: modules that still carry untyped internal
-# helpers from before the codebase grew its TypedDicts. Each entry
-# is a known tech-debt item; deleting it (after typing the holdout's
-# public surface end-to-end) is the only direction this list should
-# move. Do NOT add new modules here -- the strict default catches
-# accidental regressions at lint time, and that's the contract.
-[[tool.mypy.overrides]]
-module = [
-  "investing.holdings",
-  "investing.performance",
-  "investing.sheets",
-  "investing.webpage._page",
-  "investing.webpage.og_image",
-]
-disallow_untyped_defs = false

@@ -114,22 +114,24 @@ def patch_yf_ticker(monkeypatch):
 def freeze_today(monkeypatch):
     """Pin ``datetime.today()`` / ``datetime.now()`` across the package.
 
-    The page generator is composed of several modules
+    This used to walk a hard-coded list of modules
     (``investing.holdings``, ``investing.performance``,
-    ``investing.webpage._page``, ...) and each one holds its own
-    import-bound ``datetime`` symbol. Patching just one leaves the
-    others on the real clock and breaks any cross-module test, so
-    we walk the whole list and swap ``datetime`` everywhere it
-    appears.
+    ``investing.webpage._page``) swapping each one's import-bound
+    ``datetime`` symbol, because every ``now``-taking entrypoint
+    spelled its own fallback as ``now if now is not None else
+    datetime.today``. A module that joined the package without being
+    added to that list silently kept the real clock.
 
-    New code prefers the explicit ``now=`` parameter exposed on
+    Every fallback now resolves through
+    :func:`investing.clock.resolve_now`, so there is exactly one symbol
+    to freeze and a new module is covered the day it is written.
+
+    New code still prefers the explicit ``now=`` parameter exposed on
     :class:`Holding` / :class:`Webpage` / :func:`calc_twr` /
     :func:`get_benchmarks` -- pass a closure and skip this fixture
     entirely.
     """
-    import investing.holdings as _holdings
-    import investing.performance as _performance
-    import investing.webpage._page as _webpage_page
+    import investing.clock as _clock
 
     def _freeze(when: datetime):
         class _FrozenDateTime(datetime):
@@ -141,8 +143,7 @@ def freeze_today(monkeypatch):
             def now(cls, tz=None):  # noqa: ARG002
                 return when
 
-        for mod in (_holdings, _performance, _webpage_page):
-            monkeypatch.setattr(mod, "datetime", _FrozenDateTime)
+        monkeypatch.setattr(_clock, "datetime", _FrozenDateTime)
         return when
 
     return _freeze

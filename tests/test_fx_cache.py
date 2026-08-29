@@ -106,3 +106,62 @@ def test_explicit_cache_dir_overrides_env(monkeypatch, tmp_path):
     fx = ExchangeRate(cache_dir=tmp_path)
     fx("GBP", "2024-02-01")
     assert (tmp_path / "fx-GBP.npz").is_file()
+
+
+class TestStoreBackedFxHistory:
+    """When a ``MarketDataStore`` is wired in it owns the FX archive.
+
+    The store path supersedes the loose ``INVESTING_FX_CACHE_DIR``
+    files: it merges the fetched series with what is already committed
+    under ``market_data/fx/`` so a rate Yahoo later drops is preserved.
+    """
+
+    def test_the_store_never_short_circuits_the_fetch(self, monkeypatch, tmp_path):
+        """An FX archive is always a day behind, so the live call stands.
+
+        Unlike a ticker snapshot, an FX series gains a row every
+        trading day: the committed archive can supply history but never
+        today's rate. The store's job is the older rows Yahoo may have
+        dropped, not a cache hit.
+        """
+        from investing.market_data_store import MarketDataStore
+
+        monkeypatch.delenv("INVESTING_MARKET_DATA_DISABLE", raising=False)
+        store = MarketDataStore(tmp_path)
+        store.save_fx_history(
+            "EUR",
+            np.array(["2024-01-01", "2024-02-01"], dtype="datetime64[D]"),
+            np.array([1.10, 1.20], dtype=float),
+        )
+
+        ticker = MagicMock()
+        ticker.history = MagicMock(return_value=_hist_for({"2024-03-01": 1.30}))
+        _stub_ticker(monkeypatch, {"EURUSD=X": ticker})
+
+        fx = ExchangeRate(store=store)
+        assert fx("EUR", "2024-03-15") == pytest.approx(1.30)
+        assert ticker.history.call_count == 1
+
+    def test_a_store_miss_fetches_then_merges_through_the_store(self, monkeypatch, tmp_path):
+        from investing.market_data_store import MarketDataStore
+
+        monkeypatch.delenv("INVESTING_MARKET_DATA_DISABLE", raising=False)
+        store = MarketDataStore(tmp_path, persist=True)
+        # An archived rate Yahoo will not return in the live response.
+        store.save_fx_history(
+            "EUR",
+            np.array(["2010-01-04"], dtype="datetime64[D]"),
+            np.array([1.44], dtype=float),
+        )
+
+        ticker = MagicMock()
+        ticker.history = MagicMock(return_value=_hist_for({"2024-01-01": 1.10}))
+        _stub_ticker(monkeypatch, {"EURUSD=X": ticker})
+
+        fx = ExchangeRate(store=store)
+
+        # Live row resolves...
+        assert fx("EUR", "2024-01-15") == pytest.approx(1.10)
+        # ...and the archived row Yahoo dropped survived the merge.
+        assert fx("EUR", "2010-01-05") == pytest.approx(1.44)
+        assert ticker.history.call_count == 1

@@ -52,11 +52,21 @@ GitHub Pages receives only the public site tree assembled by [`scripts/stage_sit
 4. Skip browser tests during quick iteration: `pytest -m "not browser"`
 5. Render synthetic preview locally: `python scripts/preview.py --out preview/`
 
-The CI matrix runs against Python 3.12, 3.13 and 3.14, with branch
-coverage reported via `pytest-cov`. A separate lint job on 3.13 runs
-`ruff` and `mypy` so PRs cannot merge with lint/type errors even when
-pre-commit was skipped locally. The production deployment workflow
-uses 3.13.
+The CI matrix runs against Python 3.12, 3.13 and 3.14 — the whole range
+`requires-python` declares — with branch coverage reported via
+`pytest-cov`. A separate lint job on 3.14 runs `ruff`, `mypy` and the
+full `pre-commit` set (which is where stylelint and eslint are
+enforced) so PRs cannot merge with lint/type errors even when
+pre-commit was skipped locally. The deploy, lint and security jobs all
+run 3.14, matching `.python-version` and the interpreter the lock files
+are compiled with.
+
+**Branch coverage must stay at or above 99%** (`fail_under` in
+`pyproject.toml`). The floor only ever moves up: a change that drops
+coverage is missing tests, and those tests are part of the change. See
+the ratchet section in [AGENTS.md](AGENTS.md) for what "covered" means
+here — a test that would fail if the branch were wrong, not one that
+merely executes it.
 
 Browser smoke tests (Playwright + axe-core) live in
 [`tests/test_browser.py`](tests/test_browser.py). Structural HTML validation
@@ -89,15 +99,28 @@ runtime set, `[project.optional-dependencies.dev]` for the dev set).
 Install locally with `pip install -e '.[dev]'`. CI uses the same
 editable install for linting and tests.
 
-The production deploy workflow pins runtime deps via
-[`requirements.txt`](requirements.txt), regenerated from
-`pyproject.toml`:
+Both lockfiles are regenerated from `pyproject.toml`:
 
 ```
 pip-compile --strip-extras pyproject.toml --output-file=requirements.txt
+pip-compile --strip-extras --extra dev pyproject.toml --output-file=requirements-dev.txt
 ```
 
-Dependabot opens weekly PRs against that lockfile so transitive bumps
+[`requirements.txt`](requirements.txt) pins the runtime set the deploy
+workflow installs. [`requirements-dev.txt`](requirements-dev.txt) pins
+the dev toolchain the lint and security jobs install: without it, ruff
+/ mypy / pytest / playwright came from whatever PyPI served that
+morning, so a lint finding could appear or vanish with no code change.
+The pytest matrix still installs `-e '.[dev]'` unpinned, because it
+spans 3.12-3.14 and the lock is compiled against 3.14 alone.
+
+Direct dependencies carry both a floor and a ceiling
+(`yfinance>=1.6,<2`). The floors alone never delivered what they
+claimed -- `>=` cannot block a major bump, and yfinance drifted two
+majors past its declared floor. The ceiling is what forces the review;
+widen it by hand when you have checked the major.
+
+Dependabot opens weekly PRs against both lockfiles so transitive bumps
 land as reviewable diffs.
 
 ## Pre-commit hooks

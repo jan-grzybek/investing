@@ -9,16 +9,18 @@ import math
 import urllib.parse
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Any
 
 import numpy as np
 import yfinance as yf
 
-from .clock import NowFn
+from .clock import NowFn, resolve_now
 from .errors import InvariantError
 from .formatting import _ts_to_datetime
 from .fx import FxRate, _fx_or_default
-from .market_data import _call_with_retry
+from .market_data import MarketDataError, _call_with_retry
 from .market_data_store import MarketDataStore
+from .safehtml import safe_url
 from .sector_overrides import resolve_sector
 from .trades import _BUY_CATEGORIES, TRADE_WINDOW_DAYS, Trade, _combine_trade_events
 from .types import HoldingPeriod, HoldingSummary, TradeEvent
@@ -67,11 +69,16 @@ def resolve_company_url(info: dict) -> str:
     silently swallow clicks instead of routing them anywhere
     actionable.
     """
+    descriptor = info.get("longName") or info.get("shortName") or info.get("symbol") or ""
     for key in ("website", "irWebsite"):
         value = info.get(key)
         if isinstance(value, str) and value.strip():
-            return value.strip()
-    descriptor = info.get("longName") or info.get("shortName") or info.get("symbol") or ""
+            # Scheme-validated: this string comes from the yfinance
+            # payload, which is a third-party feed, and it lands
+            # directly in an ``href``. HTML-escaping downstream does
+            # not disarm a ``javascript:`` URL -- it escapes the
+            # delimiters and leaves the scheme working.
+            return safe_url(value.strip(), fallback=google_search_url(descriptor))
     return google_search_url(descriptor)
 
 
@@ -315,8 +322,18 @@ class Holding:
         self._store = store
         self._ticker_symbol = ticker
         self._ticker = yf.Ticker(ticker)
+        # ``_from_archive`` marks a snapshot whose current-state inputs
+        # (live price, split inventory) could not be refreshed and came
+        # off disk. Harmless for a position already exited; fatal for
+        # one still held. Which it is only becomes known once the trade
+        # ledger has been replayed, so :meth:`ledger` makes the call.
+        self._from_archive = False
         if store is not None and store.enabled:
-            self._info, self._splits, self._dividends = store.resolve_ticker(ticker)
+            resolved = store.resolve_ticker(ticker)
+            self._info = resolved.info
+            self._splits = resolved.splits
+            self._dividends = resolved.dividends
+            self._from_archive = resolved.from_archive
         else:
             self._info = _call_with_retry(
                 self._ticker.get_info,
@@ -336,7 +353,7 @@ class Holding:
         # (which the legacy ``freeze_today`` fixture still patches);
         # new tests can pass an explicit closure to avoid the
         # cross-module monkeypatch.
-        self._now: NowFn = now if now is not None else datetime.today
+        self._now: NowFn = resolve_now(now)
         self._positions: list[dict] = []
         # Display-only ownership spans for the holding capsules on the
         # rendered page (``holdings_view``). ``buy``/``sell`` maintain
@@ -366,7 +383,7 @@ class Holding:
             dtype=float,
         )
 
-    def _get_splits_dividends(self):
+    def _get_splits_dividends(self) -> tuple[list[dict], list[dict]]:
         """Bootstrap the per-ticker splits / dividends timelines.
 
         Splits are stored in chronological order with their raw
@@ -412,7 +429,12 @@ class Holding:
             )
         return splits, dividends
 
-    def _apply_splits_between(self, quantity, after_date, before_date):
+    def _apply_splits_between(
+        self,
+        quantity: float,
+        after_date: datetime,
+        before_date: datetime,
+    ) -> float:
         """Adjust ``quantity`` for every split strictly between ``after_date``
         and ``before_date`` (exclusive both ends).
 
@@ -639,6 +661,37 @@ class Holding:
             for event in combined
         ]
 
+    def _require_current_market_data(self, *, open_position: bool) -> None:
+        """Fail when a value that must be current rests on archived data.
+
+        The archive is allowed to carry a closed position in full: its
+        share count is zero, no later split changes zero, and every
+        cashflow that fixes its return already happened. Nothing about
+        it is a claim regarding today.
+
+        Two callers need the opposite guarantee. An open position takes
+        its size from the split inventory and its value from the live
+        price, so publishing it from an archive would state a holding
+        and a valuation this run never verified. A benchmark reads
+        :attr:`current_market_price` to pin the right edge of its
+        curve, which is a statement about the tape right now even
+        though a benchmark holds no position at all -- hence
+        ``open_position``, which only selects the wording.
+
+        A late page is recoverable; one that misreports what is held is
+        not.
+        """
+        if not self._from_archive:
+            return
+        subject = (
+            "still holds an open position but its market data could not be "
+            "refreshed; refusing to publish a stale share count or valuation"
+            if open_position
+            else "needs a current market price but its market data could not be "
+            "refreshed; refusing to publish a stale quote"
+        )
+        raise MarketDataError(f"ticker {self._ticker_symbol!r} {subject}")
+
     @property
     def current_market_price(self) -> float:
         """The ticker's latest reported price in its native currency.
@@ -653,6 +706,7 @@ class Holding:
         (which lags by intraday / overnight movement against the
         live tape ``regularMarketPrice`` reflects).
         """
+        self._require_current_market_data(open_position=False)
         return float(self._info["regularMarketPrice"])
 
     @property
@@ -694,7 +748,13 @@ class Holding:
         """
         return self._info
 
-    def fetch_market_history(self, *, start, interval: str = "1d", auto_adjust: bool = False):
+    def fetch_market_history(
+        self,
+        *,
+        start: Any,
+        interval: str = "1d",
+        auto_adjust: bool = False,
+    ) -> Any:
         """Return the underlying ticker's price history.
 
         Public accessor used by :class:`investing.performance.Benchmark`
@@ -780,6 +840,19 @@ class Holding:
         frame) multiply through cleanly with the running share
         count.
         """
+        if not self._positions:
+            # ``_positions`` gains its first entry on the first BUY, so
+            # an empty list means no inflow was ever recorded. Every
+            # metric below is denominated against invested capital, and
+            # the walk indexes ``_positions[-1]`` unconditionally -- so
+            # without this the caller got an ``IndexError`` from deep
+            # inside the cashflow builder instead of being told what was
+            # actually missing. ``summary`` carries the same check for
+            # the merged-group path in :mod:`investing.positions`.
+            raise InvariantError(
+                f"holding {self._ticker_symbol!r} has no recorded BUY -- "
+                "ledger() requires at least one inflow",
+            )
         now = self._now()
         currency = self._info["currency"]
 
@@ -886,6 +959,18 @@ class Holding:
                         cashflows.append((date, +cash_usd))
                         gross_returned += cash_usd
 
+        # Guard on *both* live-position signals, not just one. The
+        # published ``is_current`` flag comes off the position ledger
+        # (``_positions[-1]["quantity"]``) while the valuation comes
+        # off the split-adjusted event walk (``quantity_current``);
+        # they are separate accumulators, and ``quantity_current``
+        # additionally clamps to zero below 1e-9. Guarding on only one
+        # would leave a gap where the other still asserts a live
+        # holding -- exactly the claim this check exists to prevent.
+        still_held = self._positions[-1]["quantity"] > 0
+        if still_held or quantity_current > 0:
+            self._require_current_market_data(open_position=True)
+
         # Synthetic mark-to-market for an open position: as if the
         # holder sold at ``regularMarketPrice`` today. Together with
         # the actual BUY/SELL/DIV cashflows this gives XIRR enough
@@ -909,7 +994,7 @@ class Holding:
             gross_invested=gross_invested,
             gross_returned=gross_returned,
             current_value_usd=current_value_usd,
-            is_current=self._positions[-1]["quantity"] > 0,
+            is_current=still_held,
             periods=list(reversed(self._periods)),
             latest_buy=self._inflows[-1]["date"] if self._inflows else None,
             latest_sell=self._outflows[-1]["date"] if self._outflows else None,

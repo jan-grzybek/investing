@@ -600,34 +600,6 @@ class TestOgImageHelpers:
 
         assert og_image.load_font("ultralight", 24) is not None
 
-    def test_iso_day_accepts_the_three_shapes_the_pipeline_produces(self):
-        import investing.webpage.og_image as og_image
-
-        assert og_image._iso_day(None) is None
-        assert og_image._iso_day(datetime(2024, 5, 6, 12, 30)) == "2024-05-06"
-        assert og_image._iso_day(date(2024, 5, 6)) == "2024-05-06"
-        assert og_image._iso_day("2024-05-06") == "2024-05-06"
-
-    def test_the_sidecar_treats_anything_but_a_full_digest_as_cold(self, tmp_path):
-        # A truncated sidecar means an interrupted write. Re-rendering
-        # is cheap; trusting a partial digest is not.
-        import investing.webpage.og_image as og_image
-
-        assert og_image._read_sidecar(tmp_path) is None
-        (tmp_path / og_image._HASH_SIDECAR_FILENAME).write_text("abc123\n", encoding="utf-8")
-        assert og_image._read_sidecar(tmp_path) is None
-        digest = "a" * 64
-        og_image._write_sidecar(tmp_path, digest)
-        assert og_image._read_sidecar(tmp_path) == digest
-
-    def test_an_unwritable_sidecar_is_swallowed(self, tmp_path):
-        # Losing the cache marker costs one extra og_image.render next run --
-        # far cheaper than failing the build.
-        import investing.webpage.og_image as og_image
-
-        (tmp_path / og_image._HASH_SIDECAR_FILENAME).mkdir()
-        og_image._write_sidecar(tmp_path, "b" * 64)
-
     def test_tracked_width_and_ink_height_are_zero_for_empty_text(self):
         from PIL import Image, ImageDraw
 
@@ -719,8 +691,10 @@ class TestOgImageHelpers:
             now=datetime(2024, 6, 1),
             output_dir=tmp_path,
         )
-        # No sidecar either: a failed og_image.render must not look cached.
-        assert og_image._read_sidecar(tmp_path) is None
+        # A failed render must leave no half-written artefact behind:
+        # ``stage_site`` copies whatever PNG it finds, so a truncated
+        # file would ship as the card.
+        assert not (tmp_path / og_image.OUTPUT_FILENAME).exists()
 
 
 class TestPageWiring:
@@ -1230,3 +1204,150 @@ class TestDataDependentRenderPaths:
         ordinary = row_for(12.5)
         assert "holdings__num--tba" not in ordinary
         assert "+12.5%" in ordinary
+
+
+class TestOgLogoLoading:
+    """The OG card rasterises logos off disk, never over HTTP.
+
+    Reading the committed mirror keeps the card reproducible and makes
+    it work on a first deploy, before any logo is live behind the site
+    URL. Every failure mode degrades rather than crashes: the whole
+    image is best-effort, and a missing logo should leave a gap in the
+    strip rather than take the page's social preview down with it.
+    """
+
+    def test_a_real_svg_logo_rasterises(self):
+        import investing.webpage.og_image as og_image
+
+        img = og_image.load_logo_for_og("NMS:NVDA", 80, 40)
+        assert img is not None
+        assert img.width <= 80 and img.height <= 40
+        assert img.mode == "RGBA"
+
+    def test_a_raster_logo_loads_directly(self):
+        import investing.webpage.og_image as og_image
+
+        img = og_image.load_logo_for_og("courage", 60, 30)
+        assert img is not None
+        assert img.width <= 60 and img.height <= 30
+
+    def test_an_unknown_ticker_falls_back_to_the_placeholder(self):
+        import investing.webpage.og_image as og_image
+
+        img = og_image.load_logo_for_og("NMS:NOSUCHTICKER", 60, 30)
+        # The courage placeholder is the last candidate, so a miss
+        # still yields an image rather than a hole.
+        assert img is not None
+
+    def test_an_undecodable_file_is_skipped(self, tmp_path, monkeypatch):
+        import investing.webpage.og_image as og_image
+
+        monkeypatch.setattr(og_image, "_REPO_LOGOS_DIR", str(tmp_path))
+        (tmp_path / "NMS:BAD.svg").write_text("not an svg at all", encoding="utf-8")
+
+        # No courage.png in the stand-in directory either, so every
+        # candidate fails and the caller gets ``None`` to leave a gap.
+        assert og_image.load_logo_for_og("NMS:BAD", 60, 30) is None
+
+    def test_aspect_ratio_is_read_from_the_committed_svg(self):
+        import investing.webpage.og_image as og_image
+
+        ratio = og_image._og_logo_aspect("NMS:NVDA")
+        assert ratio > 0
+
+    def test_aspect_ratio_falls_back_for_an_unknown_ticker(self):
+        import investing.webpage.og_image as og_image
+
+        assert og_image._og_logo_aspect("NMS:NOSUCHTICKER") > 0
+
+
+class TestGenerateWebpageBuckets:
+    """``generate_webpage`` routes four holding buckets, not two.
+
+    Equities and fixed income each split into current and historical,
+    and the fixed-income keys are optional so a portfolio without a
+    bond sleeve renders unchanged.
+    """
+
+    def test_all_four_buckets_reach_the_renderer(self, tmp_path, monkeypatch):
+        from unittest.mock import MagicMock
+
+        from investing.webpage._page import generate_webpage
+
+        added: list[str] = []
+        webpage = MagicMock()
+        webpage.add_holding.side_effect = lambda h: added.append(h["ticker"])
+
+        monkeypatch.setattr("investing.webpage._page.Webpage", lambda **_kwargs: webpage)
+        generate_webpage(
+            {"twr%": 1.0, "cagr%": 1.0, "history": []},
+            [],
+            {
+                "current": [{"ticker": "CUR"}],
+                "current_fixed_income": [{"ticker": "CUR_FI"}],
+                "historical": [{"ticker": "HIST"}],
+                "historical_fixed_income": [{"ticker": "HIST_FI"}],
+                "allocation%": None,
+                "top_10": None,
+            },
+            output_dir=tmp_path,
+        )
+
+        assert added == ["CUR", "CUR_FI", "HIST", "HIST_FI"]
+
+    def test_absent_fixed_income_keys_are_tolerated(self, tmp_path, monkeypatch):
+        from unittest.mock import MagicMock
+
+        from investing.webpage._page import generate_webpage
+
+        added: list[str] = []
+        webpage = MagicMock()
+        webpage.add_holding.side_effect = lambda h: added.append(h["ticker"])
+
+        monkeypatch.setattr("investing.webpage._page.Webpage", lambda **_kwargs: webpage)
+        generate_webpage(
+            {"twr%": 1.0, "cagr%": 1.0, "history": []},
+            [],
+            {
+                "current": [{"ticker": "CUR"}],
+                "historical": [{"ticker": "HIST"}],
+                "allocation%": None,
+                "top_10": None,
+            },
+            output_dir=tmp_path,
+        )
+
+        assert added == ["CUR", "HIST"]
+
+
+class TestSectorOverridesCaching:
+    """A default-path parse is cached; an explicit path is not.
+
+    Tests pass their own file and must not poison the process-wide
+    cache the production build reads from the repo root.
+    """
+
+    def test_a_malformed_file_on_the_default_path_caches_the_empty_result(
+        self, tmp_path, monkeypatch
+    ):
+        import investing.sector_overrides as so
+
+        bad = tmp_path / "sector_overrides.toml"
+        bad.write_text("this is not : valid toml [[[", encoding="utf-8")
+        monkeypatch.setattr(so, "_SECTOR_OVERRIDES_PATH", str(bad))
+        so._clear_overrides_cache()
+        assert so._load_overrides() == {}
+        # Cached, so a second call does not re-read the broken file.
+        bad.unlink()
+        assert so._load_overrides() == {}
+
+    def test_a_non_table_sectors_entry_caches_the_empty_result(self, tmp_path, monkeypatch):
+        import investing.sector_overrides as so
+
+        odd = tmp_path / "sector_overrides.toml"
+        odd.write_text('sectors = "not a table"\n', encoding="utf-8")
+        monkeypatch.setattr(so, "_SECTOR_OVERRIDES_PATH", str(odd))
+        so._clear_overrides_cache()
+        assert so._load_overrides() == {}
+        odd.unlink()
+        assert so._load_overrides() == {}

@@ -267,3 +267,227 @@ class TestFormatHelpers:
     def test_format_appended_stubs_joins_with_commas(self):
         out = _format_appended_stubs(["NMS:AAA", "NMS:BBB", "NMS:CCC"])
         assert out == "NMS:AAA, NMS:BBB, NMS:CCC"
+
+
+class TestSnapshotMarketData:
+    """The monthly ``snapshot_market_data`` entrypoint."""
+
+    def test_disabled_store_short_circuits_before_pulling(self, capsys):
+        """No sheet read when snapshots are turned off.
+
+        ``pull`` touches the private spreadsheet; skipping it when the
+        store is disabled keeps the no-op path from spending a Sheets
+        round-trip (and the credentials it needs) on nothing.
+        """
+        from unittest.mock import MagicMock
+
+        from investing.cli import snapshot_market_data
+        from investing.market_data_store import MarketDataStore
+
+        pull = MagicMock()
+        snapshot_market_data(pull=pull, store=MarketDataStore(None))
+
+        assert pull.call_count == 0
+
+    def test_refreshes_the_portfolio_ticker_universe(self, tmp_path):
+        from unittest.mock import MagicMock
+
+        from investing.cli import snapshot_market_data
+        from investing.performance import BENCHMARKS
+
+        store = MagicMock()
+        store.enabled = True
+        pull = MagicMock(
+            return_value=(
+                [
+                    {
+                        "ticker": "AAA",
+                        "date": "01-01-2024",
+                        "quantity": 1,
+                        "price_per_share": 1.0,
+                        "action": "BUY",
+                    }
+                ],
+                [
+                    {
+                        "ticker": "BBB",
+                        "date": "01-01-2024",
+                        "quantity": 1,
+                        "price_per_share": 1.0,
+                        "action": "BUY",
+                    }
+                ],
+                [],
+                [],
+            )
+        )
+
+        snapshot_market_data(pull=pull, store=store)
+
+        refreshed = set(store.refresh_universe.call_args[0][0])
+        # Benchmarks ride along: their series backs the comparison
+        # curve, so the archive has to carry them too.
+        assert {"AAA", "BBB"} <= refreshed
+        assert {c.ticker for c in BENCHMARKS} <= refreshed
+
+
+class TestArchivedTickerUpkeep:
+    """Snapshots for tickers the portfolio has exited.
+
+    Once a ticker leaves the spreadsheet nothing else refreshes its
+    archive -- and that archive is what the closed position rendered in
+    the Historical section falls back to when a vendor read fails.
+    """
+
+    @staticmethod
+    def _txn(ticker):
+        return {
+            "ticker": ticker,
+            "date": "01-01-2024",
+            "quantity": 1,
+            "price_per_share": 1.0,
+            "action": "BUY",
+        }
+
+    def test_departed_tickers_are_refreshed(self):
+        from unittest.mock import MagicMock
+
+        from investing.cli import _refresh_departed_archives
+
+        store = MagicMock()
+        store.enabled = True
+        store.persist = True
+        store.list_archived_tickers.return_value = ["AAA", "BBB", "GONE"]
+
+        _refresh_departed_archives(store, [self._txn("AAA")], [self._txn("BBB")])
+
+        refreshed = [c[0][0] for c in store.refresh_ticker.call_args_list]
+        assert refreshed == ["GONE"]
+
+    def test_benchmarks_are_not_treated_as_departed(self):
+        """The comparison series is part of the universe, not a leftover."""
+        from unittest.mock import MagicMock
+
+        from investing.cli import _refresh_departed_archives
+        from investing.performance import BENCHMARKS
+
+        store = MagicMock()
+        store.enabled = True
+        store.persist = True
+        store.list_archived_tickers.return_value = [c.ticker for c in BENCHMARKS]
+
+        _refresh_departed_archives(store, [self._txn("AAA")], [])
+
+        assert store.refresh_ticker.call_count == 0
+
+    def test_read_only_runs_never_write(self):
+        """The routine two-hourly deploy must not touch ``main``."""
+        from unittest.mock import MagicMock
+
+        from investing.cli import _refresh_departed_archives
+
+        store = MagicMock()
+        store.enabled = True
+        store.persist = False
+        store.list_archived_tickers.return_value = ["GONE"]
+
+        _refresh_departed_archives(store, [], [])
+
+        assert store.refresh_ticker.call_count == 0
+        assert store.list_archived_tickers.call_count == 0
+
+    def test_a_disabled_store_is_skipped(self):
+        from unittest.mock import MagicMock
+
+        from investing.cli import _refresh_departed_archives
+
+        store = MagicMock()
+        store.enabled = False
+        store.persist = True
+
+        _refresh_departed_archives(store, [], [])
+
+        assert store.refresh_ticker.call_count == 0
+
+
+class TestNotifierFailureLine:
+    def test_failed_lookups_are_listed_by_ticker(self, capsys):
+        """A notifier failure names the tickers it could not file.
+
+        Successes are counted; failures are enumerated, because the
+        maintainer has to go and check those by hand and a bare count
+        would not tell them which.
+        """
+        outcome = NotifierOutcome(
+            enabled=True,
+            opened=["NMS:AAA"],
+            already_tracked=["NMS:BBB"],
+            failed=["NMS:CCC", "NMS:DDD"],
+        )
+        line = _format_notifier_outcome(outcome)
+
+        assert "NMS:CCC" in line
+        assert "NMS:DDD" in line
+        assert "1 already tracked" in line
+
+
+class TestBuildPageWiring:
+    def test_the_store_backed_exchange_rate_is_used_when_no_fx_is_passed(
+        self, tmp_path, monkeypatch
+    ):
+        """Production shares one FX cache, wired to the snapshot store."""
+        from unittest.mock import MagicMock
+
+        from investing.cli import build_page
+
+        built: list[object] = []
+
+        class _Recorder:
+            def __init__(self, **kwargs):
+                built.append(kwargs.get("store"))
+
+            def __call__(self, currency, date=None):  # noqa: ARG002
+                return 1.0
+
+        monkeypatch.setattr("investing.cli.ExchangeRate", _Recorder)
+
+        store = MagicMock()
+        store.enabled = True
+        store.persist = False
+        store.list_archived_tickers.return_value = []
+
+        build_page(
+            pull=MagicMock(return_value=([], [], [], [])),
+            store=store,
+            save=lambda *_a, **_k: None,
+            output_dir=tmp_path,
+        )
+
+        assert built == [store], "the FX cache must be wired to the same store"
+
+    def test_snapshot_builds_its_own_store_from_the_environment(self, monkeypatch):
+        """With no store injected the entrypoint resolves one itself."""
+        from unittest.mock import MagicMock
+
+        from investing.cli import snapshot_market_data
+
+        monkeypatch.setenv("INVESTING_MARKET_DATA_DISABLE", "1")
+        pull = MagicMock()
+
+        snapshot_market_data(pull=pull)
+
+        # Disabled via the environment, so it short-circuits before
+        # touching the spreadsheet.
+        assert pull.call_count == 0
+
+
+class TestProductionEntrypoints:
+    def test_main_delegates_to_build_page(self, monkeypatch):
+        from investing.cli import main
+
+        called: list[bool] = []
+        monkeypatch.setattr("investing.cli.build_page", lambda: called.append(True))
+
+        main()
+
+        assert called == [True]

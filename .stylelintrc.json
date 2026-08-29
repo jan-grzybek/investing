@@ -18,6 +18,8 @@
     "block-no-empty": null,
     "comment-whitespace-inside": null,
     "shorthand-property-no-redundant-values": null,
+    "number-max-precision": 5,
+    "declaration-block-single-line-max-declarations": null,
     "color-hex-length": null,
     "selector-attribute-quotes": null,
     "function-no-unknown": null,

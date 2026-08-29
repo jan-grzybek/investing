@@ -10,7 +10,7 @@ from datetime import date, datetime, timedelta
 
 import numpy as np
 
-from .clock import NowFn
+from .clock import NowFn, resolve_now
 from .errors import InvariantError
 from .formatting import _fmt_pct
 from .fx import FxRate, _fx_or_default
@@ -292,7 +292,7 @@ def calc_twr(
     working. New callers can pass an explicit closure to inject a
     fixed timestamp without the cross-module patch.
     """
-    _now: NowFn = now if now is not None else datetime.today
+    _now: NowFn = resolve_now(now)
     if not valuations:
         return {"start_date": _now(), "history": [], "twr%": 0.0, "cagr%": 0.0}
     valuations = sorted(valuations, key=lambda item: item["date"])
@@ -562,7 +562,7 @@ class Benchmark:
         # Stashed so :meth:`summary` can compute the period length
         # for CAGR without reaching into ``_holding`` (which has its
         # own clock plug for the same purpose).
-        self._now: NowFn = now if now is not None else datetime.today
+        self._now: NowFn = resolve_now(now)
         self._holding = Holding(ticker, fx=self._fx, now=now, store=store)
         # Single ``auto_adjust=False`` fetch carries the dividend /
         # split adjusted ``Adj Close`` column we use as both the
@@ -641,7 +641,10 @@ class Benchmark:
         """
         return float(self._adj_closes[0])
 
-    def cumulative_return_series(self, reference_history):
+    def cumulative_return_series(
+        self,
+        reference_history: list[tuple[datetime, float]],
+    ) -> list[tuple[datetime, float]]:
         """Resample the benchmark's adjusted-close series onto the
         portfolio's TWR timeline.
 
@@ -718,7 +721,10 @@ class Benchmark:
             for (ref_date, _), m in zip(reference_history, multipliers, strict=True)
         ]
 
-    def summary(self, reference_history) -> BenchmarkSummary:
+    def summary(
+        self,
+        reference_history: list[tuple[datetime, float]],
+    ) -> BenchmarkSummary:
         """Produce the per-benchmark dict the renderer consumes.
 
         Computes a buy-and-hold TSR / CAGR from
@@ -929,7 +935,7 @@ def calc_yearly_returns(
 
     Rows are returned newest-first.
     """
-    _now: NowFn = now if now is not None else datetime.today
+    _now: NowFn = resolve_now(now)
     history = total_return.get("history") or []
     if not history:
         return []

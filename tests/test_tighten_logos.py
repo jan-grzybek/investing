@@ -5,6 +5,8 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
+import pytest
+
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _spec = importlib.util.spec_from_file_location(
     "tighten_logos",
@@ -51,3 +53,51 @@ def test_committed_tight_logos_match_fresh_build():
         path for path, body in outputs.items() if not path.exists() or path.read_bytes() != body
     ]
     assert not drift, f"stale tight logos: {[p.relative_to(_REPO_ROOT) for p in drift]}"
+
+
+class TestSvgAspectParsing:
+    """Aspect ratio drives the OG card's equal-area logo strip.
+
+    A logo whose proportions cannot be read falls back to a 3:1
+    wordmark default rather than being forced into a square cell, so
+    the parser has to fail cleanly rather than raise.
+    """
+
+    def test_viewbox_is_preferred(self):
+        from investing.logos import _parse_svg_aspect_ratio
+
+        assert _parse_svg_aspect_ratio('<svg viewBox="0 0 300 100"/>') == pytest.approx(3.0)
+
+    def test_width_height_attributes_are_the_fallback(self):
+        from investing.logos import _parse_svg_aspect_ratio
+
+        assert _parse_svg_aspect_ratio('<svg width="200" height="50"/>') == pytest.approx(4.0)
+
+    def test_a_short_viewbox_falls_through_to_width_height(self):
+        from investing.logos import _parse_svg_aspect_ratio
+
+        svg = '<svg viewBox="0 0 300" width="200" height="50"/>'
+        assert _parse_svg_aspect_ratio(svg) == pytest.approx(4.0)
+
+    def test_a_zero_dimension_is_not_a_ratio(self):
+        from investing.logos import _parse_svg_aspect_ratio
+
+        assert _parse_svg_aspect_ratio('<svg width="0" height="50"/>') is None
+        assert _parse_svg_aspect_ratio('<svg viewBox="0 0 0 100"/>') is None
+
+    def test_a_non_numeric_viewbox_falls_through(self):
+        from investing.logos import _parse_svg_aspect_ratio
+
+        assert _parse_svg_aspect_ratio('<svg viewBox="a b c d"/>') is None
+
+    def test_no_dimensions_at_all_returns_none(self):
+        from investing.logos import _parse_svg_aspect_ratio
+
+        assert _parse_svg_aspect_ratio("<svg/>") is None
+
+
+def test_a_malformed_numeric_dimension_is_not_a_ratio():
+    """``[\\d.]+`` matches "1.2.3", which ``float`` then rejects."""
+    from investing.logos import _parse_svg_aspect_ratio
+
+    assert _parse_svg_aspect_ratio('<svg width="1.2.3" height="4"/>') is None

@@ -19,7 +19,7 @@ from typing import TextIO
 
 from dateutil.relativedelta import relativedelta
 
-from .clock import NowFn
+from .clock import NowFn, resolve_now
 from .formatting import _fmt_pct, _format_duration
 from .fx import ExchangeRate, FxRate
 from .log import logger
@@ -352,7 +352,7 @@ def build_page(
     """
     _pull = pull if pull is not None else _pull_data
     _save: SaveFn = save if save is not None else generate_webpage
-    _now: NowFn = now if now is not None else datetime.today
+    _now: NowFn = resolve_now(now)
     _store = store if store is not None else _default_market_data_store()
     # Single shared FX cache for the whole build: every Holding reads
     # currencies through this instance so each USD/EUR/GBp lookup
@@ -434,11 +434,33 @@ def build_page(
         notifier=notifier_outcome,
         appended_stubs=appended_stubs,
     )
-    if _store.enabled and _store.persist:
-        portfolio = set(_collect_market_data_tickers(transactions, fixed_income))
-        for archived in _store.list_archived_tickers():
-            if archived not in portfolio:
-                _store.refresh_ticker(archived)
+    _refresh_departed_archives(_store, transactions, fixed_income)
+
+
+def _refresh_departed_archives(
+    store: MarketDataStore,
+    transactions: list[EquityTransaction],
+    fixed_income: list[EquityTransaction],
+) -> None:
+    """Refresh archived tickers the portfolio no longer trades.
+
+    Once a ticker leaves the spreadsheet the per-holding walk stops
+    touching it, so nothing else would ever refresh its snapshot again.
+    That snapshot is not dead weight: it is the only thing standing
+    behind the closed position still rendered in the Historical
+    section, and -- since the archive is what a closed position falls
+    back to when a vendor read fails -- the only thing that keeps it
+    publishable during an outage.
+
+    Read-only runs (the routine two-hourly deploy) skip this entirely;
+    the monthly cron is the sole writer.
+    """
+    if not (store.enabled and store.persist):
+        return
+    portfolio = set(_collect_market_data_tickers(transactions, fixed_income))
+    for archived in store.list_archived_tickers():
+        if archived not in portfolio:
+            store.refresh_ticker(archived)
 
 
 def snapshot_market_data(

@@ -11,7 +11,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from investing.sheets import SheetParseError, _pad_rows, pull_data
+from investing import retry
+from investing.sheets import SheetDataError, SheetParseError, _pad_rows, pull_data
 
 
 def _equities_header():
@@ -520,3 +521,214 @@ class TestPadRows:
             ["a", "b", "c"],
             ["", ""],
         ]
+
+
+class TestSheetsRetry:
+    """``pull_data``'s two network calls are retried.
+
+    Both ``open_by_key`` and the batched value read are live HTTPS
+    round-trips against an API that fails transiently in production.
+    Neither had a retry before, and ``open_by_key`` in particular was
+    the observed cause of failed scheduled deploys.
+    """
+
+    def test_open_by_key_is_retried(self, patch_gspread, monkeypatch):
+        monkeypatch.setattr(retry.time, "sleep", lambda d: None)  # noqa: ARG005
+        sh = _build_spreadsheet(
+            equities=[_equity_row("01-01-2024", "AAPL", "10", "150.50", "BUY")],
+            returns=[_return_row("01-01-2024", "1000.00", "0.00")],
+            cash=[_cash_row("USD", "250.00")],
+        )
+        gc = patch_gspread(sh)
+        # Two transient faults, then the handle. gspread surfaces the
+        # real-world failures as ``APIError`` / ``ConnectionError``;
+        # a bare exception is enough to drive the retry contract.
+        gc.open_by_key.side_effect = [
+            ConnectionError("transient"),
+            ConnectionError("transient"),
+            sh,
+        ]
+
+        transactions, _, _, _ = pull_data()
+
+        assert gc.open_by_key.call_count == 3
+        assert len(transactions) == 1
+
+    def test_open_by_key_failure_raises_sheet_data_error(self, patch_gspread, monkeypatch):
+        monkeypatch.setenv("INVESTING_DISABLE_RETRY", "1")
+        sh = _build_spreadsheet(equities=[], returns=[], cash=[])
+        gc = patch_gspread(sh)
+        gc.open_by_key.side_effect = ConnectionError("down")
+
+        with pytest.raises(SheetDataError):
+            pull_data()
+
+    def test_batched_read_is_retried(self, patch_gspread, monkeypatch):
+        """A fault that survives the per-worksheet fallback is retried.
+
+        ``_batch_get_values`` already degrades from the batch call to
+        four per-worksheet reads internally, so the retry wraps the
+        whole helper -- otherwise the fallback path stays unguarded.
+        """
+        monkeypatch.setattr(retry.time, "sleep", lambda d: None)  # noqa: ARG005
+        sh = _build_spreadsheet(
+            equities=[_equity_row("01-01-2024", "AAPL", "10", "150.50", "BUY")],
+            returns=[_return_row("01-01-2024", "1000.00", "0.00")],
+            cash=[_cash_row("USD", "250.00")],
+        )
+        patch_gspread(sh)
+
+        healthy = sh.worksheet.side_effect
+        state = {"calls": 0}
+
+        def flaky_worksheet(name):
+            state["calls"] += 1
+            if state["calls"] == 1:
+                raise ConnectionError("transient")
+            return healthy(name)
+
+        sh.worksheet.side_effect = flaky_worksheet
+
+        transactions, _, _, _ = pull_data()
+
+        assert len(transactions) == 1
+        # First attempt died on the opening worksheet; the retry drove
+        # all four reads through cleanly.
+        assert state["calls"] == 5
+
+
+class TestConfigErrorsFailFast:
+    """A missing env var must not be treated as a transient fault.
+
+    ``KeyError`` is deliberately retryable -- a half-parsed vendor
+    payload raises it from deep inside the parser and does clear on a
+    second attempt. That makes it dangerous to evaluate configuration
+    lookups *inside* a retried callable: an unset ``GSHEET_ID`` would
+    burn the whole back-off budget and then surface as "gspread
+    open_by_key failed after 3 attempt(s)", naming the wrong problem.
+    """
+
+    def test_missing_sheet_id_raises_immediately_and_by_name(self, patch_gspread, monkeypatch):
+        sh = _build_spreadsheet(equities=[], returns=[], cash=[])
+        gc = patch_gspread(sh)
+        monkeypatch.delenv("GSHEET_ID", raising=False)
+
+        slept: list[float] = []
+        monkeypatch.setattr(retry.time, "sleep", lambda d: slept.append(d))
+
+        with pytest.raises(KeyError, match="GSHEET_ID"):
+            pull_data()
+
+        assert slept == [], "a configuration error must not consume the retry budget"
+        assert gc.open_by_key.call_count == 0
+
+
+class TestBatchGetFallback:
+    """``_batch_get_values`` degrades to per-worksheet reads.
+
+    The batched ``values_batch_get`` is one HTTPS round-trip; the
+    fallback is four. It exists for older gspread versions and for mock
+    surfaces that never implemented the batch method, and production
+    only reaches it when the batch call raises.
+    """
+
+    def test_a_batch_failure_falls_through_to_per_worksheet_reads(self, patch_gspread):
+        sh = _build_spreadsheet(
+            equities=[_equity_row("01-01-2024", "AAA", "10", "1.00", "BUY")],
+            returns=[_return_row("01-01-2024", "100.00", "0.00")],
+            cash=[_cash_row("USD", "5.00")],
+        )
+        sh.values_batch_get.side_effect = RuntimeError("batch unsupported")
+        patch_gspread(sh)
+
+        transactions, _, valuations, cash = pull_data()
+
+        assert len(transactions) == 1
+        assert len(valuations) == 1
+        assert len(cash) == 1
+
+    def test_a_short_value_range_response_falls_through(self, patch_gspread):
+        """A response missing a range is not a usable batch result."""
+        sh = _build_spreadsheet(
+            equities=[_equity_row("01-01-2024", "AAA", "10", "1.00", "BUY")],
+            returns=[],
+            cash=[],
+        )
+        sh.values_batch_get.return_value = {"valueRanges": [{"values": []}]}
+        patch_gspread(sh)
+
+        transactions, _, _, _ = pull_data()
+        assert len(transactions) == 1
+
+    def test_a_non_dict_batch_response_falls_through(self, patch_gspread):
+        sh = _build_spreadsheet(
+            equities=[_equity_row("01-01-2024", "AAA", "10", "1.00", "BUY")],
+            returns=[],
+            cash=[],
+        )
+        sh.values_batch_get.return_value = None
+        patch_gspread(sh)
+
+        transactions, _, _, _ = pull_data()
+        assert len(transactions) == 1
+
+
+class TestRowParseDiagnostics:
+    """A bad cell has to name itself; the leak-safe wrapper hides the value."""
+
+    def test_an_unparseable_date_names_the_worksheet_and_row(self, patch_gspread):
+        # Only the Return sheet parses its date into a ``datetime``;
+        # equity rows carry the raw ``DD-MM-YYYY`` string through.
+        sh = _build_spreadsheet(
+            equities=[],
+            returns=[_return_row("not-a-date", "100.00", "0.00")],
+            cash=[],
+        )
+        patch_gspread(sh)
+
+        with pytest.raises(SheetParseError) as excinfo:
+            pull_data()
+        assert excinfo.value.worksheet == "Return"
+        assert excinfo.value.row == 3
+        assert excinfo.value.field == "date"
+
+    def test_an_unparseable_quantity_names_the_field(self, patch_gspread):
+        sh = _build_spreadsheet(
+            equities=[_equity_row("01-01-2024", "AAA", "ten", "1.00", "BUY")],
+            returns=[],
+            cash=[],
+        )
+        patch_gspread(sh)
+
+        with pytest.raises(SheetParseError) as excinfo:
+            pull_data()
+        assert excinfo.value.worksheet == "Equities"
+        assert excinfo.value.field in {"quantity", "price_per_share"}
+
+
+class TestReturnSheetParseErrors:
+    def test_an_unparseable_flow_names_the_field(self, patch_gspread):
+        """The Return sheet's flow column feeds the TWR walk."""
+        sh = _build_spreadsheet(
+            equities=[],
+            returns=[_return_row("01-01-2024", "1000.00", "not-a-number")],
+            cash=[],
+        )
+        patch_gspread(sh)
+
+        with pytest.raises(SheetParseError) as excinfo:
+            pull_data()
+        assert excinfo.value.worksheet == "Return"
+        assert excinfo.value.field == "value/flow"
+
+    def test_an_unparseable_value_names_the_field(self, patch_gspread):
+        sh = _build_spreadsheet(
+            equities=[],
+            returns=[_return_row("01-01-2024", "not-a-number", "0.00")],
+            cash=[],
+        )
+        patch_gspread(sh)
+
+        with pytest.raises(SheetParseError) as excinfo:
+            pull_data()
+        assert excinfo.value.worksheet == "Return"

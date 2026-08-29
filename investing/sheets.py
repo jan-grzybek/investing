@@ -1,18 +1,41 @@
 """Google Sheets ingestion: row schemas, validators, and
 ``pull_data`` (the only function in here that touches the
 network).
+
+Both of ``pull_data``'s network calls go through
+:func:`investing.retry.call_with_retry`. The Sheets API is the
+build's least reliable dependency in practice -- the scheduled
+deploy has lost runs to ``APIError`` and ``ConnectionError`` raised
+straight out of ``open_by_key``, which is the very first outbound
+call the build makes. Unlike the market-data path there is no
+archive to fall back on: the spreadsheet *is* the portfolio ledger,
+so a failure here can only be retried, never substituted.
 """
 
 from __future__ import annotations
 
 import json
 import os
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
 import gspread
 
+from .retry import call_with_retry
 from .types import CashBalance, EquityTransaction, Valuation
+
+
+class SheetDataError(RuntimeError):
+    """A Google Sheets read failed even after the configured retry budget.
+
+    Mirrors :class:`investing.market_data.MarketDataError`: the class
+    name is the whole diagnostic payload, because the leak-safe
+    wrapper in :mod:`investing.safe_run` drops ``str(exc)`` to keep
+    spreadsheet identifiers out of the public job log.
+    """
+
 
 # ---------------------------------------------------------------------------
 # Sheet ingestion
@@ -396,7 +419,7 @@ def _parse_cash_row(row_index: int, row: list[str]) -> CashBalance | None:
     }
 
 
-def _gspread_client():
+def _gspread_client() -> gspread.Client:
     """Build a gspread client from credentials in the environment.
 
     Prefers ``GSHEET_CREDS`` (the full service-account JSON, passed in
@@ -413,7 +436,7 @@ def _gspread_client():
     return gspread.service_account(filename=creds_file)
 
 
-def _iter_data_rows(rows: list[list[str]]):
+def _iter_data_rows(rows: list[list[str]]) -> Iterator[tuple[int, list[str]]]:
     """Yield ``(spreadsheet_row_number, row)`` for the data portion.
 
     Skips the two leading rows (``_SHEET_DATA_OFFSET``) and computes the
@@ -439,7 +462,24 @@ def pull_data() -> tuple[
     objects rather than by carrying a flag on every row dict.
     """
     gc = _gspread_client()
-    sh = gc.open_by_key(os.environ["GSHEET_ID"])
+    # Read outside the retried callable. ``KeyError`` is deliberately
+    # retryable (a half-parsed vendor payload raises it and does clear),
+    # so leaving this lookup inside the lambda meant an unset
+    # ``GSHEET_ID`` -- a configuration error that will never clear --
+    # burned the whole back-off budget and then surfaced as "gspread
+    # open_by_key failed after 3 attempt(s)" instead of naming the
+    # missing variable.
+    sheet_id = os.environ["GSHEET_ID"]
+    # ``open_by_key`` is not the cheap local handle its name suggests:
+    # ``Spreadsheet.__init__`` immediately calls ``fetch_sheet_metadata``,
+    # so this line is a live HTTPS round-trip and the first point at
+    # which a transient Google-side fault can kill the build. It is the
+    # single most common cause of failed scheduled deploys.
+    sh = call_with_retry(
+        lambda: gc.open_by_key(sheet_id),
+        description="gspread open_by_key",
+        error_type=SheetDataError,
+    )
 
     # Single batched request for every worksheet. The legacy
     # implementation called ``sh.worksheet(name).get_all_values()``
@@ -452,7 +492,16 @@ def pull_data() -> tuple[
     # rides alongside Equities so a portfolio that grows a
     # fixed-income sleeve costs the build no extra HTTPS hops.
     range_names = ("Equities", "Fixed Income", "Return", "Cash & Cash Equivalents")
-    sheets = _batch_get_values(sh, range_names)
+    # Retry the whole helper rather than the batch call inside it: the
+    # per-worksheet fallback path is itself four unguarded round-trips,
+    # so wrapping at this level covers both routes to the data with one
+    # budget. ``_batch_get_values`` is a pure read, so re-running it is
+    # side-effect free.
+    sheets = call_with_retry(
+        lambda: _batch_get_values(sh, range_names),
+        description="gspread values_batch_get",
+        error_type=SheetDataError,
+    )
 
     transactions: list[EquityTransaction] = []
     for row_index, row in _iter_data_rows(sheets["Equities"]):
@@ -486,7 +535,7 @@ def pull_data() -> tuple[
 
 
 def _batch_get_values(
-    sh,
+    sh: Any,
     range_names: tuple[str, ...],
 ) -> dict[str, list[list[str]]]:
     """Fetch all requested worksheet ranges in a single API call.

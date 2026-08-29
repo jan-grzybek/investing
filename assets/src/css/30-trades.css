@@ -13,7 +13,7 @@
      for Action) so the two columns visibly drop one at a time
      rather than vanishing together at a single JS "tick" after the
      user stops resizing.
-     
+
      ``overflow-x: auto`` survives only as a defensive belt for the
      handful of viewports narrower than the 4-column minimum
      (~320px) and for the (vanishingly rare) browsers without
@@ -182,14 +182,14 @@
    is a named ``trades`` inline-size container; these two rules drop
    the Company and Action columns based on the wrap's actual width,
    one at a time, as the page narrows.
-   
+
    The thresholds are derived empirically from the natural minimum
    widths of each column set with the current renderer's content
    (quarter-formatted dates, 7em BUY / SELL pill, ``Initial stake`` /
    ``Disposal`` lifecycle labels, three-decimal prices in ISO
    currency codes), with a small buffer so the column drops just
    before the layout would otherwise be forced to overflow:
-   
+
      * **600px**: at this container width the 6-column layout's
        intrinsic minimum (~591px for the synthetic preview, similar
        for production) starts to exceed the wrap, so the Company
@@ -203,7 +203,7 @@
        ``Initiated`` / ``Divested`` for boundary rows, and ``+`` /
        ``-`` signs plus green / red colouring on the percentage rows
        -- so a reader can recover buy-vs-sell at a glance without it.
-   
+
    The 170px gap between the two thresholds is wide enough that a
    continuous resize through the boundary makes Company visibly drop
    first, then much later Action -- never both at the same instant.
@@ -450,8 +450,7 @@
        row; the wider gaps that separate those two from the price,
        and the badge from the detail, are set as margins on the
        items that need them. */
-    column-gap: 7px;
-    row-gap: 0;
+    gap: 0 7px;
     padding: 9px 14px;
   }
   .trades__row::after {

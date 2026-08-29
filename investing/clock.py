@@ -23,3 +23,22 @@ from datetime import datetime
 # alias so the renderer / pipeline functions can spell their
 # signatures uniformly without each importing typing machinery.
 NowFn = Callable[[], datetime]
+
+
+def default_now() -> datetime:
+    """The clock every ``now``-taking entrypoint falls back to.
+
+    ``now if now is not None else datetime.today`` was spelled out at
+    seven call sites, which meant this module exported a type alias and
+    nothing else -- the abstraction named the concept without owning
+    it. Callers now resolve through :func:`resolve_now`, and anything
+    reading the clock without a ``now`` parameter (the manifest
+    timestamp in :mod:`investing.market_data_store`) calls this
+    directly rather than reaching for ``datetime`` itself.
+    """
+    return datetime.today()
+
+
+def resolve_now(now: NowFn | None) -> NowFn:
+    """Return ``now``, or :func:`default_now` when it is ``None``."""
+    return now if now is not None else default_now

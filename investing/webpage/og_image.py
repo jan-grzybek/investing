@@ -24,27 +24,18 @@ class can focus on per-section HTML and the OG-specific Pillow
 plumbing (font search, logo rasterisation, halo composition)
 lives on its own. The ``render`` entrypoint is the only public
 function; everything else here is implementation detail.
-
-The rendered PNG is also content-addressable: every successful
-:func:`render` writes an ``og-image.png.sha256`` sidecar with a
-SHA-256 of the inputs that produced it. A subsequent call with the
-same inputs short-circuits without re-running Pillow, which keeps
-the hourly schedule cheap when only the live market tape moved (the
-chart / holding numbers are inline HTML, not pixel input to the OG
-composition).
 """
 
 from __future__ import annotations
 
-import hashlib
 import io
-import json
 import math
 import os
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from dateutil.relativedelta import relativedelta
 
@@ -53,6 +44,22 @@ from ..log import logger
 from ..logos import _DEFAULT_LOGO_ASPECT, _parse_svg_aspect_ratio
 from ..paths import _REPO_LOGOS_DIR, LOGO_EXTENSIONS, SITE_DISPLAY
 from ..types import BenchmarkSummary, TotalReturn
+
+if TYPE_CHECKING:
+    # Pillow is imported lazily at every call site so a host without
+    # it still renders the page (``render`` degrades to a no-op).
+    # Importing the types under ``TYPE_CHECKING`` keeps that runtime
+    # contract while still letting mypy check the drawing helpers.
+    from PIL import Image as _Image
+    from PIL import ImageDraw as _ImageDraw
+    from PIL import ImageFont as _ImageFont
+
+    Canvas = _Image.Image
+    Draw = _ImageDraw.ImageDraw
+    Font = _ImageFont.FreeTypeFont | _ImageFont.ImageFont
+    # Pillow accepts either a colour-spec string or an RGB(A) tuple
+    # wherever it takes a ``fill``; the card uses both.
+    Fill = str | tuple[int, int, int] | tuple[int, int, int, int]
 
 # Tickers in ``top_10`` keys that are not real holdings (e.g. the
 # synthetic "Other equities" bucket added when there are >11 current
@@ -88,7 +95,7 @@ _FONT_FILES: dict[str, str] = {
 }
 
 
-def load_font(weight: str, size: int):
+def load_font(weight: str, size: int) -> Font:
     """Load the committed Roboto face for the requested weight/size.
 
     Falls back to Pillow's bitmap default only if the vendored file is
@@ -128,7 +135,7 @@ def top_holdings_for_og(top_10: dict | None, *, limit: int = 10) -> list[str]:
     return tickers
 
 
-def load_logo_for_og(ticker: str, max_w: int, max_h: int):
+def load_logo_for_og(ticker: str, max_w: int, max_h: int) -> Canvas | None:
     """Load a ticker's logo as an RGBA ``PIL.Image`` fitted to a
     ``max_w x max_h`` box (preserving aspect ratio).
 
@@ -273,7 +280,7 @@ _STRIP_RADIUS = 18
 
 
 def draw_top_holdings_strip(
-    canvas,
+    canvas: Canvas,
     tickers: Iterable[str],
     *,
     x: int,
@@ -460,14 +467,10 @@ def _hero_copy(
 
 
 OUTPUT_FILENAME = "og-image.png"
-_HASH_SIDECAR_FILENAME = OUTPUT_FILENAME + ".sha256"
 # Historical module-level path constant kept as an alias for any
 # external code (and test snapshots) that imported it by name; the
 # resolved write path now flows through ``_resolve_output_dir`` from
-# the call-site ``output_dir`` argument. The matching
-# ``_HASH_SIDECAR_PATH`` alias was removed because nothing imported
-# it -- the live sidecar path is built from ``_HASH_SIDECAR_FILENAME``
-# and the resolved output directory wherever it's needed.
+# the call-site ``output_dir`` argument.
 OUTPUT_PATH = OUTPUT_FILENAME
 
 
@@ -506,115 +509,6 @@ def _foot_copy(
     return line
 
 
-def _input_digest(
-    *,
-    total_return: TotalReturn,
-    benchmarks: list[BenchmarkSummary],
-    top_10: dict[str, float] | None,
-    benchmark_display_names: dict[str, str],
-    now: datetime,
-    equity_count: int | None = None,
-) -> str:
-    """Return a stable SHA-256 over the OG image's pixel inputs.
-
-    Only the quantities that the composition actually reads should
-    feed the hash: the headline total returns (JG's TWR + the
-    benchmark's TSR, which drive both the hero delta and the two
-    figures set beside it), the benchmark display label, the top-10
-    ticker list (drives the logo strip *and* the "N equities" count
-    in the foot line), and the ``start_date`` / ``now`` pair (drives
-    the "Since X" foot caption + duration). The full ``history`` list
-    is deliberately excluded -- it doesn't reach the canvas, so a
-    daily TWR re-fix that doesn't change anything in the headline
-    shouldn't force a rerender.
-
-    The card compares annualised returns, so ``cagr%`` is what gets
-    hashed and ``twr%`` / ``tsr%`` do not: a cache key has to name the
-    quantities that reach the canvas and only those. Keyed on the
-    totals it would have gone both ways at once -- re-rendering on a
-    total-return move that changes no pixel, and serving a stale card
-    when the annualised figure moved on its own.
-
-    ``equity_count`` is in for the same reason: it prints in the foot,
-    so a position opening or closing has to invalidate the card even
-    when every other figure rounds to the same string.
-
-    ``now`` is rounded to the calendar day: the foot caption renders
-    a date-precision duration ("3 years, 4 months"), so two runs on
-    the same day with identical numerical inputs would otherwise hash
-    differently and re-render needlessly.
-    """
-    bench = benchmarks[0] if benchmarks else None
-    history = total_return.get("history") or []
-    start_from_history = history[0][0] if history else None
-    payload = {
-        "cagr": _round(total_return.get("cagr%")),
-        "bench_cagr": _round(bench.get("cagr%") if bench else None),
-        "equity_count": equity_count,
-        "bench_label": _benchmark_label(bench, benchmark_display_names),
-        "tickers": top_holdings_for_og(top_10, limit=10),
-        "start_date": _iso_day(total_return.get("start_date") or start_from_history),
-        "today": _iso_day(now),
-    }
-    encoded = json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
-
-
-def _round(value: float | None) -> float | None:
-    """Quantise a percentage to one decimal place so micro-jitter in
-    the source numbers (e.g. a ``regularMarketPrice`` tick that nudges
-    CAGR by 0.001 pp) doesn't invalidate the rendered cache.
-
-    The composition itself rounds to one decimal at format time
-    (see ``_fmt_pct``); aligning the cache key with what's actually
-    drawn avoids cache misses that would not change any drawn pixel.
-    """
-    if value is None:
-        return None
-    return round(float(value), 1)
-
-
-def _iso_day(value) -> str | None:
-    """Render a ``datetime`` / ``date`` as ISO ``YYYY-MM-DD`` text."""
-    if value is None:
-        return None
-    if isinstance(value, datetime):
-        return value.date().isoformat()
-    if isinstance(value, date):
-        return value.isoformat()
-    return str(value)
-
-
-def _read_sidecar(output_dir: Path) -> str | None:
-    """Read the digest of the OG image on disk, if any.
-
-    Missing file / unreadable / wrong size all return ``None`` so the
-    caller treats the cache as cold and re-renders.
-    """
-    try:
-        text = (output_dir / _HASH_SIDECAR_FILENAME).read_text(encoding="utf-8").strip()
-    except OSError:
-        return None
-    return text if len(text) == 64 else None
-
-
-def _write_sidecar(output_dir: Path, digest: str) -> None:
-    """Persist ``digest`` next to the rendered PNG.
-
-    Best-effort: a write failure is logged but never propagated, so
-    the page build doesn't abort because the cache key couldn't be
-    saved. The worst case is one extra rerender next run.
-    """
-    try:
-        (output_dir / _HASH_SIDECAR_FILENAME).write_text(digest + "\n", encoding="utf-8")
-    except OSError as exc:
-        # ``str(exc)`` would land on the safe-run-redacted stderr in
-        # CI; logger.debug routes the same content through the
-        # logger which is silenced under leak-safe wrapping. Local
-        # runs surface it at DEBUG.
-        logger.debug("og-image sidecar write failed: %s", exc)
-
-
 def render(
     *,
     total_return: TotalReturn,
@@ -635,30 +529,20 @@ def render(
     referenced by the page's ``SOCIAL_IMAGE`` constant keeps
     working until the next successful regeneration.
 
-    Short-circuits on content-addressable caching: if the PNG on
-    disk was produced from the same set of headline numbers (see
-    :func:`_input_digest`), the redraw is skipped entirely. The
-    hourly CI cadence runs even when only intraday quotes moved,
-    and the OG composition doesn't surface intraday moves -- the
-    skip path keeps that wasted Pillow work out of the schedule.
+    The render is unconditional. It previously short-circuited on a
+    content-addressable digest written to an ``og-image.png.sha256``
+    sidecar, which could never fire in the deployment it was built
+    for: both the PNG and the sidecar are gitignored, and the deploy
+    workflow checks out a fresh tree every run, so the cache was
+    always cold. The whole composition costs well under a second
+    against a job that spends roughly a minute installing
+    dependencies -- there was nothing there worth caching.
     """
     try:
         from PIL import Image, ImageDraw  # noqa: F401  (used below)
     except ImportError:
         return
     out_dir = _resolve_output_dir(output_dir)
-    digest = _input_digest(
-        total_return=total_return,
-        benchmarks=benchmarks,
-        top_10=top_10,
-        benchmark_display_names=benchmark_display_names,
-        now=now,
-        equity_count=equity_count,
-    )
-    output_path = out_dir / OUTPUT_FILENAME
-    if output_path.is_file() and _read_sidecar(out_dir) == digest:
-        logger.info("og-image: cache hit, skipping render")
-        return
     try:
         _render_unsafe(
             total_return=total_return,
@@ -674,7 +558,6 @@ def render(
         # OG image couldn't be drawn (e.g. on a system with no
         # truetype fonts at all).
         return
-    _write_sidecar(out_dir, digest)
 
 
 # Canvas + frame. 1200x630 is the Open Graph contract; the padding
@@ -686,14 +569,21 @@ _PAD_T = 40
 _PAD_B = 34
 
 
-def _tracked_width(draw, text: str, font, tracking: float) -> float:
+def _tracked_width(draw: Draw, text: str, font: Font, tracking: float) -> float:
     """Width of ``text`` drawn with ``tracking`` px between glyphs."""
     if not text:
         return 0.0
     return draw.textlength(text, font=font) + tracking * (len(text) - 1)
 
 
-def _draw_tracked(draw, xy: tuple[float, float], text: str, font, fill, tracking: float) -> None:
+def _draw_tracked(
+    draw: Draw,
+    xy: tuple[float, float],
+    text: str,
+    font: Font,
+    fill: Fill,
+    tracking: float,
+) -> None:
     """Draw ``text`` glyph-by-glyph with extra letter-spacing.
 
     Pillow has no letter-spacing knob, and the card's two uppercase
@@ -708,7 +598,15 @@ def _draw_tracked(draw, xy: tuple[float, float], text: str, font, fill, tracking
         x += draw.textlength(char, font=font) + tracking
 
 
-def _fit_font(draw, text: str, weight: str, size: int, max_w: float, *, tracking: float = 0.0):
+def _fit_font(
+    draw: Draw,
+    text: str,
+    weight: str,
+    size: int,
+    max_w: float,
+    *,
+    tracking: float = 0.0,
+) -> Font:
     """Return the largest font <= ``size`` at which ``text`` fits ``max_w``.
 
     The card's copy grows with the benchmark's display name, and the
@@ -725,7 +623,7 @@ def _fit_font(draw, text: str, weight: str, size: int, max_w: float, *, tracking
     return load_font(weight, 22)
 
 
-def _text_height(draw, text: str, font) -> float:
+def _text_height(draw: Draw, text: str, font: Font) -> float:
     """Ink height of ``text`` in ``font`` (0 for an empty string)."""
     if not text:
         return 0.0
@@ -734,15 +632,15 @@ def _text_height(draw, text: str, font) -> float:
 
 
 def _draw_total(
-    draw,
+    draw: Draw,
     *,
     x: float,
     y: float,
     swatch: tuple[int, int, int],
     label: str,
     value: str,
-    label_font,
-    value_font,
+    label_font: Font,
+    value_font: Font,
     value_fill: tuple[int, int, int],
 ) -> float:
     """Draw one "swatch + LABEL / big number" block; return its bottom.

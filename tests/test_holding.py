@@ -11,6 +11,7 @@ from datetime import datetime
 import pytest
 
 from investing.holdings import DAYS_YEAR, WITHHOLDING_TAX_RATE, Holding, _xirr
+from investing.market_data_store import ResolvedTicker
 from investing.trades import Trade
 
 
@@ -718,3 +719,438 @@ class TestAssetClass:
         # Crucially: no maintenance hint recorded -- the resolver
         # never ran, so the registry stays empty.
         assert consume_hints().is_empty
+
+
+class TestArchivedDataIsOnlyForClosedPositions:
+    """Where the archive may carry a whole position, and where it may not.
+
+    A position already exited can be served entirely from disk. Its
+    share count is zero, no later split changes zero, and every
+    cashflow that fixes its return has already happened -- nothing
+    about it is a claim regarding today.
+
+    A position still held is the opposite: its size comes from the
+    split inventory and its value from the live price, so serving it
+    from an archive would publish a holding and a valuation this run
+    never verified. That build must fail instead.
+    """
+
+    @staticmethod
+    def _store_returning(resolved):
+        from unittest.mock import MagicMock
+
+        store = MagicMock()
+        store.enabled = True
+        store.resolve_ticker.return_value = resolved
+        return store
+
+    @staticmethod
+    def _archived(with_price: bool):
+        from investing.market_data_store import ResolvedTicker
+
+        info = {
+            "currency": "USD",
+            "exchange": "NMS",
+            "symbol": "TST",
+            "longName": "Test Co.",
+            "sector": "Technology",
+        }
+        if with_price:
+            info["regularMarketPrice"] = 100.0
+        return ResolvedTicker(info=info, splits=[], dividends=[], from_archive=True)
+
+    def test_a_closed_position_resolves_entirely_from_the_archive(
+        self, install_ticker, stub_exchange_rate
+    ):
+        install_ticker(_make_ticker())
+        holding = Holding(
+            "TST",
+            store=self._store_returning(self._archived(with_price=False)),
+            now=lambda: datetime(2024, 6, 1),
+        )
+        holding.buy(Trade(datetime(2020, 1, 1), "TST", 10, 50.0, "BUY"))
+        holding.sell(Trade(datetime(2022, 1, 1), "TST", 10, 80.0, "SELL"))
+
+        summary = holding.summary()
+
+        assert summary["is_current"] is False
+        assert summary["current_value_usd"] == pytest.approx(0.0)
+        # Realised return is fully determined by the two cashflows:
+        # 500 in, 800 out.
+        assert summary["tsr%"] == pytest.approx(60.0)
+
+    def test_an_open_position_refuses_to_publish_from_the_archive(
+        self, install_ticker, stub_exchange_rate
+    ):
+        from investing.market_data import MarketDataError
+
+        install_ticker(_make_ticker())
+        holding = Holding(
+            "TST",
+            store=self._store_returning(self._archived(with_price=True)),
+            now=lambda: datetime(2024, 6, 1),
+        )
+        holding.buy(Trade(datetime(2020, 1, 1), "TST", 10, 50.0, "BUY"))
+
+        with pytest.raises(MarketDataError, match="open position"):
+            holding.summary()
+
+    def test_a_partially_sold_position_is_still_open(self, install_ticker, stub_exchange_rate):
+        """Selling some shares does not make the archive acceptable."""
+        from investing.market_data import MarketDataError
+
+        install_ticker(_make_ticker())
+        holding = Holding(
+            "TST",
+            store=self._store_returning(self._archived(with_price=True)),
+            now=lambda: datetime(2024, 6, 1),
+        )
+        holding.buy(Trade(datetime(2020, 1, 1), "TST", 10, 50.0, "BUY"))
+        holding.sell(Trade(datetime(2022, 1, 1), "TST", 4, 80.0, "SELL"))
+
+        with pytest.raises(MarketDataError, match="open position"):
+            holding.summary()
+
+    def test_a_reopened_position_is_open_again(self, install_ticker, stub_exchange_rate):
+        """Exited then re-entered: the archive stops being acceptable."""
+        from investing.market_data import MarketDataError
+
+        install_ticker(_make_ticker())
+        holding = Holding(
+            "TST",
+            store=self._store_returning(self._archived(with_price=True)),
+            now=lambda: datetime(2024, 6, 1),
+        )
+        holding.buy(Trade(datetime(2020, 1, 1), "TST", 10, 50.0, "BUY"))
+        holding.sell(Trade(datetime(2021, 1, 1), "TST", 10, 80.0, "SELL"))
+        holding.buy(Trade(datetime(2022, 1, 1), "TST", 5, 90.0, "BUY"))
+
+        with pytest.raises(MarketDataError, match="open position"):
+            holding.summary()
+
+    def test_a_fresh_read_publishes_an_open_position_normally(
+        self, install_ticker, stub_exchange_rate
+    ):
+        """The guard must not fire on the ordinary path."""
+        from investing.market_data_store import ResolvedTicker
+
+        install_ticker(_make_ticker())
+        resolved = ResolvedTicker(
+            info={
+                "currency": "USD",
+                "exchange": "NMS",
+                "symbol": "TST",
+                "longName": "Test Co.",
+                "sector": "Technology",
+                "regularMarketPrice": 100.0,
+            },
+            splits=[],
+            dividends=[],
+            from_archive=False,
+        )
+        holding = Holding(
+            "TST",
+            store=self._store_returning(resolved),
+            now=lambda: datetime(2024, 6, 1),
+        )
+        holding.buy(Trade(datetime(2020, 1, 1), "TST", 10, 50.0, "BUY"))
+
+        summary = holding.summary()
+        assert summary["is_current"] is True
+        assert summary["current_value_usd"] == pytest.approx(1000.0)
+
+    def test_the_guard_consults_the_published_is_current_flag(
+        self, install_ticker, stub_exchange_rate
+    ):
+        """Both live-position signals gate the archive, not just one.
+
+        ``is_current`` is published off the position ledger while the
+        valuation is computed off the split-adjusted event walk. They
+        are separate accumulators, and the walk additionally clamps to
+        zero below 1e-9. Guarding on only the walk would leave a gap
+        where the ledger still says "held" -- and ``is_current: true``
+        is exactly the claim that must never rest on archived data.
+
+        Emptying ``_trade_events`` drives the walk to zero while the
+        ledger keeps its open position, isolating that gap.
+        """
+        from investing.market_data import MarketDataError
+
+        install_ticker(_make_ticker())
+        holding = Holding(
+            "TST",
+            store=self._store_returning(self._archived(with_price=True)),
+            now=lambda: datetime(2024, 6, 1),
+        )
+        holding.buy(Trade(datetime(2020, 1, 1), "TST", 10, 50.0, "BUY"))
+        holding._trade_events = []
+
+        with pytest.raises(MarketDataError, match="open position"):
+            holding.ledger()
+
+    def test_a_benchmark_price_read_reports_its_own_failure(
+        self, install_ticker, stub_exchange_rate
+    ):
+        """A benchmark holds no position, so the wording must not claim one.
+
+        ``Benchmark`` builds a trade-less ``Holding`` purely to read
+        ``current_market_price``, which pins the right edge of its
+        curve. That is still a statement about the tape right now, so a
+        degraded snapshot must be refused -- but calling it an "open
+        position" would send a reader looking for a holding that does
+        not exist.
+        """
+        from investing.market_data import MarketDataError
+
+        install_ticker(_make_ticker())
+        holding = Holding(
+            "TST",
+            store=self._store_returning(self._archived(with_price=True)),
+            now=lambda: datetime(2024, 6, 1),
+        )
+
+        with pytest.raises(MarketDataError, match="current market price") as excinfo:
+            _ = holding.current_market_price
+        assert "open position" not in str(excinfo.value)
+
+    def test_a_fresh_benchmark_price_read_is_unaffected(self, install_ticker, stub_exchange_rate):
+        install_ticker(_make_ticker(price=123.5))
+        holding = Holding("TST", now=lambda: datetime(2024, 6, 1))
+        assert holding.current_market_price == pytest.approx(123.5)
+
+
+class TestResolveCompanyUrl:
+    """The issuer link, whose value comes from a third-party feed."""
+
+    def test_website_is_preferred_and_passed_through(self):
+        from investing.holdings import resolve_company_url
+
+        info = {"website": "https://example.com", "longName": "Example Corp"}
+        assert resolve_company_url(info) == "https://example.com"
+
+    def test_ir_website_is_the_second_choice(self):
+        from investing.holdings import resolve_company_url
+
+        info = {"irWebsite": "https://ir.example.com", "longName": "Example Corp"}
+        assert resolve_company_url(info) == "https://ir.example.com"
+
+    def test_surrounding_whitespace_is_trimmed(self):
+        from investing.holdings import resolve_company_url
+
+        assert resolve_company_url({"website": "  https://example.com  "}) == (
+            "https://example.com"
+        )
+
+    def test_a_blank_website_falls_through_to_the_search_url(self):
+        from investing.holdings import resolve_company_url
+
+        info = {"website": "   ", "longName": "Example Corp"}
+        assert resolve_company_url(info) == "https://www.google.com/search?q=Example+Corp"
+
+    def test_a_hostile_scheme_falls_back_to_the_search_url(self):
+        # Not the bare Google homepage: the fallback threaded through
+        # ``safe_url`` is the descriptor search, so a rejected URL still
+        # lands somewhere useful.
+        from investing.holdings import resolve_company_url
+
+        info = {"website": "javascript:alert(1)", "longName": "Example Corp"}
+        assert resolve_company_url(info) == "https://www.google.com/search?q=Example+Corp"
+
+
+class TestSummaryInvariants:
+    def test_a_holding_with_no_buy_is_rejected(self, install_ticker, stub_exchange_rate):
+        """``summary()`` requires at least one inflow.
+
+        Every metric it reports is denominated against invested
+        capital; with no BUY there is no denominator, and reporting a
+        return would be inventing one.
+        """
+        from investing.errors import InvariantError
+
+        install_ticker(_make_ticker())
+        holding = Holding("TST", now=lambda: datetime(2024, 6, 1))
+
+        with pytest.raises(InvariantError, match="no recorded BUY"):
+            holding.summary()
+
+    def test_the_ledger_itself_reports_the_missing_buy(self, install_ticker, stub_exchange_rate):
+        """``ledger()`` is the lower entry point and must say so too.
+
+        It indexes ``_positions[-1]`` unconditionally, so before this
+        guard a trade-less holding surfaced an ``IndexError`` from
+        inside the cashflow builder rather than naming the missing
+        inflow. ``Benchmark`` builds exactly such a trade-less holding.
+        """
+        from investing.errors import InvariantError
+
+        install_ticker(_make_ticker())
+        holding = Holding("TST", now=lambda: datetime(2024, 6, 1))
+
+        with pytest.raises(InvariantError, match="no recorded BUY"):
+            holding.ledger()
+
+
+class TestSplitTradeBoundaryInvariant:
+    """A split landing exactly on a trade date is unresolvable.
+
+    The quantity walk applies splits *strictly between* trade
+    boundaries so a share count is never double-counted. A split dated
+    on a trade day breaks that: whether the trade executed pre- or
+    post-split decides the share count, and the ledger does not record
+    which. Guessing would silently double or halve a holding, so the
+    build refuses instead.
+    """
+
+    def test_a_split_on_a_trade_date_is_rejected(self, install_ticker, stub_exchange_rate):
+        from investing.errors import InvariantError
+
+        install_ticker(_make_ticker(splits={_date_key(datetime(2021, 6, 1)): 2.0}))
+        holding = Holding("TST", now=lambda: datetime(2024, 6, 1))
+        holding.buy(Trade(datetime(2020, 1, 1), "TST", 10, 50.0, "BUY"))
+
+        # Raised as the second trade is applied: the walk has to rebase
+        # the running quantity across the split to decide OPEN vs
+        # INCREASE, and that is where the ambiguity surfaces.
+        with pytest.raises(InvariantError, match="coincides with a trade boundary"):
+            holding.buy(Trade(datetime(2021, 6, 1), "TST", 5, 60.0, "BUY"))
+
+    def test_a_split_between_trades_is_applied_normally(self, install_ticker, stub_exchange_rate):
+        install_ticker(_make_ticker(price=100.0, splits={_date_key(datetime(2021, 6, 1)): 2.0}))
+        holding = Holding("TST", now=lambda: datetime(2024, 6, 1))
+        holding.buy(Trade(datetime(2020, 1, 1), "TST", 10, 50.0, "BUY"))
+        holding.buy(Trade(datetime(2022, 1, 1), "TST", 5, 60.0, "BUY"))
+
+        ledger = holding.ledger()
+        # 10 shares doubled by the 2:1 split, plus 5 bought after it.
+        assert ledger.current_value_usd == pytest.approx(25 * 100.0)
+
+
+class TestSameDayClosingSell:
+    def test_a_sell_on_the_opening_date_closes_in_place(self, install_ticker, stub_exchange_rate):
+        """Buying and selling out on one day leaves no open position."""
+        install_ticker(_make_ticker())
+        holding = Holding("TST", now=lambda: datetime(2024, 6, 1))
+        holding.buy(Trade(datetime(2020, 1, 1), "TST", 10, 50.0, "BUY"))
+        holding.sell(Trade(datetime(2020, 1, 1), "TST", 10, 55.0, "SELL"))
+
+        ledger = holding.ledger()
+        assert ledger.is_current is False
+        assert ledger.current_value_usd == pytest.approx(0.0)
+
+
+class TestSplitApplicationEdges:
+    def test_no_split_in_the_window_leaves_the_quantity_alone(
+        self, install_ticker, stub_exchange_rate
+    ):
+        install_ticker(_make_ticker(splits={_date_key(datetime(2015, 1, 1)): 2.0}))
+        holding = Holding("TST", now=lambda: datetime(2024, 6, 1))
+
+        # Window sits entirely after the only split.
+        assert holding._apply_splits_between(10, datetime(2020, 1, 1), datetime(2021, 1, 1)) == 10
+
+    def test_a_split_inside_the_window_scales_the_quantity(
+        self, install_ticker, stub_exchange_rate
+    ):
+        install_ticker(
+            _make_ticker(
+                splits={
+                    _date_key(datetime(2020, 6, 1)): 2.0,
+                    _date_key(datetime(2020, 9, 1)): 3.0,
+                }
+            )
+        )
+        holding = Holding("TST", now=lambda: datetime(2024, 6, 1))
+
+        # Both splits fall strictly inside: 10 * 2 * 3.
+        assert holding._apply_splits_between(10, datetime(2020, 1, 1), datetime(2021, 1, 1)) == 60
+
+    def test_a_split_on_the_only_trade_date_is_caught_by_the_ledger(
+        self, install_ticker, stub_exchange_rate
+    ):
+        """A single trade never triggers the pairwise walk, so the
+        ledger carries its own collision check as the backstop."""
+        from investing.errors import InvariantError
+
+        install_ticker(_make_ticker(splits={_date_key(datetime(2021, 6, 1)): 2.0}))
+        holding = Holding("TST", now=lambda: datetime(2024, 6, 1))
+        holding.buy(Trade(datetime(2021, 6, 1), "TST", 10, 50.0, "BUY"))
+
+        with pytest.raises(InvariantError, match="coincides with a trade boundary"):
+            holding.ledger()
+
+
+class TestStoreBackedHistory:
+    def test_market_history_is_read_through_the_store(self, install_ticker, stub_exchange_rate):
+        """With a store wired in, history merges against the archive."""
+        from unittest.mock import MagicMock
+
+        import pandas as pd
+
+        install_ticker(_make_ticker())
+        frame = pd.DataFrame(
+            {"Adj Close": [1.0]},
+            index=pd.DatetimeIndex([datetime(2024, 1, 2)]),
+        )
+        store = MagicMock()
+        store.enabled = True
+        store.resolve_ticker.return_value = ResolvedTicker(
+            info={
+                "currency": "USD",
+                "exchange": "NMS",
+                "symbol": "TST",
+                "longName": "Test Co.",
+                "regularMarketPrice": 100.0,
+            },
+            splits=[],
+            dividends=[],
+        )
+        store.resolve_price_history.return_value = frame
+
+        holding = Holding("TST", store=store, now=lambda: datetime(2024, 6, 1))
+        result = holding.fetch_market_history(start="2024-01-01")
+
+        assert result is frame
+        assert store.resolve_price_history.call_args[0][0] == "TST"
+
+
+class TestTradeActionBackstop:
+    """``get_holdings`` re-checks the action it was handed.
+
+    ``combine_and_sort`` already rejects unknown tokens, so this is a
+    backstop rather than the primary gate -- but it guards the loop
+    that decides whether a trade adds or removes shares. Reaching it
+    means the parser and the ledger have diverged, and guessing the
+    direction would corrupt every downstream number silently.
+    """
+
+    def test_an_unknown_action_is_rejected(self, install_ticker, stub_exchange_rate, monkeypatch):
+        from investing.errors import InvariantError
+        from investing.performance import get_holdings
+
+        install_ticker(_make_ticker())
+
+        class _Rogue:
+            ticker = "TST"
+            date = datetime(2024, 1, 1)
+            quantity = 1
+            price = 1.0
+            action = "TRANSFER"
+
+        monkeypatch.setattr(
+            "investing.performance.combine_and_sort",
+            lambda _txns: [_Rogue()],
+        )
+
+        with pytest.raises(InvariantError, match="is not one of"):
+            get_holdings(
+                [
+                    {
+                        "ticker": "TST",
+                        "date": "01-01-2024",
+                        "quantity": 1,
+                        "price_per_share": 1.0,
+                        "action": "BUY",
+                    }
+                ],
+                fx=stub_exchange_rate,
+            )

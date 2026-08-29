@@ -868,22 +868,6 @@ class TestOgImageEquityCount:
         source = inspect.getsource(_page.Webpage._render_og_image)
         assert "equity_count=len(self.current)" in "".join(source.split())
 
-    def test_a_changed_count_busts_the_render_cache(self):
-        # The render short-circuits on a digest of its inputs. If the
-        # count were left out of that digest, selling out of a
-        # position would leave yesterday's number on the card until
-        # some *other* input happened to move.
-        from investing.webpage.og_image import _input_digest
-
-        kwargs = {
-            "total_return": {"twr%": 48.4, "cagr%": 5.3},
-            "benchmarks": [],
-            "top_10": {"NMS:AAA": 100.0},
-            "benchmark_display_names": {},
-            "now": datetime(2026, 8, 4, 12, 0, 0),
-        }
-        assert _input_digest(**kwargs, equity_count=10) != _input_digest(**kwargs, equity_count=11)
-
 
 class TestOgImageFont:
     """The card's typeface is committed, not discovered.
@@ -1360,3 +1344,111 @@ class TestSave:
         assert ">Positions</dt>" in hero
         assert ">2<" in hero
         assert "1 closed" in hero
+
+
+class TestAllocationBarsAlwaysAddUp:
+    """Every stacked bar's own figures must total its whole.
+
+    The bar is the one place on the page that shows a set of numbers a
+    reader can add up. If the legend says 86.0 + 13.8 + 0.1 the reader
+    is owed 100, not 99.9 -- and a missing tenth is indistinguishable
+    from the portfolio genuinely not adding up.
+    """
+
+    @staticmethod
+    def _legend_values(html_out: str) -> list[list[float]]:
+        bars = []
+        for chunk in html_out.split('<div class="allocation__block">')[1:]:
+            bars.append(
+                [float(v) for v in re.findall(r'allocation__key-value">([\d.]+)%</span>', chunk)]
+            )
+        return bars
+
+    @staticmethod
+    def _segment_values(html_out: str) -> list[list[float]]:
+        bars = []
+        for chunk in html_out.split('<div class="allocation__block">')[1:]:
+            bars.append(
+                [float(v) for v in re.findall(r'allocation__segment-value">([\d.]+)%<', chunk)]
+            )
+        return bars
+
+    @staticmethod
+    def _render(allocation=None, sectors=()):
+        from investing.webpage.allocation import render
+
+        return render(allocation, list(sectors))
+
+    def test_the_reported_drift_case_now_totals_a_hundred(self):
+        out = self._render(
+            {
+                "Equities": 86.04,
+                "Fixed Income": 13.83,
+                "Cash & Cash Equivalents": 0.13,
+            }
+        )
+        (legend,) = self._legend_values(out)
+        assert sum(legend) == pytest.approx(100.0)
+
+    def test_the_sector_bar_totals_a_hundred(self):
+        sectors = [
+            ("Technology", 100 / 3),
+            ("Healthcare", 100 / 3),
+            ("Financials", 100 / 3),
+        ]
+        out = self._render(sectors=sectors)
+        (legend,) = self._legend_values(out)
+        assert sum(legend) == pytest.approx(100.0)
+
+    def test_both_bars_total_a_hundred_independently(self):
+        out = self._render(
+            {"Equities": 89.37, "Cash & Cash Equivalents": 10.63},
+            [("Technology", 55.44), ("Healthcare", 28.51), ("Energy", 16.05)],
+        )
+        bars = self._legend_values(out)
+        assert len(bars) == 2
+        for legend in bars:
+            assert sum(legend) == pytest.approx(100.0)
+
+    def test_segment_labels_match_their_legend_chips(self):
+        """One number per slice: the bar and its key cannot disagree."""
+        out = self._render(
+            {
+                "Equities": 86.04,
+                "Fixed Income": 13.83,
+                "Cash & Cash Equivalents": 0.13,
+            }
+        )
+        assert self._segment_values(out) == self._legend_values(out)
+
+    def test_segment_widths_fill_the_track_exactly(self):
+        """A partition's segments must leave no sliver of bar showing."""
+        out = self._render(
+            {"Equities": 86.04, "Fixed Income": 13.83, "Cash & Cash Equivalents": 0.13}
+        )
+        widths = [float(w) for w in re.findall(r"width: ([\d.]+)%", out)]
+        assert sum(widths) == pytest.approx(100.0)
+
+    def test_a_partial_allocation_is_not_inflated_to_a_hundred(self):
+        """Only a true partition gets forced to 100.
+
+        A caller handing over a subset (a fixture, a portfolio mid
+        migration) must see its own numbers back, not numbers scaled up
+        to fill a whole they never claimed.
+        """
+        out = self._render({"Equities": 78.7, "Fixed Income": 10.7})
+        (legend,) = self._legend_values(out)
+        assert legend == [78.7, 10.7]
+
+    def test_many_random_partitions_render_totalling_a_hundred(self):
+        import random
+
+        rng = random.Random(20260829)
+        for _ in range(200):
+            n = rng.randint(2, 9)
+            parts = [rng.random() for _ in range(n)]
+            scale = 100.0 / sum(parts)
+            sectors = [(f"S{i}", p * scale) for i, p in enumerate(parts)]
+            out = self._render(sectors=sectors)
+            (legend,) = self._legend_values(out)
+            assert sum(legend) == pytest.approx(100.0), sectors

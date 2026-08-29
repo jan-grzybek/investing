@@ -41,12 +41,13 @@ import numpy as np
 
 from ..formatting import _fmt_pct
 from ..pchip import Pchip
+from ..types import BenchmarkSummary, TotalReturn
 
 # Type alias for ``benchmark -> friendly display name`` resolver
 # (a thin function rather than reaching into the renderer's
 # ``_BENCHMARK_DISPLAY_NAMES`` map directly, so the chart module
 # stays decoupled from the renderer's lookup convention).
-BenchmarkLabeller = Callable[[dict], str]
+BenchmarkLabeller = Callable[[BenchmarkSummary], str]
 
 # Chart geometry, in viewBox units. The right inset carries the two
 # end-of-period labels, the left carries the y-axis, and the strip
@@ -174,8 +175,8 @@ def _sign_runs(delta: np.ndarray) -> list[tuple[int, int, bool]]:
 
 
 def render(
-    total_return: dict,
-    benchmarks: list[dict],
+    total_return: TotalReturn,
+    benchmarks: list[BenchmarkSummary],
     *,
     benchmark_label: BenchmarkLabeller,
 ) -> str:
@@ -339,8 +340,8 @@ def render(
 
 def _chart_alt(
     series: Sequence[tuple[str, str, np.ndarray]],
-    total_return: dict,
-    benchmarks: list[dict],
+    total_return: TotalReturn,
+    benchmarks: list[BenchmarkSummary],
 ) -> str:
     """One sentence describing the chart for a non-visual reader.
 

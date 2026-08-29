@@ -23,6 +23,7 @@ import os
 __all__ = [
     "COURAGE_LOGO",
     "LOGOS_ADDRESS",
+    "LOGOS_PROBE_BASE",
     "LOGO_EXTENSIONS",
     "SITE_DISPLAY",
     "SITE_URL",
@@ -66,22 +67,43 @@ def _resolve_site_url() -> str:
 SITE_URL = _resolve_site_url()
 
 
-# Sibling artefacts deployed alongside ``index.html`` derive their
-# absolute URLs from :data:`SITE_URL` so a repoint is single-source.
-# ``LOGOS_ADDRESS`` points at the ``tight/`` subdirectory rather than
-# at the raw source dump: every served logo is a viewBox-cropped
-# variant produced by ``scripts/tighten_logos.py``, while the
-# hand-curated originals stay under ``logos/`` as the design source
-# of truth. Cropping removes the SVG-author-introduced padding around
-# each mark, which is the single biggest driver of perceived size
-# disparity in the holdings logo cell (a centred icon in a square viewBox
-# was reading much smaller than an edge-to-edge wordmark at the same
-# bounding box). See the ``regenerate-logos`` workflow and the
-# matching pre-commit hook for the contract that keeps the tight
-# mirror in sync with its sources.
-LOGOS_ADDRESS = SITE_URL + "logos/tight/"
-SOCIAL_IMAGE = SITE_URL + "og-image.png"
+# Logos are referenced *relatively*. They ship in the same Pages
+# artifact as ``index.html`` (``scripts/stage_site.py`` copies
+# ``logos/tight`` verbatim), so a root-relative-free path resolves
+# against whatever origin is serving the page.
+#
+# They used to be absolute, built from :data:`SITE_URL`, which made
+# every rendered page permanently bound to the production host. The
+# concrete cost was the local preview: ``scripts/preview.py`` exists to
+# "inspect the rendered HTML in a browser without touching production"
+# and then emitted ``<img src="https://jan-grzybek.github.io/...">``
+# for every logo, so a newly added logo rendered as a broken image
+# until after it had been deployed -- the one workflow the preview is
+# meant to support. Relative paths also let the CSP tighten ``img-src``
+# from ``https:`` (any host on the internet) to ``'self'``.
+#
+# ``tight/`` rather than the raw source dump: every served logo is a
+# viewBox-cropped variant produced by ``scripts/tighten_logos.py``,
+# while the hand-curated originals stay under ``logos/`` as the design
+# source of truth. Cropping removes the SVG-author-introduced padding
+# around each mark, which is the single biggest driver of perceived
+# size disparity in the holdings logo cell (a centred icon in a square
+# viewBox was reading much smaller than an edge-to-edge wordmark at the
+# same bounding box). See the ``regenerate-logos`` workflow and the
+# matching pre-commit hook for the contract that keeps the tight mirror
+# in sync with its sources.
+LOGOS_ADDRESS = "logos/tight/"
 COURAGE_LOGO = LOGOS_ADDRESS + "courage.png"
+
+# Absolute counterpart, used only for the HTTP HEAD existence probe in
+# :mod:`investing.logos`. That probe asks the *deployed* site whether a
+# logo is live, which needs a real URL; what it returns for the page to
+# embed is the relative form above.
+LOGOS_PROBE_BASE = SITE_URL + "logos/tight/"
+
+# Stays absolute: ``og:image`` / ``twitter:image`` are consumed by
+# crawlers that never resolve against the page's own base URL.
+SOCIAL_IMAGE = SITE_URL + "og-image.png"
 
 # Host + path tail shown in human-readable contexts (OG image foot
 # caption). Strips the scheme so the rendered text reads as a

@@ -18,10 +18,9 @@ year table, anchors, sitemap/robots) live next to it in the
 from __future__ import annotations
 
 import html
-from datetime import datetime
 from pathlib import Path
 
-from ..clock import NowFn
+from ..clock import NowFn, resolve_now
 from ..formatting import _fmt_date_long
 from ..log import logger
 from ..logos import LogoCache, LogoResolver
@@ -151,7 +150,7 @@ class Webpage:
         # the legacy ``freeze_today`` fixture (which monkeypatches
         # this module's bound ``datetime``) keeps working; new code
         # can inject a fixed closure directly.
-        self._now: NowFn = now if now is not None else datetime.today
+        self._now: NowFn = resolve_now(now)
 
     # ------------------------------------------------------------------ API
 
@@ -224,7 +223,7 @@ class Webpage:
         ``<thead>`` and sortable column headers."""
         self.trades = [self._build_trade_row(event) for event in trade_events]
 
-    def save(self, output_dir: Path | None = None):
+    def save(self, output_dir: Path | None = None) -> None:
         """Render the page and companion artefacts into ``output_dir``.
 
         ``output_dir`` defaults to the current working directory so the
@@ -232,7 +231,7 @@ class Webpage:
         new callers (production pipeline, preview script) pass an
         explicit ``Path`` so the artefact write doesn't depend on
         process-level state. The four artefacts produced are
-        ``index.html``, ``og-image.png`` (+ its sidecar),
+        ``index.html``, ``og-image.png``,
         ``sitemap.xml`` and ``robots.txt``."""
         out_dir = output_dir if output_dir is not None else Path.cwd()
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -588,8 +587,8 @@ class Webpage:
 
     def _build_return_section(
         self,
-        total_return,
-        benchmarks,
+        total_return: TotalReturn,
+        benchmarks: list[BenchmarkSummary],
         *,
         yearly_returns: list[YearlyReturn] | None = None,
     ) -> str:
@@ -627,7 +626,7 @@ class Webpage:
             lines.append(yearly_html)
         return "\n".join(lines)
 
-    def _chart_legend(self, benchmarks) -> str:
+    def _chart_legend(self, benchmarks: list[BenchmarkSummary]) -> str:
         """The chart's key, rendered in the section head's note slot."""
         chips = [
             '<span class="legend__item">'
@@ -781,7 +780,7 @@ class Webpage:
         )
 
     @staticmethod
-    def _benchmark_label(benchmark) -> str:
+    def _benchmark_label(benchmark: BenchmarkSummary) -> str:
         """Friendly display name for a benchmark, falling back gracefully."""
         ticker = benchmark.get("ticker", "")
         return (
@@ -811,13 +810,17 @@ class Webpage:
     _build_holdings_group = staticmethod(_holdings_view.build_group)
     _build_holdings_table = staticmethod(_holdings_view.build_table)
 
-    def _build_holding_card(self, holding) -> str:
+    def _build_holding_card(self, holding: HoldingSummary) -> str:
         return _holdings_view.build_row(holding, logo_url_for=self._get_logo_url)
 
     # ---- chart primitive (also covered directly by tests) --------------
 
     @classmethod
-    def _render_return_chart(cls, total_return, benchmarks) -> str:
+    def _render_return_chart(
+        cls,
+        total_return: TotalReturn,
+        benchmarks: list[BenchmarkSummary],
+    ) -> str:
         """Delegate to :func:`investing.webpage.return_chart.render`.
 
         The chart's NumPy math (Pchip interpolation, axis tick
