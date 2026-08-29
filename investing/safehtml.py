@@ -119,17 +119,25 @@ def safe_url(value: str | None, *, fallback: str = _UNSAFE_URL_FALLBACK) -> str:
     third-party feed the build does not control -- so the value is
     untrusted input by the time it is rendered.
 
-    Relative URLs (the logo ``src`` paths) carry no scheme at all and
-    pass through: they can only ever resolve against the page's own
-    origin, which is the point of using them.
+    Path-relative URLs (the logo ``src`` values) carry no scheme and
+    pass through: they can only resolve against the page's own origin,
+    which is the point of using them. A *scheme-relative* ``//host/...``
+    URL is rejected -- it looks relative but names another origin, and
+    nothing this page emits uses that form.
     """
     if not value:
         return fallback
     candidate = value.strip()
     if not candidate:
         return fallback
+    # ``//host/path`` inherits the page's scheme but not its origin, so
+    # it is an absolute URL wearing a relative costume. Rejected before
+    # the scheme test below, which would otherwise see no colon in the
+    # leading (empty) segment and wave it through.
+    if candidate.startswith("//"):
+        return fallback
     # A colon before any slash / query / fragment marks a scheme. No
-    # colon in that leading segment means a relative path, which is
+    # colon in that leading segment means a path-relative URL, which is
     # same-origin by construction.
     head = candidate.split("/", 1)[0].split("?", 1)[0].split("#", 1)[0]
     if ":" not in head:

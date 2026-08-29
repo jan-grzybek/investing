@@ -857,3 +857,181 @@ class TestArchivedDataIsOnlyForClosedPositions:
         summary = holding.summary()
         assert summary["is_current"] is True
         assert summary["current_value_usd"] == pytest.approx(1000.0)
+
+    def test_the_guard_consults_the_published_is_current_flag(
+        self, install_ticker, stub_exchange_rate
+    ):
+        """Both live-position signals gate the archive, not just one.
+
+        ``is_current`` is published off the position ledger while the
+        valuation is computed off the split-adjusted event walk. They
+        are separate accumulators, and the walk additionally clamps to
+        zero below 1e-9. Guarding on only the walk would leave a gap
+        where the ledger still says "held" -- and ``is_current: true``
+        is exactly the claim that must never rest on archived data.
+
+        Emptying ``_trade_events`` drives the walk to zero while the
+        ledger keeps its open position, isolating that gap.
+        """
+        from investing.market_data import MarketDataError
+
+        install_ticker(_make_ticker())
+        holding = Holding(
+            "TST",
+            store=self._store_returning(self._archived(with_price=True)),
+            now=lambda: datetime(2024, 6, 1),
+        )
+        holding.buy(Trade(datetime(2020, 1, 1), "TST", 10, 50.0, "BUY"))
+        holding._trade_events = []
+
+        with pytest.raises(MarketDataError, match="open position"):
+            holding.ledger()
+
+    def test_a_benchmark_price_read_reports_its_own_failure(
+        self, install_ticker, stub_exchange_rate
+    ):
+        """A benchmark holds no position, so the wording must not claim one.
+
+        ``Benchmark`` builds a trade-less ``Holding`` purely to read
+        ``current_market_price``, which pins the right edge of its
+        curve. That is still a statement about the tape right now, so a
+        degraded snapshot must be refused -- but calling it an "open
+        position" would send a reader looking for a holding that does
+        not exist.
+        """
+        from investing.market_data import MarketDataError
+
+        install_ticker(_make_ticker())
+        holding = Holding(
+            "TST",
+            store=self._store_returning(self._archived(with_price=True)),
+            now=lambda: datetime(2024, 6, 1),
+        )
+
+        with pytest.raises(MarketDataError, match="current market price") as excinfo:
+            _ = holding.current_market_price
+        assert "open position" not in str(excinfo.value)
+
+    def test_a_fresh_benchmark_price_read_is_unaffected(self, install_ticker, stub_exchange_rate):
+        install_ticker(_make_ticker(price=123.5))
+        holding = Holding("TST", now=lambda: datetime(2024, 6, 1))
+        assert holding.current_market_price == pytest.approx(123.5)
+
+
+class TestResolveCompanyUrl:
+    """The issuer link, whose value comes from a third-party feed."""
+
+    def test_website_is_preferred_and_passed_through(self):
+        from investing.holdings import resolve_company_url
+
+        info = {"website": "https://example.com", "longName": "Example Corp"}
+        assert resolve_company_url(info) == "https://example.com"
+
+    def test_ir_website_is_the_second_choice(self):
+        from investing.holdings import resolve_company_url
+
+        info = {"irWebsite": "https://ir.example.com", "longName": "Example Corp"}
+        assert resolve_company_url(info) == "https://ir.example.com"
+
+    def test_surrounding_whitespace_is_trimmed(self):
+        from investing.holdings import resolve_company_url
+
+        assert resolve_company_url({"website": "  https://example.com  "}) == (
+            "https://example.com"
+        )
+
+    def test_a_blank_website_falls_through_to_the_search_url(self):
+        from investing.holdings import resolve_company_url
+
+        info = {"website": "   ", "longName": "Example Corp"}
+        assert resolve_company_url(info) == "https://www.google.com/search?q=Example+Corp"
+
+    def test_a_hostile_scheme_falls_back_to_the_search_url(self):
+        # Not the bare Google homepage: the fallback threaded through
+        # ``safe_url`` is the descriptor search, so a rejected URL still
+        # lands somewhere useful.
+        from investing.holdings import resolve_company_url
+
+        info = {"website": "javascript:alert(1)", "longName": "Example Corp"}
+        assert resolve_company_url(info) == "https://www.google.com/search?q=Example+Corp"
+
+
+class TestSummaryInvariants:
+    def test_a_holding_with_no_buy_is_rejected(self, install_ticker, stub_exchange_rate):
+        """``summary()`` requires at least one inflow.
+
+        Every metric it reports is denominated against invested
+        capital; with no BUY there is no denominator, and reporting a
+        return would be inventing one.
+        """
+        from investing.errors import InvariantError
+
+        install_ticker(_make_ticker())
+        holding = Holding("TST", now=lambda: datetime(2024, 6, 1))
+
+        with pytest.raises(InvariantError, match="no recorded BUY"):
+            holding.summary()
+
+    def test_the_ledger_itself_reports_the_missing_buy(self, install_ticker, stub_exchange_rate):
+        """``ledger()`` is the lower entry point and must say so too.
+
+        It indexes ``_positions[-1]`` unconditionally, so before this
+        guard a trade-less holding surfaced an ``IndexError`` from
+        inside the cashflow builder rather than naming the missing
+        inflow. ``Benchmark`` builds exactly such a trade-less holding.
+        """
+        from investing.errors import InvariantError
+
+        install_ticker(_make_ticker())
+        holding = Holding("TST", now=lambda: datetime(2024, 6, 1))
+
+        with pytest.raises(InvariantError, match="no recorded BUY"):
+            holding.ledger()
+
+
+class TestSplitTradeBoundaryInvariant:
+    """A split landing exactly on a trade date is unresolvable.
+
+    The quantity walk applies splits *strictly between* trade
+    boundaries so a share count is never double-counted. A split dated
+    on a trade day breaks that: whether the trade executed pre- or
+    post-split decides the share count, and the ledger does not record
+    which. Guessing would silently double or halve a holding, so the
+    build refuses instead.
+    """
+
+    def test_a_split_on_a_trade_date_is_rejected(self, install_ticker, stub_exchange_rate):
+        from investing.errors import InvariantError
+
+        install_ticker(_make_ticker(splits={_date_key(datetime(2021, 6, 1)): 2.0}))
+        holding = Holding("TST", now=lambda: datetime(2024, 6, 1))
+        holding.buy(Trade(datetime(2020, 1, 1), "TST", 10, 50.0, "BUY"))
+
+        # Raised as the second trade is applied: the walk has to rebase
+        # the running quantity across the split to decide OPEN vs
+        # INCREASE, and that is where the ambiguity surfaces.
+        with pytest.raises(InvariantError, match="coincides with a trade boundary"):
+            holding.buy(Trade(datetime(2021, 6, 1), "TST", 5, 60.0, "BUY"))
+
+    def test_a_split_between_trades_is_applied_normally(self, install_ticker, stub_exchange_rate):
+        install_ticker(_make_ticker(price=100.0, splits={_date_key(datetime(2021, 6, 1)): 2.0}))
+        holding = Holding("TST", now=lambda: datetime(2024, 6, 1))
+        holding.buy(Trade(datetime(2020, 1, 1), "TST", 10, 50.0, "BUY"))
+        holding.buy(Trade(datetime(2022, 1, 1), "TST", 5, 60.0, "BUY"))
+
+        ledger = holding.ledger()
+        # 10 shares doubled by the 2:1 split, plus 5 bought after it.
+        assert ledger.current_value_usd == pytest.approx(25 * 100.0)
+
+
+class TestSameDayClosingSell:
+    def test_a_sell_on_the_opening_date_closes_in_place(self, install_ticker, stub_exchange_rate):
+        """Buying and selling out on one day leaves no open position."""
+        install_ticker(_make_ticker())
+        holding = Holding("TST", now=lambda: datetime(2024, 6, 1))
+        holding.buy(Trade(datetime(2020, 1, 1), "TST", 10, 50.0, "BUY"))
+        holding.sell(Trade(datetime(2020, 1, 1), "TST", 10, 55.0, "SELL"))
+
+        ledger = holding.ledger()
+        assert ledger.is_current is False
+        assert ledger.current_value_usd == pytest.approx(0.0)

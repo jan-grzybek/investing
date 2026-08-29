@@ -1204,3 +1204,58 @@ class TestDataDependentRenderPaths:
         ordinary = row_for(12.5)
         assert "holdings__num--tba" not in ordinary
         assert "+12.5%" in ordinary
+
+
+class TestOgLogoLoading:
+    """The OG card rasterises logos off disk, never over HTTP.
+
+    Reading the committed mirror keeps the card reproducible and makes
+    it work on a first deploy, before any logo is live behind the site
+    URL. Every failure mode degrades rather than crashes: the whole
+    image is best-effort, and a missing logo should leave a gap in the
+    strip rather than take the page's social preview down with it.
+    """
+
+    def test_a_real_svg_logo_rasterises(self):
+        import investing.webpage.og_image as og_image
+
+        img = og_image.load_logo_for_og("NMS:NVDA", 80, 40)
+        assert img is not None
+        assert img.width <= 80 and img.height <= 40
+        assert img.mode == "RGBA"
+
+    def test_a_raster_logo_loads_directly(self):
+        import investing.webpage.og_image as og_image
+
+        img = og_image.load_logo_for_og("courage", 60, 30)
+        assert img is not None
+        assert img.width <= 60 and img.height <= 30
+
+    def test_an_unknown_ticker_falls_back_to_the_placeholder(self):
+        import investing.webpage.og_image as og_image
+
+        img = og_image.load_logo_for_og("NMS:NOSUCHTICKER", 60, 30)
+        # The courage placeholder is the last candidate, so a miss
+        # still yields an image rather than a hole.
+        assert img is not None
+
+    def test_an_undecodable_file_is_skipped(self, tmp_path, monkeypatch):
+        import investing.webpage.og_image as og_image
+
+        monkeypatch.setattr(og_image, "_REPO_LOGOS_DIR", str(tmp_path))
+        (tmp_path / "NMS:BAD.svg").write_text("not an svg at all", encoding="utf-8")
+
+        # No courage.png in the stand-in directory either, so every
+        # candidate fails and the caller gets ``None`` to leave a gap.
+        assert og_image.load_logo_for_og("NMS:BAD", 60, 30) is None
+
+    def test_aspect_ratio_is_read_from_the_committed_svg(self):
+        import investing.webpage.og_image as og_image
+
+        ratio = og_image._og_logo_aspect("NMS:NVDA")
+        assert ratio > 0
+
+    def test_aspect_ratio_falls_back_for_an_unknown_ticker(self):
+        import investing.webpage.og_image as og_image
+
+        assert og_image._og_logo_aspect("NMS:NOSUCHTICKER") > 0

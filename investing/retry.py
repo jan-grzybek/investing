@@ -100,6 +100,12 @@ def call_with_retry[T](
     Exceptions in :data:`_NON_RETRYABLE` propagate immediately, unwrapped
     and unretried.
     """
+    if attempts < 1:
+        # Not a runtime condition: a zero/negative budget would fall
+        # straight past the loop and raise ``error_type`` with no
+        # ``__cause__`` and a "failed after 0 attempt(s)" message that
+        # describes nothing that happened.
+        raise ValueError(f"attempts must be >= 1, got {attempts}")
     effective_attempts = 1 if _retry_disabled() else attempts
     last_exc: BaseException | None = None
     for attempt in range(effective_attempts):

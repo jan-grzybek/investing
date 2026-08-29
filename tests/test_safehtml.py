@@ -151,3 +151,24 @@ class TestSafeUrl:
         from investing.safehtml import safe_url
 
         assert safe_url("javascript:x", fallback="https://q/") == "https://q/"
+
+
+class TestSchemeRelativeUrls:
+    def test_scheme_relative_urls_are_rejected(self):
+        """``//host/path`` is absolute wearing a relative costume.
+
+        It inherits the page's scheme but *not* its origin, so the
+        "no colon means same-origin" shortcut does not hold for it --
+        the leading segment before the first slash is empty and
+        contains no colon, so it would otherwise sail through.
+        """
+        from investing.safehtml import safe_url
+
+        assert safe_url("//evil.example/x") == "https://www.google.com/"
+        assert safe_url("//evil.example") == "https://www.google.com/"
+
+    def test_query_and_fragment_only_urls_stay_relative(self):
+        from investing.safehtml import safe_url
+
+        assert safe_url("?q=1") == "?q=1"
+        assert safe_url("#current") == "#current"

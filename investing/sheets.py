@@ -462,13 +462,21 @@ def pull_data() -> tuple[
     objects rather than by carrying a flag on every row dict.
     """
     gc = _gspread_client()
+    # Read outside the retried callable. ``KeyError`` is deliberately
+    # retryable (a half-parsed vendor payload raises it and does clear),
+    # so leaving this lookup inside the lambda meant an unset
+    # ``GSHEET_ID`` -- a configuration error that will never clear --
+    # burned the whole back-off budget and then surfaced as "gspread
+    # open_by_key failed after 3 attempt(s)" instead of naming the
+    # missing variable.
+    sheet_id = os.environ["GSHEET_ID"]
     # ``open_by_key`` is not the cheap local handle its name suggests:
     # ``Spreadsheet.__init__`` immediately calls ``fetch_sheet_metadata``,
     # so this line is a live HTTPS round-trip and the first point at
     # which a transient Google-side fault can kill the build. It is the
     # single most common cause of failed scheduled deploys.
     sh = call_with_retry(
-        lambda: gc.open_by_key(os.environ["GSHEET_ID"]),
+        lambda: gc.open_by_key(sheet_id),
         description="gspread open_by_key",
         error_type=SheetDataError,
     )

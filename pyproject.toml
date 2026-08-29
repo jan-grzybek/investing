@@ -108,15 +108,17 @@ precision = 1
 #
 # 87 -> 95 when the edge-case suite landed. 95 -> 96 when the retry /
 # archive-fallback work added tests for the Sheets retry path and the
-# archive boundary, and deleting the OG-image render cache removed a
-# block of thinly-covered code with it.
+# archive boundary. 96 -> 97 when the review pass covered what was
+# left: ``get_benchmarks``, the gspread per-worksheet fallback, the
+# store-backed FX merge, the split-on-trade-boundary invariant, the OG
+# logo rasteriser, and the history-persistence branches.
 #
-# The gap that remains is concentrated and known, not diffuse: the
-# fd-redirection teardown in ``safe_run``, the production entrypoints
-# in ``cli``, the SVG rasteriser in ``og_image``, and the gspread batch
-# fallback in ``sheets``. Each needs a harness rather than a test,
-# which is why they are last.
-fail_under = 96
+# What remains is concentrated and known, not diffuse: the
+# fd-redirection teardown in ``safe_run`` (needs a subprocess harness,
+# not a test) and the bare production entrypoints in ``cli``. Those
+# are last for a reason -- exercising them means driving real file
+# descriptors and real credentials.
+fail_under = 97
 
 [tool.ruff]
 line-length = 100

@@ -454,3 +454,110 @@ class TestSummaryChartAgreement:
         chart_last = summary["history"][-1][1]
         assert chart_last == pytest.approx(1.0 + expected_pct / 100.0)
         assert chart_last - 1.0 == pytest.approx(summary["tsr%"] / 100.0)
+
+
+class TestGetBenchmarks:
+    """The top-level rollup that builds every configured benchmark.
+
+    Its job is small but load-bearing: construct one ``Benchmark`` per
+    entry in ``BENCHMARKS``, reduce each against the portfolio's own
+    TWR timeline, and derive the yearly-returns table from the *first*
+    one -- the yearly table compares against a single reference line,
+    so a second benchmark must not silently redefine it.
+    """
+
+    @staticmethod
+    def _install(monkeypatch, ticker_mock):
+        monkeypatch.setattr(
+            "investing.holdings.yf.Ticker",
+            lambda symbol: ticker_mock,  # noqa: ARG005
+        )
+
+    def _history(self):
+        return {
+            datetime(2023, 1, 2): (100.0, 100.0),
+            datetime(2024, 1, 2): (110.0, 110.0),
+            datetime(2025, 1, 2): (120.0, 120.0),
+        }
+
+    def _total_return(self):
+        return {
+            "twr%": 25.0,
+            "cagr%": 11.8,
+            "start_date": datetime(2023, 1, 2),
+            "history": [
+                (datetime(2023, 1, 2), 1.0),
+                (datetime(2024, 1, 2), 1.15),
+                (datetime(2025, 1, 2), 1.25),
+            ],
+        }
+
+    def test_an_empty_history_yields_nothing(self, stub_exchange_rate):
+        """No portfolio timeline means no line to compare against."""
+        from investing.performance import get_benchmarks
+
+        benchmarks, yearly = get_benchmarks(
+            {"twr%": 0.0, "cagr%": 0.0, "start_date": datetime(2024, 1, 1), "history": []},
+            fx=stub_exchange_rate,
+        )
+        assert benchmarks == []
+        assert yearly == []
+
+    def test_a_missing_history_key_is_treated_as_empty(self, stub_exchange_rate):
+        from investing.performance import get_benchmarks
+
+        benchmarks, yearly = get_benchmarks(
+            {"twr%": 0.0, "cagr%": 0.0, "start_date": datetime(2024, 1, 1)},
+            fx=stub_exchange_rate,
+        )
+        assert benchmarks == []
+        assert yearly == []
+
+    def test_every_configured_benchmark_is_summarised(self, monkeypatch, stub_exchange_rate):
+        from investing.performance import BENCHMARKS, get_benchmarks
+
+        self._install(monkeypatch, _make_benchmark_ticker(price=125.0, history=self._history()))
+
+        benchmarks, yearly = get_benchmarks(
+            self._total_return(),
+            fx=stub_exchange_rate,
+            now=lambda: datetime(2025, 1, 2),
+        )
+
+        assert len(benchmarks) == len(BENCHMARKS)
+        summary = benchmarks[0]
+        # Buy-and-hold from the 100.0 basis to the 125.0 live tape.
+        assert summary["tsr%"] == pytest.approx(25.0)
+        assert summary["ticker"].endswith(BENCHMARKS[0].ticker)
+        # The yearly table is derived from the first benchmark, so a
+        # populated history must produce rows.
+        assert yearly
+
+    def test_the_yearly_table_comes_from_the_first_benchmark_only(
+        self, monkeypatch, stub_exchange_rate
+    ):
+        """A second benchmark must not redefine the yearly reference."""
+        import investing.performance as perf
+
+        self._install(monkeypatch, _make_benchmark_ticker(price=125.0, history=self._history()))
+        calls: list[str] = []
+        real = perf.calc_yearly_returns
+
+        def spy(total_return, **kwargs):
+            calls.append(kwargs["benchmark"]._ticker_symbol)
+            return real(total_return, **kwargs)
+
+        monkeypatch.setattr(perf, "calc_yearly_returns", spy)
+        monkeypatch.setattr(
+            perf,
+            "BENCHMARKS",
+            [perf.BENCHMARKS[0], perf.BENCHMARKS[0]],
+        )
+
+        perf.get_benchmarks(
+            self._total_return(),
+            fx=stub_exchange_rate,
+            now=lambda: datetime(2025, 1, 2),
+        )
+
+        assert len(calls) == 1, "yearly returns must be computed once, from the first benchmark"

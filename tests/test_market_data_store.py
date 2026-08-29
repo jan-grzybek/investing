@@ -575,3 +575,151 @@ class TestArchiveFallbackBoundary:
 
         with pytest.raises(MarketDataError, match="history"):
             store.resolve_price_history("TST", "2020-01-01", boom, merged_splits=[])
+
+    def test_info_failure_without_an_archive_propagates(self, tmp_path, monkeypatch):
+        """No snapshot on disk means nothing to degrade to."""
+        store = self._store(tmp_path, monkeypatch)
+
+        mock = MagicMock()
+        mock.get_info.side_effect = MarketDataError("yfinance get_info failed")
+        mock.splits = {}
+        mock.get_dividends.return_value = {}
+        self._install(monkeypatch, mock)
+
+        with pytest.raises(MarketDataError, match="get_info"):
+            store.resolve_ticker("TST")
+
+    def test_split_failure_without_an_archive_propagates(self, tmp_path, monkeypatch):
+        store = self._store(tmp_path, monkeypatch)
+
+        mock = MagicMock()
+        mock.get_info.return_value = {
+            "currency": "USD",
+            "exchange": "NMS",
+            "symbol": "TST",
+            "regularMarketPrice": 10.0,
+        }
+        type(mock).splits = property(
+            lambda _self: (_ for _ in ()).throw(MarketDataError("yfinance splits failed"))
+        )
+        mock.get_dividends.return_value = {}
+        self._install(monkeypatch, mock)
+
+        with pytest.raises(MarketDataError, match="splits"):
+            store.resolve_ticker("TST")
+
+    def test_resolved_ticker_unpacks_as_a_triple(self, tmp_path, monkeypatch):
+        """The dataclass keeps the historical tuple call shape working."""
+        store = self._store(tmp_path, monkeypatch)
+        mock = MagicMock()
+        mock.get_info.return_value = {
+            "currency": "USD",
+            "exchange": "NMS",
+            "symbol": "TST",
+            "regularMarketPrice": 10.0,
+        }
+        mock.splits = {}
+        mock.get_dividends.return_value = {}
+        self._install(monkeypatch, mock)
+
+        resolved = store.resolve_ticker("TST")
+        info, splits, dividends = resolved
+
+        assert info is resolved.info
+        assert splits is resolved.splits
+        assert dividends is resolved.dividends
+
+
+class TestRefreshEntrypoints:
+    def test_refresh_ticker_is_a_no_op_when_read_only(self, tmp_path, monkeypatch):
+        """The monthly cron is the only writer; routine deploys must not persist."""
+        monkeypatch.delenv("INVESTING_MARKET_DATA_DISABLE", raising=False)
+        store = MarketDataStore(tmp_path, persist=False)
+        called = []
+        monkeypatch.setattr(store, "resolve_ticker", lambda t: called.append(t))
+
+        store.refresh_ticker("TST")
+        assert called == []
+
+    def test_refresh_universe_walks_every_ticker(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("INVESTING_MARKET_DATA_DISABLE", raising=False)
+        store = MarketDataStore(tmp_path, persist=True)
+        seen: list[str] = []
+        monkeypatch.setattr(store, "resolve_ticker", lambda t: seen.append(t))
+
+        store.refresh_universe(["AAA", "BBB"])
+        assert seen == ["AAA", "BBB"]
+
+    def test_fx_path_sanitises_a_separator_bearing_code(self, tmp_path, monkeypatch):
+        """A currency code from the sheet must not escape the snapshot tree."""
+        monkeypatch.delenv("INVESTING_MARKET_DATA_DISABLE", raising=False)
+        store = MarketDataStore(tmp_path)
+
+        path = store._fx_path("../../etc/passwd")
+
+        assert tmp_path.resolve() in path.resolve().parents
+        assert path.name == "..-..-etc-passwd.npz"
+
+    def test_history_is_persisted_when_writes_are_enabled(self, tmp_path, monkeypatch):
+        """The monthly cron writes the merged adj-close series back."""
+        import pandas as pd
+
+        monkeypatch.delenv("INVESTING_MARKET_DATA_DISABLE", raising=False)
+        monkeypatch.setenv("INVESTING_MARKET_DATA_DIR", str(tmp_path))
+        store = MarketDataStore(tmp_path, persist=True)
+
+        frame = pd.DataFrame(
+            {"Adj Close": [100.0, 101.0]},
+            index=pd.DatetimeIndex([datetime(2024, 1, 2), datetime(2024, 1, 3)]),
+        )
+        store.resolve_price_history("TST", "2024-01-01", lambda: frame, merged_splits=[])
+
+        payload = json.loads((tmp_path / "history" / "TST.json").read_text(encoding="utf-8"))
+        assert [row["adj_close"] for row in payload["adj_close"]] == [100.0, 101.0]
+        manifest = json.loads((tmp_path / "manifest.json").read_text(encoding="utf-8"))
+        assert "TST" in manifest["history"]
+
+    def test_history_is_not_persisted_when_read_only(self, tmp_path, monkeypatch):
+        import pandas as pd
+
+        monkeypatch.delenv("INVESTING_MARKET_DATA_DISABLE", raising=False)
+        monkeypatch.setenv("INVESTING_MARKET_DATA_DIR", str(tmp_path))
+        store = MarketDataStore(tmp_path, persist=False)
+
+        frame = pd.DataFrame(
+            {"Adj Close": [100.0]},
+            index=pd.DatetimeIndex([datetime(2024, 1, 2)]),
+        )
+        store.resolve_price_history("TST", "2024-01-01", lambda: frame, merged_splits=[])
+
+        assert not (tmp_path / "history").exists()
+
+    def test_a_rebase_mismatch_prefers_the_live_row(self, caplog):
+        """When a re-based archive row disagrees with live, live wins.
+
+        The archive is re-based across newly-observed splits so its old
+        rows land in the current share frame. If that arithmetic lands
+        somewhere other than the live value for the same date, one of
+        the two is wrong about the split -- and live is the side that
+        just came from the vendor.
+        """
+        archived_splits = [{"date": _dt(2020, 1, 1), "split": 2.0}]
+        merged_splits = [
+            {"date": _dt(2020, 1, 1), "split": 2.0},
+            {"date": _dt(2025, 5, 1), "split": 2.0},
+        ]
+        archived = [{"date": _dt(2018, 6, 1), "dividend": 1.00}]
+        # Re-basing 1.00 across the new 2:1 gives 0.50; live disagrees.
+        live = [{"date": _dt(2018, 6, 1), "dividend": 0.90}]
+
+        with caplog.at_level("WARNING"):
+            merged = merge_time_series(
+                archived,
+                live,
+                value_key="dividend",
+                archived_splits=archived_splits,
+                merged_splits=merged_splits,
+            )
+
+        assert merged[0]["dividend"] == pytest.approx(0.90)
+        assert "differs after re-base" in caplog.text

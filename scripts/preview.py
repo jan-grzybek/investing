@@ -691,11 +691,20 @@ def _stage_logos(out_dir: Path) -> None:
     had shipped, and the preview did not render at all without a
     network.
     """
+    if not _REPO_LOGOS_DIR.is_dir():
+        return
     dest = out_dir / "logos" / "tight"
+    if dest.resolve() == _REPO_LOGOS_DIR.resolve():
+        # ``--out .`` is a documented invocation (every artifact is
+        # gitignored, so rendering into the repo root is harmless).
+        # Without this guard it stopped being harmless: ``dest`` would
+        # resolve to the repo's own ``logos/tight`` and the rmtree
+        # below would delete the served logo mirror, then fail to copy
+        # it back from the directory it had just removed.
+        return
     if dest.exists():
         shutil.rmtree(dest)
-    if _REPO_LOGOS_DIR.is_dir():
-        shutil.copytree(_REPO_LOGOS_DIR, dest)
+    shutil.copytree(_REPO_LOGOS_DIR, dest)
 
 
 def main() -> int:

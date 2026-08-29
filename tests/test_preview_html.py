@@ -101,3 +101,61 @@ def test_preview_sections_are_structurally_wired(preview_html: str):
     assert nav is not None
     hrefs = {a.get("href") for a in nav.find_all("a")}
     assert {"#performance", "#holdings", "#activity", "#method"} <= hrefs
+
+
+class TestLogoStaging:
+    """``_stage_logos`` copies the served mirror next to the render.
+
+    Logo ``src`` values are relative, so the preview has to provide the
+    same sibling directory GitHub Pages serves. The dangerous case is
+    ``--out .``, which the module docstring documents as supported
+    because every artifact is gitignored: there the destination *is*
+    the repo's own ``logos/tight``, and a naive wipe-then-copy deletes
+    the served mirror and then fails to copy it back from the directory
+    it just removed.
+    """
+
+    @staticmethod
+    def _preview_module():
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "_preview_under_test", REPO_ROOT / "scripts" / "preview.py"
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_staging_into_the_repo_root_is_a_no_op(self):
+        preview = self._preview_module()
+        source = preview._REPO_LOGOS_DIR
+        before = sorted(p.name for p in source.iterdir())
+        assert before, "repo logo mirror should not be empty"
+
+        # ``out_dir`` is the repo root, so ``dest`` resolves onto the
+        # source directory itself.
+        preview._stage_logos(REPO_ROOT)
+
+        after = sorted(p.name for p in source.iterdir())
+        assert after == before, "staging must never delete the repo's own logo mirror"
+
+    def test_staging_into_a_fresh_directory_copies_the_mirror(self, tmp_path):
+        preview = self._preview_module()
+        preview._stage_logos(tmp_path)
+
+        staged = tmp_path / "logos" / "tight"
+        assert staged.is_dir()
+        assert sorted(p.name for p in staged.iterdir()) == sorted(
+            p.name for p in preview._REPO_LOGOS_DIR.iterdir()
+        )
+
+    def test_restaging_replaces_a_stale_directory(self, tmp_path):
+        preview = self._preview_module()
+        staged = tmp_path / "logos" / "tight"
+        staged.mkdir(parents=True)
+        (staged / "GONE:OLD.svg").write_text("<svg/>", encoding="utf-8")
+
+        preview._stage_logos(tmp_path)
+
+        assert not (staged / "GONE:OLD.svg").exists()
+        assert (staged / "courage.png").is_file()

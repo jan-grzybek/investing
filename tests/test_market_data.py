@@ -130,3 +130,16 @@ def test_key_error_is_still_retried(monkeypatch):
 
     assert _call_with_retry(fn, description="probe") == "ok"
     assert state["calls"] == 2
+
+
+def test_an_invalid_attempt_budget_is_rejected():
+    """``attempts < 1`` is a programming error, not a runtime condition.
+
+    A zero budget falls straight past the retry loop and raises the
+    caller's ``error_type`` with no ``__cause__`` and a "failed after 0
+    attempt(s)" message describing nothing that happened -- a report of
+    a failure that was never attempted.
+    """
+    for bad in (0, -1):
+        with pytest.raises(ValueError, match="attempts must be >= 1"):
+            _call_with_retry(lambda: 1, description="probe", attempts=bad)
