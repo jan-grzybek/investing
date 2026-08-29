@@ -232,7 +232,7 @@ class Webpage:
         new callers (production pipeline, preview script) pass an
         explicit ``Path`` so the artefact write doesn't depend on
         process-level state. The four artefacts produced are
-        ``index.html``, ``og-image.png`` (+ its sidecar),
+        ``index.html``, ``og-image.png``,
         ``sitemap.xml`` and ``robots.txt``."""
         out_dir = output_dir if output_dir is not None else Path.cwd()
         out_dir.mkdir(parents=True, exist_ok=True)

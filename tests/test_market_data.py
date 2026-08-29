@@ -94,7 +94,8 @@ def test_respects_custom_attempts(monkeypatch):
     assert len(calls) == 5
 
 
-def test_integration_shape_errors_are_not_retried(monkeypatch):
+@pytest.mark.parametrize("exc_type", [AttributeError, TypeError])
+def test_integration_shape_errors_are_not_retried(exc_type, monkeypatch):
     """``AttributeError`` / ``TypeError`` propagate unwrapped, first try.
 
     These signal a vendor API break (a renamed method, a changed
@@ -105,17 +106,15 @@ def test_integration_shape_errors_are_not_retried(monkeypatch):
     longer matches the library".
     """
     monkeypatch.setattr(retry.time, "sleep", lambda d: None)  # noqa: ARG005
+    calls = []
 
-    for exc_type in (AttributeError, TypeError):
-        calls = []
+    def fn():
+        calls.append(1)
+        raise exc_type("shape changed")
 
-        def fn(exc_type=exc_type):
-            calls.append(1)
-            raise exc_type("shape changed")
-
-        with pytest.raises(exc_type):
-            _call_with_retry(fn, description="probe")
-        assert calls == [1], f"{exc_type.__name__} should not be retried"
+    with pytest.raises(exc_type):
+        _call_with_retry(fn, description="probe")
+    assert calls == [1]
 
 
 def test_key_error_is_still_retried(monkeypatch):

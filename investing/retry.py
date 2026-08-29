@@ -124,6 +124,4 @@ def call_with_retry[T](
                     delay,
                 )
                 time.sleep(delay)
-    raise error_type(
-        f"{description} failed after {effective_attempts} attempt(s)"
-    ) from last_exc
+    raise error_type(f"{description} failed after {effective_attempts} attempt(s)") from last_exc

@@ -600,34 +600,6 @@ class TestOgImageHelpers:
 
         assert og_image.load_font("ultralight", 24) is not None
 
-    def test_iso_day_accepts_the_three_shapes_the_pipeline_produces(self):
-        import investing.webpage.og_image as og_image
-
-        assert og_image._iso_day(None) is None
-        assert og_image._iso_day(datetime(2024, 5, 6, 12, 30)) == "2024-05-06"
-        assert og_image._iso_day(date(2024, 5, 6)) == "2024-05-06"
-        assert og_image._iso_day("2024-05-06") == "2024-05-06"
-
-    def test_the_sidecar_treats_anything_but_a_full_digest_as_cold(self, tmp_path):
-        # A truncated sidecar means an interrupted write. Re-rendering
-        # is cheap; trusting a partial digest is not.
-        import investing.webpage.og_image as og_image
-
-        assert og_image._read_sidecar(tmp_path) is None
-        (tmp_path / og_image._HASH_SIDECAR_FILENAME).write_text("abc123\n", encoding="utf-8")
-        assert og_image._read_sidecar(tmp_path) is None
-        digest = "a" * 64
-        og_image._write_sidecar(tmp_path, digest)
-        assert og_image._read_sidecar(tmp_path) == digest
-
-    def test_an_unwritable_sidecar_is_swallowed(self, tmp_path):
-        # Losing the cache marker costs one extra og_image.render next run --
-        # far cheaper than failing the build.
-        import investing.webpage.og_image as og_image
-
-        (tmp_path / og_image._HASH_SIDECAR_FILENAME).mkdir()
-        og_image._write_sidecar(tmp_path, "b" * 64)
-
     def test_tracked_width_and_ink_height_are_zero_for_empty_text(self):
         from PIL import Image, ImageDraw
 
@@ -719,8 +691,10 @@ class TestOgImageHelpers:
             now=datetime(2024, 6, 1),
             output_dir=tmp_path,
         )
-        # No sidecar either: a failed og_image.render must not look cached.
-        assert og_image._read_sidecar(tmp_path) is None
+        # A failed render must leave no half-written artefact behind:
+        # ``stage_site`` copies whatever PNG it finds, so a truncated
+        # file would ship as the card.
+        assert not (tmp_path / og_image.OUTPUT_FILENAME).exists()
 
 
 class TestPageWiring:

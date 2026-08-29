@@ -868,22 +868,6 @@ class TestOgImageEquityCount:
         source = inspect.getsource(_page.Webpage._render_og_image)
         assert "equity_count=len(self.current)" in "".join(source.split())
 
-    def test_a_changed_count_busts_the_render_cache(self):
-        # The render short-circuits on a digest of its inputs. If the
-        # count were left out of that digest, selling out of a
-        # position would leave yesterday's number on the card until
-        # some *other* input happened to move.
-        from investing.webpage.og_image import _input_digest
-
-        kwargs = {
-            "total_return": {"twr%": 48.4, "cagr%": 5.3},
-            "benchmarks": [],
-            "top_10": {"NMS:AAA": 100.0},
-            "benchmark_display_names": {},
-            "now": datetime(2026, 8, 4, 12, 0, 0),
-        }
-        assert _input_digest(**kwargs, equity_count=10) != _input_digest(**kwargs, equity_count=11)
-
 
 class TestOgImageFont:
     """The card's typeface is committed, not discovered.

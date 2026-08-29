@@ -34,6 +34,7 @@ class SheetDataError(RuntimeError):
     spreadsheet identifiers out of the public job log.
     """
 
+
 # ---------------------------------------------------------------------------
 # Sheet ingestion
 # ---------------------------------------------------------------------------
