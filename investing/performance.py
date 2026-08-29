@@ -641,7 +641,10 @@ class Benchmark:
         """
         return float(self._adj_closes[0])
 
-    def cumulative_return_series(self, reference_history):
+    def cumulative_return_series(
+        self,
+        reference_history: list[tuple[datetime, float]],
+    ) -> list[tuple[datetime, float]]:
         """Resample the benchmark's adjusted-close series onto the
         portfolio's TWR timeline.
 
@@ -718,7 +721,10 @@ class Benchmark:
             for (ref_date, _), m in zip(reference_history, multipliers, strict=True)
         ]
 
-    def summary(self, reference_history) -> BenchmarkSummary:
+    def summary(
+        self,
+        reference_history: list[tuple[datetime, float]],
+    ) -> BenchmarkSummary:
         """Produce the per-benchmark dict the renderer consumes.
 
         Computes a buy-and-hold TSR / CAGR from

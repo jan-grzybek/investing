@@ -9,6 +9,7 @@ import math
 import urllib.parse
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Any
 
 import numpy as np
 import yfinance as yf
@@ -366,7 +367,7 @@ class Holding:
             dtype=float,
         )
 
-    def _get_splits_dividends(self):
+    def _get_splits_dividends(self) -> tuple[list[dict], list[dict]]:
         """Bootstrap the per-ticker splits / dividends timelines.
 
         Splits are stored in chronological order with their raw
@@ -412,7 +413,12 @@ class Holding:
             )
         return splits, dividends
 
-    def _apply_splits_between(self, quantity, after_date, before_date):
+    def _apply_splits_between(
+        self,
+        quantity: float,
+        after_date: datetime,
+        before_date: datetime,
+    ) -> float:
         """Adjust ``quantity`` for every split strictly between ``after_date``
         and ``before_date`` (exclusive both ends).
 
@@ -694,7 +700,13 @@ class Holding:
         """
         return self._info
 
-    def fetch_market_history(self, *, start, interval: str = "1d", auto_adjust: bool = False):
+    def fetch_market_history(
+        self,
+        *,
+        start: Any,
+        interval: str = "1d",
+        auto_adjust: bool = False,
+    ) -> Any:
         """Return the underlying ticker's price history.
 
         Public accessor used by :class:`investing.performance.Benchmark`

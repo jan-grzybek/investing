@@ -163,26 +163,13 @@ warn_redundant_casts = true
 warn_unused_ignores = true
 no_implicit_optional = true
 check_untyped_defs = true
-# Strict by default: a freshly added module ships with type
-# annotations on every public surface, or mypy fails the build.
-# New modules therefore do NOT need to be added anywhere -- only
-# the legacy permissive holdouts below stay opt-out, and that list
-# is intended to shrink to zero over time.
+# Strict, with no exemptions. The permissive-holdout list that used
+# to sit below is gone: the five modules on it (holdings, performance,
+# sheets, webpage._page, webpage.og_image) needed 24 annotations
+# between them, and typing them surfaced real drift -- the view layer
+# was taking bare ``dict`` where ``HoldingSummary`` / ``TotalReturn``
+# already existed, so the TypedDicts were not actually being checked
+# at the boundary they were written for. Do NOT reintroduce the list;
+# a new module ships annotated or the build fails.
 disallow_untyped_defs = true
 ignore_missing_imports = true
-
-# Permissive holdouts: modules that still carry untyped internal
-# helpers from before the codebase grew its TypedDicts. Each entry
-# is a known tech-debt item; deleting it (after typing the holdout's
-# public surface end-to-end) is the only direction this list should
-# move. Do NOT add new modules here -- the strict default catches
-# accidental regressions at lint time, and that's the contract.
-[[tool.mypy.overrides]]
-module = [
-  "investing.holdings",
-  "investing.performance",
-  "investing.sheets",
-  "investing.webpage._page",
-  "investing.webpage.og_image",
-]
-disallow_untyped_defs = false

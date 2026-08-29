@@ -35,6 +35,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from dateutil.relativedelta import relativedelta
 
@@ -43,6 +44,22 @@ from ..log import logger
 from ..logos import _DEFAULT_LOGO_ASPECT, _parse_svg_aspect_ratio
 from ..paths import _REPO_LOGOS_DIR, LOGO_EXTENSIONS, SITE_DISPLAY
 from ..types import BenchmarkSummary, TotalReturn
+
+if TYPE_CHECKING:
+    # Pillow is imported lazily at every call site so a host without
+    # it still renders the page (``render`` degrades to a no-op).
+    # Importing the types under ``TYPE_CHECKING`` keeps that runtime
+    # contract while still letting mypy check the drawing helpers.
+    from PIL import Image as _Image
+    from PIL import ImageDraw as _ImageDraw
+    from PIL import ImageFont as _ImageFont
+
+    Canvas = _Image.Image
+    Draw = _ImageDraw.ImageDraw
+    Font = _ImageFont.FreeTypeFont | _ImageFont.ImageFont
+    # Pillow accepts either a colour-spec string or an RGB(A) tuple
+    # wherever it takes a ``fill``; the card uses both.
+    Fill = str | tuple[int, int, int] | tuple[int, int, int, int]
 
 # Tickers in ``top_10`` keys that are not real holdings (e.g. the
 # synthetic "Other equities" bucket added when there are >11 current
@@ -78,7 +95,7 @@ _FONT_FILES: dict[str, str] = {
 }
 
 
-def load_font(weight: str, size: int):
+def load_font(weight: str, size: int) -> Font:
     """Load the committed Roboto face for the requested weight/size.
 
     Falls back to Pillow's bitmap default only if the vendored file is
@@ -118,7 +135,7 @@ def top_holdings_for_og(top_10: dict | None, *, limit: int = 10) -> list[str]:
     return tickers
 
 
-def load_logo_for_og(ticker: str, max_w: int, max_h: int):
+def load_logo_for_og(ticker: str, max_w: int, max_h: int) -> Canvas | None:
     """Load a ticker's logo as an RGBA ``PIL.Image`` fitted to a
     ``max_w x max_h`` box (preserving aspect ratio).
 
@@ -263,7 +280,7 @@ _STRIP_RADIUS = 18
 
 
 def draw_top_holdings_strip(
-    canvas,
+    canvas: Canvas,
     tickers: Iterable[str],
     *,
     x: int,
@@ -552,14 +569,21 @@ _PAD_T = 40
 _PAD_B = 34
 
 
-def _tracked_width(draw, text: str, font, tracking: float) -> float:
+def _tracked_width(draw: Draw, text: str, font: Font, tracking: float) -> float:
     """Width of ``text`` drawn with ``tracking`` px between glyphs."""
     if not text:
         return 0.0
     return draw.textlength(text, font=font) + tracking * (len(text) - 1)
 
 
-def _draw_tracked(draw, xy: tuple[float, float], text: str, font, fill, tracking: float) -> None:
+def _draw_tracked(
+    draw: Draw,
+    xy: tuple[float, float],
+    text: str,
+    font: Font,
+    fill: Fill,
+    tracking: float,
+) -> None:
     """Draw ``text`` glyph-by-glyph with extra letter-spacing.
 
     Pillow has no letter-spacing knob, and the card's two uppercase
@@ -574,7 +598,15 @@ def _draw_tracked(draw, xy: tuple[float, float], text: str, font, fill, tracking
         x += draw.textlength(char, font=font) + tracking
 
 
-def _fit_font(draw, text: str, weight: str, size: int, max_w: float, *, tracking: float = 0.0):
+def _fit_font(
+    draw: Draw,
+    text: str,
+    weight: str,
+    size: int,
+    max_w: float,
+    *,
+    tracking: float = 0.0,
+) -> Font:
     """Return the largest font <= ``size`` at which ``text`` fits ``max_w``.
 
     The card's copy grows with the benchmark's display name, and the
@@ -591,7 +623,7 @@ def _fit_font(draw, text: str, weight: str, size: int, max_w: float, *, tracking
     return load_font(weight, 22)
 
 
-def _text_height(draw, text: str, font) -> float:
+def _text_height(draw: Draw, text: str, font: Font) -> float:
     """Ink height of ``text`` in ``font`` (0 for an empty string)."""
     if not text:
         return 0.0
@@ -600,15 +632,15 @@ def _text_height(draw, text: str, font) -> float:
 
 
 def _draw_total(
-    draw,
+    draw: Draw,
     *,
     x: float,
     y: float,
     swatch: tuple[int, int, int],
     label: str,
     value: str,
-    label_font,
-    value_font,
+    label_font: Font,
+    value_font: Font,
     value_fill: tuple[int, int, int],
 ) -> float:
     """Draw one "swatch + LABEL / big number" block; return its bottom.

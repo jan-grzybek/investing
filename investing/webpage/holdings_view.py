@@ -38,6 +38,7 @@ from datetime import date
 from ..errors import InvariantError
 from ..formatting import _fmt_date, _fmt_pct, _format_sort_number, _value_class
 from ..holdings import CAGR_TBA_THRESHOLD, google_search_url
+from ..types import HoldingSummary
 from .anchors import holding_anchor
 
 # Column spec: ``(key, label, kind, css_modifier)``.
@@ -145,7 +146,7 @@ def _logo_cell(*, logo_url: str, website_url: str, company_name: str) -> str:
     )
 
 
-def _name_cell(holding: dict) -> str:
+def _name_cell(holding: HoldingSummary) -> str:
     """Render the company name with its listing(s) underneath.
 
     The name is the answer to "what do I own"; the ticker is a detail
@@ -164,7 +165,7 @@ def _name_cell(holding: dict) -> str:
     )
 
 
-def _period_start(holding: dict) -> date:
+def _period_start(holding: HoldingSummary) -> date:
     """The date the position the reader is looking at was opened.
 
     A re-entered position has several periods; the open one is what
@@ -177,7 +178,7 @@ def _period_start(holding: dict) -> date:
     return max(p["start"] for p in (open_periods or periods))
 
 
-def _periods_cell(holding: dict) -> str:
+def _periods_cell(holding: HoldingSummary) -> str:
     """Render every ownership window of a position, newest first.
 
     Every row renders this cell -- open rows put their open window on
@@ -205,7 +206,7 @@ def _periods_cell(holding: dict) -> str:
     return f'<td class="holdings__periods" role="cell"><ul>{"".join(items)}</ul></td>'
 
 
-def _metric_cells(holding: dict) -> str:
+def _metric_cells(holding: HoldingSummary) -> str:
     """Return the Return / IRR cells for one row.
 
     IRR renders as "TBA" while the position is too young for an
@@ -229,7 +230,7 @@ def _metric_cells(holding: dict) -> str:
     return "".join(cells)
 
 
-def build_row(holding: dict, *, logo_url_for: Callable[[str], str]) -> str:
+def build_row(holding: HoldingSummary, *, logo_url_for: Callable[[str], str]) -> str:
     """Render one holding as a ``<tr>``.
 
     Every position renders its ownership windows the same way: open

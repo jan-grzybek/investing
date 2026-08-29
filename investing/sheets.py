@@ -16,8 +16,10 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
 import gspread
 
@@ -417,7 +419,7 @@ def _parse_cash_row(row_index: int, row: list[str]) -> CashBalance | None:
     }
 
 
-def _gspread_client():
+def _gspread_client() -> gspread.Client:
     """Build a gspread client from credentials in the environment.
 
     Prefers ``GSHEET_CREDS`` (the full service-account JSON, passed in
@@ -434,7 +436,7 @@ def _gspread_client():
     return gspread.service_account(filename=creds_file)
 
 
-def _iter_data_rows(rows: list[list[str]]):
+def _iter_data_rows(rows: list[list[str]]) -> Iterator[tuple[int, list[str]]]:
     """Yield ``(spreadsheet_row_number, row)`` for the data portion.
 
     Skips the two leading rows (``_SHEET_DATA_OFFSET``) and computes the
@@ -525,7 +527,7 @@ def pull_data() -> tuple[
 
 
 def _batch_get_values(
-    sh,
+    sh: Any,
     range_names: tuple[str, ...],
 ) -> dict[str, list[list[str]]]:
     """Fetch all requested worksheet ranges in a single API call.
