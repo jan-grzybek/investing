@@ -27,12 +27,36 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: '3.13'
+          # Matches ``.python-version`` and the interpreter the lock
+          # files were compiled with. ``requires-python`` stays at
+          # ">=3.12" and the pytest matrix below still covers it, so
+          # the support floor is unchanged -- this only pins the
+          # single-version jobs to one interpreter instead of three.
+          python-version: '3.14'
           cache: pip
-          cache-dependency-path: pyproject.toml
+          cache-dependency-path: requirements-dev.txt
 
       - name: Install deps
-        run: pip install -e '.[dev]'
+        # Pinned dev toolchain. An unpinned ``pip install -e '.[dev]'``
+        # meant ruff / mypy / pytest / playwright came from whatever
+        # PyPI served that morning, so a lint finding could appear or
+        # vanish with no code change. The editable install that follows
+        # adds the package itself without touching the resolved set.
+        run: |
+          pip install -r requirements-dev.txt
+          pip install -e . --no-deps
+
+      - name: Pre-commit hooks
+        # Runs the hooks CI does not otherwise enforce -- stylelint over
+        # ``assets/src/css`` and eslint over ``assets/src/js``. Both were
+        # local-only before, so a contributor who skipped the hook could
+        # ship CSS/JS that no gate ever looked at. The ruff / mypy hooks
+        # duplicate the dedicated steps below cheaply; the build-assets
+        # and tighten-logos hooks have their own ``--check`` steps in the
+        # pytest job and are skipped here.
+        run: pre-commit run --all-files --show-diff-on-failure
+        env:
+          SKIP: build-assets,tighten-logos
 
       - name: Ruff (lint)
         run: ruff check .
@@ -50,11 +74,11 @@ jobs:
       # we want to see every supported runtime's report on the same PR.
       fail-fast: false
       matrix:
-        # The production workflow pins itself to 3.13 (matches the
-        # GitHub-hosted runner default at the time of writing); the
-        # extra rows here keep us honest that the codebase still works
-        # on the version pinned in ``pyproject.toml`` (3.12) and on
-        # the next stable release Cursor will deploy.
+        # The deploy and lint jobs run 3.14; these rows keep us honest
+        # that the codebase still works across the whole supported
+        # range declared by ``requires-python`` (">=3.12"), which is
+        # also what ruff's ``target-version`` and mypy's
+        # ``python_version`` are checked against.
         python-version: ['3.12', '3.13', '3.14']
     steps:
       - name: Checkout
@@ -76,6 +100,12 @@ jobs:
           sudo apt-get install -y libcairo2
 
       - name: Install deps
+        # Deliberately unpinned here, unlike the lint job: this matrix
+        # spans 3.12-3.14 and ``requirements-dev.txt`` is compiled
+        # against 3.14 alone, so a pinned install would fail to resolve
+        # on the older rows. The lint job above is the pinned one; this
+        # job's purpose is to prove the package works across the
+        # supported range, which means resolving per version.
         run: pip install -e '.[dev]'
 
       - name: Install Playwright browser

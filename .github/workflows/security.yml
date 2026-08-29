@@ -27,11 +27,11 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: '3.13'
+          python-version: '3.14'
           cache: pip
           cache-dependency-path: |
-            pyproject.toml
             requirements.txt
+            requirements-dev.txt
 
       - name: Install pip-audit
         run: pip install "pip-audit>=2.7"
@@ -44,13 +44,13 @@ jobs:
         # PyPI Security Advisories pipeline.
         run: pip-audit --strict --requirement requirements.txt --vulnerability-service osv
 
-      - name: Audit dev dependencies
+      - name: Audit dev lockfile
         # Dev deps don't ship with the build artefact, but a
         # compromised ruff / mypy / pytest could still execute in CI,
-        # so audit the full dev install surface.
-        run: |
-          pip install -e '.[dev]'
-          pip-audit --strict --vulnerability-service osv
+        # so audit the full dev install surface. Auditing the lockfile
+        # rather than a live ``pip install -e '.[dev]'`` means the scan
+        # covers exactly the versions CI installs.
+        run: pip-audit --strict --requirement requirements-dev.txt --vulnerability-service osv
 
   codeql:
     name: CodeQL (Python static analysis)

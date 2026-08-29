@@ -12,12 +12,22 @@ repos:
     rev: v4.6.0
     hooks:
       - id: trailing-whitespace
-        # Asset minifier outputs are byte-exact; whitespace fixers must
-        # not rewrite them or the CSP hashes pinned in webpage/head.py
-        # drift away from the served bytes.
-        exclude: '^assets/(?!src/).*'
+        # Two byte-exact trees are off limits to whitespace fixers.
+        #
+        # ``assets/`` (outside ``src/``) holds the minifier outputs; a
+        # rewrite there drifts the CSP hashes pinned in webpage/head.py
+        # away from the served bytes.
+        #
+        # ``logos/`` holds hand-curated vendor SVGs *and* the generated
+        # ``logos/tight/`` crop mirror, which ``tighten_logos --check``
+        # compares byte for byte. Appending a newline to a source SVG
+        # desynchronises it from its committed crop and fails that
+        # check -- which is exactly what happened the first time these
+        # hooks were run over the whole tree, because nothing had ever
+        # run them that way before.
+        exclude: '^(assets/(?!src/)|logos/).*'
       - id: end-of-file-fixer
-        exclude: '^assets/(?!src/).*'
+        exclude: '^(assets/(?!src/)|logos/).*'
       - id: check-yaml
       - id: check-toml
       - id: check-merge-conflict
@@ -25,7 +35,7 @@ repos:
         args: ["--maxkb=2048"]
       - id: mixed-line-ending
         args: ["--fix=lf"]
-        exclude: '^assets/(?!src/).*'
+        exclude: '^(assets/(?!src/)|logos/).*'
 
   - repo: local
     hooks:
@@ -62,6 +72,21 @@ repos:
         additional_dependencies:
           - stylelint@16.10.0
           - stylelint-config-standard@36.0.1
+
+  - repo: https://github.com/pre-commit/mirrors-eslint
+    rev: v10.9.1
+    hooks:
+      - id: eslint
+        # Same contract as stylelint above, for the JS half: lint the
+        # readable sources, never the minified artefacts. The scripts
+        # ship inline in every rendered page and are CSP-hash-pinned,
+        # so a reference error is a production bug with nothing else
+        # standing behind it -- the Python side has ruff, mypy and a
+        # 95% coverage floor; this was the one unlinted surface.
+        # Configuration lives in ``eslint.config.mjs``.
+        files: '^assets/src/js/.*\.js$'
+        additional_dependencies:
+          - eslint@10.9.1
 
   - repo: local
     hooks:

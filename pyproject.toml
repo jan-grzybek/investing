@@ -11,21 +11,30 @@ requires-python = ">=3.12"
 authors = [{ name = "Jan Grzybek" }]
 license = "MIT"
 license-files = ["LICENSE"]
-# Minimum floors keep Dependabot's bumps reviewable: a major upgrade
-# that breaks the integration shape (e.g. yfinance dropping
-# ``Ticker.get_info``) will fail to install rather than fail at runtime
-# in CI. ``pip-compile`` reads the floors below directly from this
-# ``pyproject.toml`` when regenerating ``requirements.txt`` -- see
-# CONTRIBUTING.md for the one-liner. Dev deps install from
-# ``[project.optional-dependencies.dev]`` via ``pip install -e '.[dev]'``.
+# Floors AND ceilings. The floors alone used to carry a promise they
+# could not keep: the comment here claimed a major upgrade that broke
+# the integration shape "will fail to install rather than fail at
+# runtime in CI", but ``>=`` cannot block a major bump. yfinance went
+# from the declared ``>=0.2.40`` to a locked 1.6.0 -- two majors -- with
+# nothing objecting, and Pillow from ``>=10`` to 12.
+#
+# The upper bounds are what actually enforce it. A vendor major now
+# fails at ``pip install`` and has to be widened by hand, which is the
+# review the comment always described. Ceilings are pinned one major
+# above the floor, so a minor/patch bump still flows through Dependabot
+# untouched and only a major stops the line.
+#
+# ``pip-compile`` reads these directly from this ``pyproject.toml`` when
+# regenerating ``requirements.txt`` / ``requirements-dev.txt`` -- see
+# CONTRIBUTING.md for the one-liners.
 dependencies = [
-  "gspread>=6",
-  "yfinance>=0.2.40",
-  "requests>=2.32",
-  "python-dateutil>=2.9",
-  "Pillow>=10",
-  "cairosvg>=2.7",
-  "numpy>=2.0",
+  "gspread>=6.2,<7",
+  "yfinance>=1.6,<2",
+  "requests>=2.32,<3",
+  "python-dateutil>=2.9,<3",
+  "Pillow>=12,<13",
+  "cairosvg>=2.7,<3",
+  "numpy>=2.0,<3",
 ]
 
 [project.optional-dependencies]

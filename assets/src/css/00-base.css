@@ -150,6 +150,7 @@
   --ink-on-realestate: #ffffff;
   --ink-on-other: #0b1f2a;
 }
+
 @media (prefers-color-scheme: dark) {
   :root {
     /* Dark counterparts of the light palette above. Every semantic
@@ -203,7 +204,7 @@
     --ink-on-other: #071923;
   }
   /* Logos keep their own colours on the dark surface, on a plate.
-     
+
      They used to be run through ``invert(1) hue-rotate(180deg)``,
      which flips luminance while preserving hue -- an elegant trick,
      and it works for a flat single-hue wordmark. It does not work for
@@ -212,7 +213,7 @@
      out as low-contrast smudges at the 34x22 the table draws them at,
      because a luminance flip turns their light plate dark and leaves
      the glyph nowhere to sit.
-     
+
      A white plate is the cheaper answer and a truthful one: every
      mark stays in the colours its owner published, at the size the
      table needs them legible.
@@ -237,6 +238,7 @@
     box-shadow: 0 0 0 3px #ffffff;
   }
 }
+
 @media print {
   body { background: white; color: black; }
   .section, .hero, .yearly, .allocation__block, .return-chart { break-inside: avoid; }
