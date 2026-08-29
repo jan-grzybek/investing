@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -159,3 +160,51 @@ class TestLogoStaging:
 
         assert not (staged / "GONE:OLD.svg").exists()
         assert (staged / "courage.png").is_file()
+
+
+class TestRenderedPercentagesAddUp:
+    """Whole-page guard: every stacked bar on the real render totals 100.
+
+    The unit tests pin the helper and the bar builder. This one walks
+    the finished document, so a *new* bar added later without going
+    through the apportionment is caught here even though nothing about
+    it was named in a test.
+
+    What it does not do is prove the rounding fix by itself: the
+    preview's synthetic weights happen to round cleanly, so these
+    assertions still pass on the unrounded code. The drift case is
+    pinned in ``TestAllocationBarsAlwaysAddUp`` with figures chosen to
+    break. Treat this class as a structural sweep -- does every bar on
+    the page satisfy the invariant -- not as the regression test.
+    """
+
+    @staticmethod
+    def _bars(html_out: str):
+        chunks = html_out.split('<div class="allocation__block">')[1:]
+        for chunk in chunks:
+            title_match = re.search(r'allocation__title">([^<]*)<', chunk)
+            title = title_match.group(1) if title_match else "(untitled)"
+            legend = [
+                float(v) for v in re.findall(r'allocation__key-value">([\d.]+)%</span>', chunk)
+            ]
+            segments = [
+                float(v) for v in re.findall(r'allocation__segment-value">([\d.]+)%<', chunk)
+            ]
+            widths = [float(w) for w in re.findall(r"width: ([\d.]+)%", chunk)]
+            yield title, legend, segments, widths
+
+    def test_the_page_renders_at_least_two_bars(self, preview_html):
+        assert len(list(self._bars(preview_html))) >= 2
+
+    def test_every_bar_legend_totals_a_hundred(self, preview_html):
+        for title, legend, _segments, _widths in self._bars(preview_html):
+            assert legend, f"{title}: no legend values found"
+            assert sum(legend) == pytest.approx(100.0), f"{title}: legend sums to {sum(legend)}"
+
+    def test_every_bar_segment_set_matches_its_legend(self, preview_html):
+        for title, legend, segments, _widths in self._bars(preview_html):
+            assert segments == legend, f"{title}: bar and key disagree"
+
+    def test_every_bar_fills_its_track(self, preview_html):
+        for title, _legend, _segments, widths in self._bars(preview_html):
+            assert sum(widths) == pytest.approx(100.0), f"{title}: widths sum to {sum(widths)}"

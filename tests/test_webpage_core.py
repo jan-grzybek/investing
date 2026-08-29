@@ -334,3 +334,96 @@ class TestAllocationSectors:
 
     def test_no_positive_weights_renders_nothing(self):
         assert self._totals([{"sector": "Technology", "current_weight%": 0.0}]) == []
+
+
+class TestApportionPct:
+    """Largest-remainder rounding for shares of a whole.
+
+    The property that matters: what the reader can add up must equal
+    what the portfolio actually is. Rounding each share on its own
+    breaks that, and the error is invisible in any single figure.
+    """
+
+    def test_the_reported_case_sums_to_a_hundred(self):
+        from investing.formatting import apportion_pct
+
+        # 86.04 / 13.83 / 0.13 rounds independently to 86.0 + 13.8 +
+        # 0.1 = 99.9%, which is the drift this exists to remove.
+        out = apportion_pct([86.04, 13.83, 0.13])
+        assert sum(out) == pytest.approx(100.0)
+        assert out == [86.1, 13.8, 0.1]
+
+    def test_thirds_sum_to_a_hundred(self):
+        from investing.formatting import apportion_pct
+
+        out = apportion_pct([100 / 3] * 3)
+        assert sum(out) == pytest.approx(100.0)
+        assert out == [33.4, 33.3, 33.3]
+
+    def test_values_already_exact_are_untouched(self):
+        from investing.formatting import apportion_pct
+
+        assert apportion_pct([50.0, 50.0]) == [50.0, 50.0]
+        assert apportion_pct([100.0]) == [100.0]
+
+    def test_no_value_moves_more_than_one_unit_in_the_last_place(self):
+        from investing.formatting import apportion_pct
+
+        raw = [55.44, 28.51, 6.79, 5.26, 4.00]
+        out = apportion_pct(raw)
+        assert sum(out) == pytest.approx(100.0)
+        for original, shown in zip(raw, out, strict=True):
+            assert abs(shown - original) < 0.1
+
+    def test_a_partial_total_is_preserved_not_inflated(self):
+        """Values that are not a whole must not be scaled up to fill one.
+
+        Only the asset-class and sector bars are true partitions. If a
+        caller hands over a subset, the honest answer is to fix the
+        rounding *within* their total, not to invent the difference.
+        """
+        from investing.formatting import apportion_pct
+
+        assert apportion_pct([78.7, 10.7]) == [78.7, 10.7]
+
+    def test_ties_resolve_by_position_so_rebuilds_are_stable(self):
+        from investing.formatting import apportion_pct
+
+        # Three identical values, one spare tenth: it must always land
+        # on the first, or a no-op deploy shows a diff.
+        out = apportion_pct([100 / 3] * 3)
+        assert out[0] > out[1]
+        assert apportion_pct([100 / 3] * 3) == out
+
+    def test_a_vanishing_share_rounds_to_zero_without_breaking_the_sum(self):
+        from investing.formatting import apportion_pct
+
+        out = apportion_pct([99.95, 0.03, 0.02])
+        assert sum(out) == pytest.approx(100.0)
+        assert out == [100.0, 0.0, 0.0]
+
+    def test_empty_and_all_zero_inputs_are_returned_unchanged(self):
+        from investing.formatting import apportion_pct
+
+        assert apportion_pct([]) == []
+        assert apportion_pct([0.0, 0.0]) == [0.0, 0.0]
+
+    def test_two_decimal_places_are_supported(self):
+        from investing.formatting import apportion_pct
+
+        out = apportion_pct([86.044, 13.833, 0.123], places=2)
+        assert sum(out) == pytest.approx(100.0)
+
+    def test_many_random_partitions_all_sum_to_a_hundred(self):
+        """The invariant has to hold for shapes nobody hand-picked."""
+        import random
+
+        from investing.formatting import apportion_pct
+
+        rng = random.Random(20260829)
+        for _ in range(500):
+            n = rng.randint(2, 12)
+            parts = [rng.random() for _ in range(n)]
+            scale = 100.0 / sum(parts)
+            out = apportion_pct([p * scale for p in parts])
+            assert sum(out) == pytest.approx(100.0), out

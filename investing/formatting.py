@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import math
+from collections.abc import Sequence
 from datetime import date, datetime
 from typing import Protocol
 
@@ -205,6 +207,57 @@ def _fmt_pct(value: float, *, signed: bool = False) -> str:
     else:
         text = format(value, f"{sign_spec}.1f")
     return text.replace("-", "\u2212", 1) if text.startswith("-") else text
+
+
+def apportion_pct(values: Sequence[float], *, places: int = 1) -> list[float]:
+    """Round shares of a whole so the *displayed* figures still add up.
+
+    Rounding each share independently is what breaks a stacked bar's
+    arithmetic. Three slices of 86.04 / 13.83 / 0.13 are exactly 100%
+    of the portfolio, but rounded one at a time they render as
+    86.0 + 13.8 + 0.1 = 99.9% -- a reader adding up the legend finds a
+    tenth of a percent missing and has no way to tell whether the page
+    lost it or the portfolio did.
+
+    This is the largest-remainder (Hamilton) apportionment. Every value
+    is floored to ``places`` decimals, and the units left over are
+    handed out one each to the values with the largest discarded
+    fractions. The result sums to the inputs' own total rounded to
+    ``places``, and no figure moves more than one unit in the last
+    place from its true value -- so each slice stays honest while the
+    set also adds up. A caller holding a true partition gets an exact
+    100.0 for free, because its inputs already sum to 100.
+
+    Deliberately no ``total`` parameter. Apportioning onto a total the
+    values do not actually sum to would inflate them to fill it --
+    inventing portfolio mass to make a bar look tidy -- and the
+    leftover units would run out before every value had been raised,
+    silently producing a set that sums to neither figure.
+
+    Ties go to the earlier index, which keeps the output stable across
+    rebuilds: two sectors on identical weights must not swap a tenth
+    back and forth between deploys and show up as a diff.
+
+    Values are assumed non-negative (they are shares of a whole). An
+    empty input comes back unchanged rather than inventing a
+    distribution to round.
+    """
+    if not values:
+        return []
+    scale = 10**places
+    scaled = [v * scale for v in values]
+    floors = [math.floor(u) for u in scaled]
+    # Non-negative by construction: each floor is at most its own
+    # scaled value, so ``sum(floors)`` never exceeds the total, and
+    # ``round`` moves the target by at most half a unit. ``max`` is
+    # belt-and-braces against a caller passing negatives, where the
+    # premise (shares of a whole) no longer holds.
+    remainder = max(round(sum(values) * scale) - sum(floors), 0)
+    # Largest discarded fraction first; index breaks ties.
+    order = sorted(range(len(values)), key=lambda i: (-(scaled[i] - floors[i]), i))
+    for i in order[:remainder]:
+        floors[i] += 1
+    return [u / scale for u in floors]
 
 
 def _sha256_b64(payload: str) -> str:
