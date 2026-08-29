@@ -4,3 +4,17 @@
 [![Update and deploy webpage](https://github.com/jan-grzybek/investing/actions/workflows/main.yml/badge.svg?event=schedule)](https://github.com/jan-grzybek/investing/actions/workflows/main.yml)
 [![Tests](https://github.com/jan-grzybek/investing/actions/workflows/test.yml/badge.svg)](https://github.com/jan-grzybek/investing/actions/workflows/test.yml)
 [![Security scans](https://github.com/jan-grzybek/investing/actions/workflows/security.yml/badge.svg)](https://github.com/jan-grzybek/investing/actions/workflows/security.yml)
+
+Source for **[jan-grzybek.github.io/investing](https://jan-grzybek.github.io/investing/)** — a
+static page tracking my own investment portfolio. A scheduled GitHub Actions job pulls the trade
+ledger from a private Google Sheet, marks it against live yfinance quotes, and publishes the
+rendered page to GitHub Pages.
+
+What it publishes is derived: time-weighted return, XIRR, allocation weights, holding periods, and
+per-share transaction prices (market-observable on their own). Never share counts, position sizes,
+cash balances or total portfolio value — the build treats its own job logs as a side channel too.
+See [SECURITY.md](SECURITY.md).
+
+A personal project, maintained by me for my own use. Public so the page can be served, not to invite
+forks or contributions, and the code assumes my spreadsheet's schema throughout. Nothing here is
+investment advice.
