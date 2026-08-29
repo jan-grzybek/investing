@@ -537,24 +537,22 @@ class TestGetBenchmarks:
         self, monkeypatch, stub_exchange_rate
     ):
         """A second benchmark must not redefine the yearly reference."""
-        import investing.performance as perf
+        from investing.performance import BENCHMARKS, calc_yearly_returns, get_benchmarks
 
         self._install(monkeypatch, _make_benchmark_ticker(price=125.0, history=self._history()))
         calls: list[str] = []
-        real = perf.calc_yearly_returns
 
         def spy(total_return, **kwargs):
             calls.append(kwargs["benchmark"]._ticker_symbol)
-            return real(total_return, **kwargs)
+            return calc_yearly_returns(total_return, **kwargs)
 
-        monkeypatch.setattr(perf, "calc_yearly_returns", spy)
+        monkeypatch.setattr("investing.performance.calc_yearly_returns", spy)
         monkeypatch.setattr(
-            perf,
-            "BENCHMARKS",
-            [perf.BENCHMARKS[0], perf.BENCHMARKS[0]],
+            "investing.performance.BENCHMARKS",
+            [BENCHMARKS[0], BENCHMARKS[0]],
         )
 
-        perf.get_benchmarks(
+        get_benchmarks(
             self._total_return(),
             fx=stub_exchange_rate,
             now=lambda: datetime(2025, 1, 2),

@@ -438,7 +438,7 @@ class TestBuildPageWiring:
         """Production shares one FX cache, wired to the snapshot store."""
         from unittest.mock import MagicMock
 
-        import investing.cli as cli
+        from investing.cli import build_page
 
         built: list[object] = []
 
@@ -449,14 +449,14 @@ class TestBuildPageWiring:
             def __call__(self, currency, date=None):  # noqa: ARG002
                 return 1.0
 
-        monkeypatch.setattr(cli, "ExchangeRate", _Recorder)
+        monkeypatch.setattr("investing.cli.ExchangeRate", _Recorder)
 
         store = MagicMock()
         store.enabled = True
         store.persist = False
         store.list_archived_tickers.return_value = []
 
-        cli.build_page(
+        build_page(
             pull=MagicMock(return_value=([], [], [], [])),
             store=store,
             save=lambda *_a, **_k: None,
@@ -469,12 +469,12 @@ class TestBuildPageWiring:
         """With no store injected the entrypoint resolves one itself."""
         from unittest.mock import MagicMock
 
-        import investing.cli as cli
+        from investing.cli import snapshot_market_data
 
         monkeypatch.setenv("INVESTING_MARKET_DATA_DISABLE", "1")
         pull = MagicMock()
 
-        cli.snapshot_market_data(pull=pull)
+        snapshot_market_data(pull=pull)
 
         # Disabled via the environment, so it short-circuits before
         # touching the spreadsheet.
@@ -483,11 +483,11 @@ class TestBuildPageWiring:
 
 class TestProductionEntrypoints:
     def test_main_delegates_to_build_page(self, monkeypatch):
-        import investing.cli as cli
+        from investing.cli import main
 
         called: list[bool] = []
-        monkeypatch.setattr(cli, "build_page", lambda: called.append(True))
+        monkeypatch.setattr("investing.cli.build_page", lambda: called.append(True))
 
-        cli.main()
+        main()
 
         assert called == [True]

@@ -1272,14 +1272,14 @@ class TestGenerateWebpageBuckets:
     def test_all_four_buckets_reach_the_renderer(self, tmp_path, monkeypatch):
         from unittest.mock import MagicMock
 
-        import investing.webpage._page as page_mod
+        from investing.webpage._page import generate_webpage
 
         added: list[str] = []
         webpage = MagicMock()
         webpage.add_holding.side_effect = lambda h: added.append(h["ticker"])
 
-        monkeypatch.setattr(page_mod, "Webpage", lambda **_kwargs: webpage)
-        page_mod.generate_webpage(
+        monkeypatch.setattr("investing.webpage._page.Webpage", lambda **_kwargs: webpage)
+        generate_webpage(
             {"twr%": 1.0, "cagr%": 1.0, "history": []},
             [],
             {
@@ -1298,14 +1298,14 @@ class TestGenerateWebpageBuckets:
     def test_absent_fixed_income_keys_are_tolerated(self, tmp_path, monkeypatch):
         from unittest.mock import MagicMock
 
-        import investing.webpage._page as page_mod
+        from investing.webpage._page import generate_webpage
 
         added: list[str] = []
         webpage = MagicMock()
         webpage.add_holding.side_effect = lambda h: added.append(h["ticker"])
 
-        monkeypatch.setattr(page_mod, "Webpage", lambda **_kwargs: webpage)
-        page_mod.generate_webpage(
+        monkeypatch.setattr("investing.webpage._page.Webpage", lambda **_kwargs: webpage)
+        generate_webpage(
             {"twr%": 1.0, "cagr%": 1.0, "history": []},
             [],
             {

@@ -1357,8 +1357,6 @@ class TestAllocationBarsAlwaysAddUp:
 
     @staticmethod
     def _legend_values(html_out: str) -> list[list[float]]:
-        import re
-
         bars = []
         for chunk in html_out.split('<div class="allocation__block">')[1:]:
             bars.append(
@@ -1368,8 +1366,6 @@ class TestAllocationBarsAlwaysAddUp:
 
     @staticmethod
     def _segment_values(html_out: str) -> list[list[float]]:
-        import re
-
         bars = []
         for chunk in html_out.split('<div class="allocation__block">')[1:]:
             bars.append(
@@ -1427,8 +1423,6 @@ class TestAllocationBarsAlwaysAddUp:
 
     def test_segment_widths_fill_the_track_exactly(self):
         """A partition's segments must leave no sliver of bar showing."""
-        import re
-
         out = self._render(
             {"Equities": 86.04, "Fixed Income": 13.83, "Cash & Cash Equivalents": 0.13}
         )
