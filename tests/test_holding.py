@@ -718,3 +718,142 @@ class TestAssetClass:
         # Crucially: no maintenance hint recorded -- the resolver
         # never ran, so the registry stays empty.
         assert consume_hints().is_empty
+
+
+class TestArchivedDataIsOnlyForClosedPositions:
+    """Where the archive may carry a whole position, and where it may not.
+
+    A position already exited can be served entirely from disk. Its
+    share count is zero, no later split changes zero, and every
+    cashflow that fixes its return has already happened -- nothing
+    about it is a claim regarding today.
+
+    A position still held is the opposite: its size comes from the
+    split inventory and its value from the live price, so serving it
+    from an archive would publish a holding and a valuation this run
+    never verified. That build must fail instead.
+    """
+
+    @staticmethod
+    def _store_returning(resolved):
+        from unittest.mock import MagicMock
+
+        store = MagicMock()
+        store.enabled = True
+        store.resolve_ticker.return_value = resolved
+        return store
+
+    @staticmethod
+    def _archived(with_price: bool):
+        from investing.market_data_store import ResolvedTicker
+
+        info = {
+            "currency": "USD",
+            "exchange": "NMS",
+            "symbol": "TST",
+            "longName": "Test Co.",
+            "sector": "Technology",
+        }
+        if with_price:
+            info["regularMarketPrice"] = 100.0
+        return ResolvedTicker(info=info, splits=[], dividends=[], from_archive=True)
+
+    def test_a_closed_position_resolves_entirely_from_the_archive(
+        self, install_ticker, stub_exchange_rate
+    ):
+        install_ticker(_make_ticker())
+        holding = Holding(
+            "TST",
+            store=self._store_returning(self._archived(with_price=False)),
+            now=lambda: datetime(2024, 6, 1),
+        )
+        holding.buy(Trade(datetime(2020, 1, 1), "TST", 10, 50.0, "BUY"))
+        holding.sell(Trade(datetime(2022, 1, 1), "TST", 10, 80.0, "SELL"))
+
+        summary = holding.summary()
+
+        assert summary["is_current"] is False
+        assert summary["current_value_usd"] == pytest.approx(0.0)
+        # Realised return is fully determined by the two cashflows:
+        # 500 in, 800 out.
+        assert summary["tsr%"] == pytest.approx(60.0)
+
+    def test_an_open_position_refuses_to_publish_from_the_archive(
+        self, install_ticker, stub_exchange_rate
+    ):
+        from investing.market_data import MarketDataError
+
+        install_ticker(_make_ticker())
+        holding = Holding(
+            "TST",
+            store=self._store_returning(self._archived(with_price=True)),
+            now=lambda: datetime(2024, 6, 1),
+        )
+        holding.buy(Trade(datetime(2020, 1, 1), "TST", 10, 50.0, "BUY"))
+
+        with pytest.raises(MarketDataError, match="open position"):
+            holding.summary()
+
+    def test_a_partially_sold_position_is_still_open(self, install_ticker, stub_exchange_rate):
+        """Selling some shares does not make the archive acceptable."""
+        from investing.market_data import MarketDataError
+
+        install_ticker(_make_ticker())
+        holding = Holding(
+            "TST",
+            store=self._store_returning(self._archived(with_price=True)),
+            now=lambda: datetime(2024, 6, 1),
+        )
+        holding.buy(Trade(datetime(2020, 1, 1), "TST", 10, 50.0, "BUY"))
+        holding.sell(Trade(datetime(2022, 1, 1), "TST", 4, 80.0, "SELL"))
+
+        with pytest.raises(MarketDataError, match="open position"):
+            holding.summary()
+
+    def test_a_reopened_position_is_open_again(self, install_ticker, stub_exchange_rate):
+        """Exited then re-entered: the archive stops being acceptable."""
+        from investing.market_data import MarketDataError
+
+        install_ticker(_make_ticker())
+        holding = Holding(
+            "TST",
+            store=self._store_returning(self._archived(with_price=True)),
+            now=lambda: datetime(2024, 6, 1),
+        )
+        holding.buy(Trade(datetime(2020, 1, 1), "TST", 10, 50.0, "BUY"))
+        holding.sell(Trade(datetime(2021, 1, 1), "TST", 10, 80.0, "SELL"))
+        holding.buy(Trade(datetime(2022, 1, 1), "TST", 5, 90.0, "BUY"))
+
+        with pytest.raises(MarketDataError, match="open position"):
+            holding.summary()
+
+    def test_a_fresh_read_publishes_an_open_position_normally(
+        self, install_ticker, stub_exchange_rate
+    ):
+        """The guard must not fire on the ordinary path."""
+        from investing.market_data_store import ResolvedTicker
+
+        install_ticker(_make_ticker())
+        resolved = ResolvedTicker(
+            info={
+                "currency": "USD",
+                "exchange": "NMS",
+                "symbol": "TST",
+                "longName": "Test Co.",
+                "sector": "Technology",
+                "regularMarketPrice": 100.0,
+            },
+            splits=[],
+            dividends=[],
+            from_archive=False,
+        )
+        holding = Holding(
+            "TST",
+            store=self._store_returning(resolved),
+            now=lambda: datetime(2024, 6, 1),
+        )
+        holding.buy(Trade(datetime(2020, 1, 1), "TST", 10, 50.0, "BUY"))
+
+        summary = holding.summary()
+        assert summary["is_current"] is True
+        assert summary["current_value_usd"] == pytest.approx(1000.0)

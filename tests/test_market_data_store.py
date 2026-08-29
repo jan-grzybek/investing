@@ -199,7 +199,15 @@ class TestMarketDataStore:
         assert by_date[_dt(2021, 6, 1)] == pytest.approx(0.5)
         assert by_date[_dt(2012, 6, 1)] == pytest.approx(0.10)
 
-    def test_live_failure_raises(self, tmp_path, monkeypatch):
+    def test_live_failure_degrades_to_archive_without_a_price(self, tmp_path, monkeypatch):
+        """A failed ``get_info`` serves archived metadata and flags it.
+
+        The store no longer decides whether that is acceptable -- it
+        cannot, because "is this position still open?" only falls out
+        of replaying the trade ledger. It records ``from_archive`` and
+        omits ``regularMarketPrice`` entirely; ``Holding.ledger``
+        rejects the snapshot if the position turns out to be open.
+        """
         monkeypatch.delenv("INVESTING_MARKET_DATA_DISABLE", raising=False)
         monkeypatch.setenv("INVESTING_MARKET_DATA_DIR", str(tmp_path))
         store = MarketDataStore(tmp_path)
@@ -237,8 +245,56 @@ class TestMarketDataStore:
             lambda fn, **kwargs: fn(),
         )
 
-        with pytest.raises(MarketDataError, match="get_info failed"):
-            store.resolve_ticker("OLD")
+        resolved = store.resolve_ticker("OLD")
+
+        assert resolved.from_archive is True
+        # No stale price is invented; the key is simply absent.
+        assert "regularMarketPrice" not in resolved.info
+        assert resolved.info["longName"] == "Delisted"
+
+    def test_a_degraded_read_is_never_persisted(self, tmp_path, monkeypatch):
+        """The archive is the fallback of record; an outage must not touch it.
+
+        Rewriting it with a copy of itself would at best be a no-op and
+        at worst refresh ``updated_at`` to claim a currency the data
+        does not have.
+        """
+        monkeypatch.delenv("INVESTING_MARKET_DATA_DISABLE", raising=False)
+        monkeypatch.setenv("INVESTING_MARKET_DATA_DIR", str(tmp_path))
+        store = MarketDataStore(tmp_path, persist=True)
+
+        archived_path = tmp_path / "tickers" / "OLD.json"
+        archived_path.parent.mkdir(parents=True)
+        archived_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "info": {"currency": "USD", "exchange": "NMS", "symbol": "OLD"},
+                    "splits": [],
+                    "dividends": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+        before = archived_path.read_bytes()
+
+        mock = MagicMock()
+        mock.get_info.side_effect = MarketDataError("yfinance get_info failed")
+        mock.splits = {}
+        mock.get_dividends.return_value = {}
+        monkeypatch.setattr(
+            "investing.market_data_store.yf.Ticker",
+            lambda _symbol: mock,
+        )
+        monkeypatch.setattr(
+            "investing.market_data_store._call_with_retry",
+            lambda fn, **kwargs: fn(),
+        )
+
+        store.resolve_ticker("OLD")
+
+        assert archived_path.read_bytes() == before
+        assert not (tmp_path / "manifest.json").exists()
 
     def test_merge_fx_history_preserves_old_dates(self, tmp_path, monkeypatch):
         monkeypatch.delenv("INVESTING_MARKET_DATA_DISABLE", raising=False)
@@ -376,29 +432,6 @@ class TestArchiveFallbackBoundary:
         monkeypatch.setenv("INVESTING_MARKET_DATA_DIR", str(tmp_path))
         return MarketDataStore(tmp_path, persist=False)
 
-    def test_dividend_failure_falls_back_to_archive(self, tmp_path, monkeypatch):
-        """Dividends are historical: the archived series is served."""
-        store = self._store(tmp_path, monkeypatch)
-        self._archived_ticker(tmp_path)
-
-        mock = MagicMock()
-        mock.get_info.return_value = {
-            "currency": "USD",
-            "exchange": "NMS",
-            "symbol": "TST",
-            "regularMarketPrice": 10.0,
-        }
-        mock.splits = {}
-        mock.get_dividends.side_effect = MarketDataError("yfinance get_dividends failed")
-        self._install(monkeypatch, mock)
-
-        info, _splits, dividends = store.resolve_ticker("TST")
-
-        # The live mark still came from the live read...
-        assert info["regularMarketPrice"] == pytest.approx(10.0)
-        # ...and the dividend tail fell back to what was on disk.
-        assert [d["dividend"] for d in dividends] == [pytest.approx(0.2)]
-
     def test_dividend_failure_without_archive_still_raises(self, tmp_path, monkeypatch):
         """No archive means nothing to fall back to."""
         store = self._store(tmp_path, monkeypatch)
@@ -417,12 +450,13 @@ class TestArchiveFallbackBoundary:
         with pytest.raises(MarketDataError, match="get_dividends"):
             store.resolve_ticker("TST")
 
-    def test_split_failure_raises_even_with_archive(self, tmp_path, monkeypatch):
-        """Splits set the current share count -- a stale inventory would lie.
+    def test_split_failure_degrades_and_flags(self, tmp_path, monkeypatch):
+        """A stale split inventory would misstate an *open* share count.
 
-        There is no way to distinguish "no new splits" from "couldn't
-        ask", so an unavailable split feed has to fail the build even
-        though a perfectly good archived inventory is sitting on disk.
+        The store cannot tell open from closed, so it serves the
+        archived inventory and flags the snapshot. ``Holding.ledger``
+        is what refuses to publish it if shares are still held --
+        see ``TestArchivedDataIsOnlyForClosedPositions``.
         """
         store = self._store(tmp_path, monkeypatch)
         self._archived_ticker(tmp_path)
@@ -437,13 +471,20 @@ class TestArchiveFallbackBoundary:
         type(mock).splits = property(
             lambda _self: (_ for _ in ()).throw(MarketDataError("yfinance splits failed"))
         )
+        mock.get_dividends.return_value = {}
         self._install(monkeypatch, mock)
 
-        with pytest.raises(MarketDataError, match="splits"):
-            store.resolve_ticker("TST")
+        resolved = store.resolve_ticker("TST")
 
-    def test_live_price_failure_raises_even_with_archive(self, tmp_path, monkeypatch):
-        """The mark on every open position must be today's."""
+        assert resolved.from_archive is True
+        # The archived inventory is what got served.
+        assert [s["split"] for s in resolved.splits] == [pytest.approx(2.0)]
+        # A live price was available, so it is present -- but the flag
+        # still stands, because the share count is the unverified part.
+        assert resolved.info["regularMarketPrice"] == pytest.approx(10.0)
+
+    def test_live_price_failure_degrades_and_drops_the_price(self, tmp_path, monkeypatch):
+        """No archived price is invented; the key is simply absent."""
         store = self._store(tmp_path, monkeypatch)
         self._archived_ticker(tmp_path)
 
@@ -453,8 +494,48 @@ class TestArchiveFallbackBoundary:
         mock.get_dividends.return_value = {}
         self._install(monkeypatch, mock)
 
-        with pytest.raises(MarketDataError, match="get_info"):
-            store.resolve_ticker("TST")
+        resolved = store.resolve_ticker("TST")
+
+        assert resolved.from_archive is True
+        assert "regularMarketPrice" not in resolved.info
+
+    def test_a_clean_read_is_not_flagged(self, tmp_path, monkeypatch):
+        """The flag must not fire on the ordinary path."""
+        store = self._store(tmp_path, monkeypatch)
+        self._archived_ticker(tmp_path)
+
+        mock = MagicMock()
+        mock.get_info.return_value = {
+            "currency": "USD",
+            "exchange": "NMS",
+            "symbol": "TST",
+            "regularMarketPrice": 10.0,
+        }
+        mock.splits = {}
+        mock.get_dividends.return_value = {}
+        self._install(monkeypatch, mock)
+
+        assert store.resolve_ticker("TST").from_archive is False
+
+    def test_a_dividend_only_failure_is_not_flagged(self, tmp_path, monkeypatch):
+        """Dividends are historical; losing them says nothing about today."""
+        store = self._store(tmp_path, monkeypatch)
+        self._archived_ticker(tmp_path)
+
+        mock = MagicMock()
+        mock.get_info.return_value = {
+            "currency": "USD",
+            "exchange": "NMS",
+            "symbol": "TST",
+            "regularMarketPrice": 10.0,
+        }
+        mock.splits = {}
+        mock.get_dividends.side_effect = MarketDataError("yfinance get_dividends failed")
+        self._install(monkeypatch, mock)
+
+        resolved = store.resolve_ticker("TST")
+        assert resolved.from_archive is False
+        assert [d["dividend"] for d in resolved.dividends] == [pytest.approx(0.2)]
 
     def test_history_failure_falls_back_to_archive(self, tmp_path, monkeypatch):
         """Adjusted-close history is retrospective: the archive serves it."""

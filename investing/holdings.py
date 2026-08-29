@@ -18,7 +18,7 @@ from .clock import NowFn, resolve_now
 from .errors import InvariantError
 from .formatting import _ts_to_datetime
 from .fx import FxRate, _fx_or_default
-from .market_data import _call_with_retry
+from .market_data import MarketDataError, _call_with_retry
 from .market_data_store import MarketDataStore
 from .safehtml import safe_url
 from .sector_overrides import resolve_sector
@@ -322,8 +322,18 @@ class Holding:
         self._store = store
         self._ticker_symbol = ticker
         self._ticker = yf.Ticker(ticker)
+        # ``_from_archive`` marks a snapshot whose current-state inputs
+        # (live price, split inventory) could not be refreshed and came
+        # off disk. Harmless for a position already exited; fatal for
+        # one still held. Which it is only becomes known once the trade
+        # ledger has been replayed, so :meth:`ledger` makes the call.
+        self._from_archive = False
         if store is not None and store.enabled:
-            self._info, self._splits, self._dividends = store.resolve_ticker(ticker)
+            resolved = store.resolve_ticker(ticker)
+            self._info = resolved.info
+            self._splits = resolved.splits
+            self._dividends = resolved.dividends
+            self._from_archive = resolved.from_archive
         else:
             self._info = _call_with_retry(
                 self._ticker.get_info,
@@ -651,6 +661,28 @@ class Holding:
             for event in combined
         ]
 
+    def _require_current_market_data(self) -> None:
+        """Fail when an *open* position rests on archived market data.
+
+        The archive is allowed to carry a closed position in full: its
+        share count is zero, no later split changes zero, and every
+        cashflow that fixes its return already happened. Nothing about
+        it is a claim regarding today.
+
+        An open position is the opposite. Its size comes from the split
+        inventory and its value from the live price, so publishing it
+        from an archive would state a holding and a valuation that this
+        run never actually verified. A late page is recoverable; one
+        that misreports what is held is not.
+        """
+        if not self._from_archive:
+            return
+        raise MarketDataError(
+            f"ticker {self._ticker_symbol!r} still holds an open position but its "
+            "market data could not be refreshed; refusing to publish a stale "
+            "share count or valuation",
+        )
+
     @property
     def current_market_price(self) -> float:
         """The ticker's latest reported price in its native currency.
@@ -665,6 +697,7 @@ class Holding:
         (which lags by intraday / overnight movement against the
         live tape ``regularMarketPrice`` reflects).
         """
+        self._require_current_market_data()
         return float(self._info["regularMarketPrice"])
 
     @property
@@ -903,6 +936,9 @@ class Holding:
                     if cash_usd > 0:
                         cashflows.append((date, +cash_usd))
                         gross_returned += cash_usd
+
+        if quantity_current > 0:
+            self._require_current_market_data()
 
         # Synthetic mark-to-market for an open position: as if the
         # holder sold at ``regularMarketPrice`` today. Together with
