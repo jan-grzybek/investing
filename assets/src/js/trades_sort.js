@@ -1,3 +1,81 @@
+/*
+ * Click-to-sort behaviour for the "Trades" table.
+ *
+ * Each `<tr class="trades__row">` carries the sort keys it can be
+ * ordered by on `data-sort-*` attributes (date / ticker / name /
+ * action / detail). The script wires every `<th data-sort-key="...">`
+ * so a click on the inner `.trades__sort` button:
+ *
+ * * toggles the direction when the same column is clicked twice in
+ * a row (asc <-> desc);
+ * * picks a sensible initial direction the first time the user lands
+ * on a column -- "desc" for date (newest first matches the way the
+ * section was already ordered by default), "asc" for everything
+ * else (alphabetical A -> Z for ticker / name, BUY before SELL for
+ * action, OPEN -> CLOSE for detail);
+ * * updates `aria-sort` on the active `<th>` so screen readers
+ * announce the new state, and resets the other columns to "none"
+ * so only one indicator triangle ever reads as active;
+ * * keeps a deterministic tie-break (date desc, then ticker asc) so
+ * equal-key rows always reorder the same way and the table doesn't
+ * visibly shuffle when the user sorts by action and several rows
+ * share a label.
+ *
+ * Bursts span multiple days but only one `data-sort-date` value is
+ * emitted per row (the burst's `end_date`, i.e. its most recent
+ * event) -- it's the natural anchor for the "when did this trade
+ * happen?" question and matches the desktop convention of headlining
+ * a burst by its last fill.
+ *
+ * Right after the initial sort the script also runs `freezeColumns`
+ * to pin each `<th>` to the width it would naturally take with
+ * every row exposed. The default `table-layout: auto` recomputes
+ * column widths from whichever rows are currently visible, and the
+ * "Show fewer entries" cap (CSS hides `tr:nth-of-type(n+11)`) means
+ * sorting can rotate a long name -- "UnitedHealth Group Inc.", "Lam
+ * Research Corporation" -- in or out of the top-10 window, which
+ * visibly squashes or widens the Company column. By measuring once
+ * with all rows displayed and then locking the table to
+ * `table-layout: fixed` with those pixel widths, the column edges
+ * stay flush across every sort + collapse permutation. On resize
+ * the handler does two things, in this order: it first runs
+ * `unfreeze` synchronously -- clearing `table-layout: fixed` and
+ * all per-`<th>` pixel widths -- so the table reflows naturally
+ * with the new wrap dimensions as the user drags the window edge
+ * (without this immediate relax, the table would stay pinned to its
+ * previous wider column widths and visibly overflow the wrap until
+ * the debounced re-measure caught up, which is exactly the
+ * "everything jumps at once" effect the redesign exists to avoid).
+ * A 150ms debounce then re-runs `freezeColumns` to lock the new
+ * natural widths in for the next sort/expand cycle.
+ *
+ * Responsive column hiding is handled by the stylesheet now, not the
+ * script: `.trades__wrap` is declared as a named `trades`
+ * inline-size container, and the matching `@container trades
+ * (max-width: ...)` rules drop the Company column at ~600px wrap
+ * width and the Action pill at ~430px wrap width. Doing the visibility
+ * decision in CSS rather than JS means every resize frame gets the
+ * correct column set as a synchronous side-effect of layout, without
+ * the debounce delay an earlier JS-driven version had between the
+ * user crossing a threshold and the column actually disappearing.
+ * The two thresholds are 170px apart, so a continuous resize through
+ * the boundary produces two clearly separated visual transitions --
+ * Company drops first, the 5-column layout survives all the way down
+ * to phone widths, and only on the narrowest viewports does Action
+ * follow. `freezeColumns` re-runs on resize so the locked pixel
+ * widths refresh once a column has dropped out and the remaining
+ * columns redistribute.
+ *
+ * `boot` is deferred to `DOMContentLoaded` because the script ships
+ * from <head> and the `<table class="trades">` body it queries for
+ * isn't parsed yet at that point. Without the defer the IIFE would
+ * observe a null table on every page load and bail out, leaving the
+ * sort headers silently inert (which is exactly the bug we're fixing
+ * here). The pattern matches `_RETURN_CHART_SCRIPT` further up.
+ *
+ * Kept as a tight ES5-flavoured IIFE so the inline payload stays
+ * small and gets a single stable SHA-256 hash (pinned in CSP).
+ */
 (function(){function boot(){var table=document.querySelector('table.trades');if(!table)return;var tbody=table.querySelector('tbody');if(!tbody)return;var wrap=table.closest('.trades__wrap');var ths=table.querySelectorAll('th[data-sort-key]');var allThs=table.querySelectorAll('thead th');var state={key:null,dir:null};function rowKey(row,key){return row.getAttribute('data-sort-'+key)||'';}function cmp(a,b,key){var av=rowKey(a,key),bv=rowKey(b,key);if(key==='price'){var ac=rowKey(a,'currency'),bc=rowKey(b,'currency');if(ac!==bc)return ac<bc?-1:1;av=parseFloat(av);bv=parseFloat(bv);if(av<bv)return -1;if(av>bv)return 1;return 0;}if(key==='action'||key==='detail'){av=parseInt(av,10);bv=parseInt(bv,10);if(av<bv)return -1;if(av>bv)return 1;return 0;}if(av<bv)return -1;if(av>bv)return 1;return 0;}function sortBy(key,dir){var rows=Array.prototype.slice.call(tbody.querySelectorAll('tr'));rows.sort(function(a,b){var c=cmp(a,b,key);if(dir==='desc')c=-c;if(c!==0)return c;var ad=rowKey(a,'date'),bd=rowKey(b,'date');if(ad!==bd)return ad<bd?1:-1;var at=rowKey(a,'ticker'),bt=rowKey(b,'ticker');if(at<bt)return -1;if(at>bt)return 1;return 0;});for(var i=0;i<rows.length;i++)tbody.appendChild(rows[i]);for(var j=0;j<ths.length;j++){var th=ths[j];var k=th.getAttribute('data-sort-key');if(k===key){th.setAttribute('aria-sort',dir==='asc'?'ascending':'descending');}else{th.setAttribute('aria-sort','none');}}state.key=key;state.dir=dir;}/* Measuring has to happen on `auto`, or the measurement just reads
      back the baseline percentages the stylesheet declares and the
      freeze can never adapt to the actual content. Clearing the

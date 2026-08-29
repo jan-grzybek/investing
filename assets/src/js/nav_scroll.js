@@ -1,3 +1,60 @@
+/*
+ * Custom smooth-scroll for in-page anchor links. Native CSS
+ * `scroll-behavior: smooth` is fast and abrupt, and on iOS Safari
+ * the sticky header's `backdrop-filter` re-composites mid-scroll
+ * which reads as a brief "blink" right after the tap. Driving the
+ * scroll from JS lets us:
+ *
+ * * use an ease-out quartic animation that genuinely "slides"
+ * between sections instead of snapping. `easeOutQuart`
+ * (`1 - (1-t)^4`) front-loads motion: the scroll picks up
+ * speed in the first frame and decelerates smoothly into the
+ * target. The earlier `easeInOutCubic` curve started slow
+ * (perceived as input lag), then accelerated through the
+ * middle, then decelerated -- on a long page that "slow start,
+ * fast middle, slow end" reads as "the page is stuttering and
+ * then catching up" rather than as a smooth slide. Ease-out
+ * also lets us shorten the overall duration without the
+ * animation feeling rushed, since the user immediately sees
+ * meaningful motion;
+ * * cancel `preventDefault()` the anchor click so the browser
+ * never performs the instant-jump that fights our animation;
+ * * call `window.scrollTo` programmatically (which does NOT
+ * fire wheel/touchmove), so the animation runs uninterrupted
+ * while the existing `_HASH_CLEAR_SCRIPT` happily stays put;
+ * * still write the section anchor into the URL via
+ * `history.pushState` so the link is shareable, matching
+ * pre-existing behaviour.
+ *
+ * The selector covers every same-page anchor on the page -- the
+ * four nav links -- except for the visually-hidden `.skip-link`,
+ * which assistive-tech users expect to jump instantly. Honours
+ * `prefers-reduced-motion` by jumping directly to the target.
+ *
+ * Kept as a tight ES5-flavoured IIFE so the inline payload stays
+ * small and gets a single stable SHA-256 hash (pinned in CSP).
+ *
+ * `slide` locks the destination `targetY(el)` at the moment of
+ * the click and animates against it for the rest of the duration.
+ * An earlier version re-read `targetY` on every frame to absorb
+ * layout shifts in flight (iOS Safari URL-bar collapse, lazy logos
+ * finishing decode), but with explicit `width`/`height` on
+ * every holding logo there is no CLS to absorb, programmatic
+ * `scrollTo` does not trigger the iOS URL-bar transition, and
+ * the per-frame re-read introduced a subtle but visible jitter:
+ * each `targetY` call rescales the entire trajectory, so any
+ * sub-pixel shift was amplified through the ease curve into a
+ * visible micro-stutter -- the user-reported "the animation
+ * looks odd" feel on short hops from the allocation chart. A
+ * single `scrollTo` to the current `targetY` at the very end
+ * of the slide still catches any pixel-level layout drift that
+ * happened in flight without contaminating the easing curve.
+ *
+ * `scrollTo` is invoked with `{behavior: 'auto'}` to
+ * explicitly opt out of any user-agent / page CSS smooth scroll
+ * that might otherwise layer a second animation on top of our
+ * rAF loop.
+ */
 (function(){var rm=false;try{rm=matchMedia('(prefers-reduced-motion: reduce)').matches;}catch(e){}function ease(t){var u=1-t;return 1-u*u*u*u;}function sy(){return window.pageYOffset||document.documentElement.scrollTop||0;}var raf=null;function targetY(el){var r=el.getBoundingClientRect(),top=r.top+sy(),smt=0;try{smt=parseInt(getComputedStyle(el).scrollMarginTop,10)||0;}catch(e){}return Math.max(0,top-smt);}function jump(y){try{window.scrollTo({top:y,behavior:'auto'});}catch(e){window.scrollTo(0,y);}}function slide(el,d){if(raf!==null)cancelAnimationFrame(raf);var sy0=sy(),ty0=targetY(el),t0=null;function step(ts){if(t0===null)t0=ts;var t=Math.min(1,(ts-t0)/d);jump(sy0+(ty0-sy0)*ease(t));if(t<1){raf=requestAnimationFrame(step);}else{jump(targetY(el));raf=null;}}raf=requestAnimationFrame(step);}document.addEventListener('click',function(e){if(e.defaultPrevented)return;if(e.button!==0)return;if(e.metaKey||e.ctrlKey||e.shiftKey||e.altKey)return;var t=e.target;if(!t||!t.closest)return;var a=t.closest('a[href^="#"]:not(.skip-link)');if(!a)return;var href=a.getAttribute('href');if(!href||href==='#')return;var el=document.getElementById(href.slice(1));if(!el)return;e.preventDefault();if(a.blur){try{a.blur();}catch(err){}}if(rm){jump(targetY(el));}else{var dist=Math.abs(targetY(el)-sy());var dur=Math.min(650,Math.max(280,dist*0.30));slide(el,dur);}try{history.pushState(null,'',href);}catch(err){}});})();
 (function(){
 /* Deferred: this file ships from <head>, so <body> is not parsed yet
