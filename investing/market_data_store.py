@@ -63,6 +63,7 @@ from typing import Any
 import numpy as np
 import yfinance as yf
 
+from .clock import default_now
 from .formatting import _ts_to_datetime
 from .log import logger
 from .market_data import MarketDataError, _call_with_retry
@@ -469,7 +470,14 @@ class MarketDataStore:
 
     def _fx_path(self, currency: str) -> Path:
         assert self._root is not None
-        return self._root / "fx" / f"{currency}.npz"
+        # Sanitised like ``_ticker_path`` / ``_history_path``. The
+        # currency code comes from the spreadsheet rather than from a
+        # fixed enum, and a value containing a separator would resolve
+        # the write outside the snapshot tree. Low stakes given the
+        # sheet is the maintainer's own, but the inconsistency was the
+        # kind that survives until the one time it matters.
+        safe = currency.replace("/", "-").replace("\\", "-")
+        return self._root / "fx" / f"{safe}.npz"
 
     def _load_json(self, path: Path) -> dict[str, Any] | None:
         if not path.is_file():
@@ -514,7 +522,7 @@ class MarketDataStore:
             }
             manifest.setdefault(section, {})[key] = {
                 "content_hash": digest,
-                "updated_at": _iso_date(datetime.today()),
+                "updated_at": _iso_date(default_now()),
             }
             manifest["schema_version"] = SCHEMA_VERSION
             _atomic_write_json(self._manifest_path, manifest)

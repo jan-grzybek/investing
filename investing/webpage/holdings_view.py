@@ -38,6 +38,7 @@ from datetime import date
 from ..errors import InvariantError
 from ..formatting import _fmt_date, _fmt_pct, _format_sort_number, _value_class
 from ..holdings import CAGR_TBA_THRESHOLD, google_search_url
+from ..safehtml import safe_url
 from ..types import HoldingSummary
 from .anchors import holding_anchor
 
@@ -242,7 +243,13 @@ def build_row(holding: HoldingSummary, *, logo_url_for: Callable[[str], str]) ->
     all.
     """
     is_current = holding["is_current"]
-    website_url = holding.get("website") or google_search_url(holding["name"])
+    # Validated again at the render boundary, not just where the value
+    # is produced: ``website`` also arrives on synthetic dicts (preview
+    # fixtures, tests) that never went through ``resolve_company_url``.
+    website_url = safe_url(
+        holding.get("website"),
+        fallback=google_search_url(holding["name"]),
+    )
     sort_attrs = {
         "name": holding["name"].casefold(),
         "tsr": _format_sort_number(holding["tsr%"]),

@@ -84,3 +84,70 @@ def test_safe_html_add_with_none_coerces_to_empty(left, right):
         assert str(left + right) == "x"
     else:
         assert str(left + right) == "x"
+
+
+class TestSafeUrl:
+    """Scheme validation for URLs that reach an ``href``.
+
+    ``html.escape`` escapes delimiters; it does not disarm a scheme.
+    ``javascript:alert(1)`` survives escaping unchanged and stays live
+    as an ``href``, so the two obligations are separate and this is
+    where the second one is discharged. The values matter because
+    ``resolve_company_url`` forwards ``info["website"]`` straight out
+    of the yfinance payload.
+    """
+
+    def test_http_and_https_pass_through(self):
+        from investing.safehtml import safe_url
+
+        assert safe_url("https://example.com/x?y=1") == "https://example.com/x?y=1"
+        assert safe_url("http://example.com") == "http://example.com"
+
+    def test_scheme_match_is_case_insensitive(self):
+        from investing.safehtml import safe_url
+
+        assert safe_url("HTTPS://example.com") == "HTTPS://example.com"
+
+    @pytest.mark.parametrize(
+        "hostile",
+        [
+            "javascript:alert(1)",
+            "JavaScript:alert(1)",
+            "  javascript:alert(1)",
+            "data:text/html,<script>alert(1)</script>",
+            "vbscript:msgbox(1)",
+            "file:///etc/passwd",
+        ],
+    )
+    def test_dangerous_schemes_are_replaced(self, hostile):
+        from investing.safehtml import safe_url
+
+        assert safe_url(hostile) == "https://www.google.com/"
+
+    def test_relative_paths_pass_through(self):
+        # Logo ``src`` values are relative and carry no scheme; they can
+        # only resolve against the page's own origin.
+        from investing.safehtml import safe_url
+
+        assert safe_url("logos/tight/NMS%3AAAA.svg") == "logos/tight/NMS%3AAAA.svg"
+
+    def test_a_colon_after_a_slash_is_not_a_scheme(self):
+        # ``logos/a:b.svg`` is a relative path whose *filename* contains
+        # a colon -- exactly the shape every ticker logo uses
+        # ("NMS:AAA.svg"). Treating that as a scheme would reject every
+        # logo on the page.
+        from investing.safehtml import safe_url
+
+        assert safe_url("logos/tight/NMS:AAA.svg") == "logos/tight/NMS:AAA.svg"
+
+    def test_empty_and_none_take_the_fallback(self):
+        from investing.safehtml import safe_url
+
+        assert safe_url(None) == "https://www.google.com/"
+        assert safe_url("") == "https://www.google.com/"
+        assert safe_url("   ") == "https://www.google.com/"
+
+    def test_custom_fallback_is_honoured(self):
+        from investing.safehtml import safe_url
+
+        assert safe_url("javascript:x", fallback="https://q/") == "https://q/"

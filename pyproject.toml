@@ -106,13 +106,17 @@ precision = 1
 # a red build green. A drop below the floor fails CI rather than
 # silently eroding the safety net.
 #
-# 87 -> 95 when the edge-case suite landed. The gap that remains is
-# concentrated and known, not diffuse: the fd-redirection teardown in
-# ``safe_run``, the production entrypoints in ``cli``, the live-fetch
-# merge in ``market_data_store``, the SVG rasteriser in ``og_image``,
-# and the gspread batch fallback in ``sheets``. Each needs a harness
-# rather than a test, which is why they are last.
-fail_under = 95
+# 87 -> 95 when the edge-case suite landed. 95 -> 96 when the retry /
+# archive-fallback work added tests for the Sheets retry path and the
+# archive boundary, and deleting the OG-image render cache removed a
+# block of thinly-covered code with it.
+#
+# The gap that remains is concentrated and known, not diffuse: the
+# fd-redirection teardown in ``safe_run``, the production entrypoints
+# in ``cli``, the SVG rasteriser in ``og_image``, and the gspread batch
+# fallback in ``sheets``. Each needs a harness rather than a test,
+# which is why they are last.
+fail_under = 96
 
 [tool.ruff]
 line-length = 100

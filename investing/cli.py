@@ -19,7 +19,7 @@ from typing import TextIO
 
 from dateutil.relativedelta import relativedelta
 
-from .clock import NowFn
+from .clock import NowFn, resolve_now
 from .formatting import _fmt_pct, _format_duration
 from .fx import ExchangeRate, FxRate
 from .log import logger
@@ -352,7 +352,7 @@ def build_page(
     """
     _pull = pull if pull is not None else _pull_data
     _save: SaveFn = save if save is not None else generate_webpage
-    _now: NowFn = now if now is not None else datetime.today
+    _now: NowFn = resolve_now(now)
     _store = store if store is not None else _default_market_data_store()
     # Single shared FX cache for the whole build: every Holding reads
     # currencies through this instance so each USD/EUR/GBp lookup

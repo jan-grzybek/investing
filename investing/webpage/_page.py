@@ -18,10 +18,9 @@ year table, anchors, sitemap/robots) live next to it in the
 from __future__ import annotations
 
 import html
-from datetime import datetime
 from pathlib import Path
 
-from ..clock import NowFn
+from ..clock import NowFn, resolve_now
 from ..formatting import _fmt_date_long
 from ..log import logger
 from ..logos import LogoCache, LogoResolver
@@ -151,7 +150,7 @@ class Webpage:
         # the legacy ``freeze_today`` fixture (which monkeypatches
         # this module's bound ``datetime``) keeps working; new code
         # can inject a fixed closure directly.
-        self._now: NowFn = now if now is not None else datetime.today
+        self._now: NowFn = resolve_now(now)
 
     # ------------------------------------------------------------------ API
 

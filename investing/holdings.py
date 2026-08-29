@@ -14,12 +14,13 @@ from typing import Any
 import numpy as np
 import yfinance as yf
 
-from .clock import NowFn
+from .clock import NowFn, resolve_now
 from .errors import InvariantError
 from .formatting import _ts_to_datetime
 from .fx import FxRate, _fx_or_default
 from .market_data import _call_with_retry
 from .market_data_store import MarketDataStore
+from .safehtml import safe_url
 from .sector_overrides import resolve_sector
 from .trades import _BUY_CATEGORIES, TRADE_WINDOW_DAYS, Trade, _combine_trade_events
 from .types import HoldingPeriod, HoldingSummary, TradeEvent
@@ -68,11 +69,16 @@ def resolve_company_url(info: dict) -> str:
     silently swallow clicks instead of routing them anywhere
     actionable.
     """
+    descriptor = info.get("longName") or info.get("shortName") or info.get("symbol") or ""
     for key in ("website", "irWebsite"):
         value = info.get(key)
         if isinstance(value, str) and value.strip():
-            return value.strip()
-    descriptor = info.get("longName") or info.get("shortName") or info.get("symbol") or ""
+            # Scheme-validated: this string comes from the yfinance
+            # payload, which is a third-party feed, and it lands
+            # directly in an ``href``. HTML-escaping downstream does
+            # not disarm a ``javascript:`` URL -- it escapes the
+            # delimiters and leaves the scheme working.
+            return safe_url(value.strip(), fallback=google_search_url(descriptor))
     return google_search_url(descriptor)
 
 
@@ -337,7 +343,7 @@ class Holding:
         # (which the legacy ``freeze_today`` fixture still patches);
         # new tests can pass an explicit closure to avoid the
         # cross-module monkeypatch.
-        self._now: NowFn = now if now is not None else datetime.today
+        self._now: NowFn = resolve_now(now)
         self._positions: list[dict] = []
         # Display-only ownership spans for the holding capsules on the
         # rendered page (``holdings_view``). ``buy``/``sell`` maintain
