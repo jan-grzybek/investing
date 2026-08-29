@@ -105,7 +105,7 @@ pillow==12.3.0
     #   jg-investing (pyproject.toml)
 pip-tools==7.6.1
     # via jg-investing (pyproject.toml)
-platformdirs==4.11.5
+platformdirs==4.11.4
     # via
     #   virtualenv
     #   yfinance
