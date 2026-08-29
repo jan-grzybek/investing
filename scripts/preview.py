@@ -672,7 +672,30 @@ def render(out_dir: Path) -> Path:
         page.add_holding(h)
     page.add_trades(data["trades"])
     page.save(out_dir)
+    _stage_logos(out_dir)
     return out_dir / "index.html"
+
+
+def _stage_logos(out_dir: Path) -> None:
+    """Copy ``logos/tight/`` next to the rendered preview.
+
+    Logo ``<img src>`` values are relative (see
+    :data:`investing.paths.LOGOS_ADDRESS`), so the preview has to
+    provide the same sibling directory GitHub Pages serves or every
+    logo renders as a broken image.
+
+    This is the half of the fix that makes the preview genuinely
+    offline. Previously the emitted URLs were absolute production
+    links, so the preview silently pulled logos from the deployed site
+    -- meaning a logo added locally could not be seen until after it
+    had shipped, and the preview did not render at all without a
+    network.
+    """
+    dest = out_dir / "logos" / "tight"
+    if dest.exists():
+        shutil.rmtree(dest)
+    if _REPO_LOGOS_DIR.is_dir():
+        shutil.copytree(_REPO_LOGOS_DIR, dest)
 
 
 def main() -> int:
