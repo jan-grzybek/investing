@@ -381,7 +381,7 @@ class TestArchivedTickerUpkeep:
         assert store.refresh_ticker.call_count == 0
 
     def test_read_only_runs_never_write(self):
-        """The routine two-hourly deploy must not touch ``main``."""
+        """The routine scheduled deploy must not touch ``main``."""
         from unittest.mock import MagicMock
 
         from investing.cli import _refresh_departed_archives

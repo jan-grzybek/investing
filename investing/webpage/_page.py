@@ -54,7 +54,7 @@ def _write_if_changed(path: Path, body: str) -> bool:
 
     Returns ``True`` if a write happened, ``False`` if the existing file
     already matched. The skip path avoids bumping mtime on no-op runs:
-    the bi-hourly CI schedule regenerates the page even when nothing
+    the scheduled CI refreshes regenerate the page even when nothing
     moved (markets closed, rounded display values steady), and the
     deploy step downstream re-uploads artefacts whose mtimes changed.
     Keeping the mtime stable on a no-op render therefore avoids a
@@ -337,7 +337,7 @@ class Webpage:
         parts.append("</body>")
         parts.append("</html>")
 
-        # Content-addressable short-circuit: on the bi-hourly schedule
+        # Content-addressable short-circuit: on the scheduled refreshes
         # most regenerations produce byte-identical HTML (markets are
         # closed, the page already shows today's data, or rounded
         # display values haven't moved). Comparing the new bytes to
