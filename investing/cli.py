@@ -452,7 +452,7 @@ def _refresh_departed_archives(
     back to when a vendor read fails -- the only thing that keeps it
     publishable during an outage.
 
-    Read-only runs (the routine two-hourly deploy) skip this entirely;
+    Read-only runs (the routine scheduled deploys) skip this entirely;
     the monthly cron is the sole writer.
     """
     if not (store.enabled and store.persist):
