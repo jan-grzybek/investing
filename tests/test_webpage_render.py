@@ -1082,7 +1082,7 @@ class TestSave:
         assert "index,follow" in out
         assert "max-image-preview:large" in out
         # Canonical URL prevents duplicate-content dilution.
-        assert ('rel="canonical" href="https://jan-grzybek.github.io/investing/"') in out
+        assert ('rel="canonical" href="https://investing.jan-grzybek.com/"') in out
         # Open Graph: title, description, image, url, type, locale, site_name.
         for prop in (
             "og:title",
@@ -1113,7 +1113,7 @@ class TestSave:
         assert 'property="og:image:alt"' in out
         # OG image points at the dynamically-generated PNG, not the
         # static apple-touch icon.
-        assert 'content="https://jan-grzybek.github.io/investing/og-image.png"' in out
+        assert 'content="https://investing.jan-grzybek.com/og-image.png"' in out
         # JSON-LD structured data identifies the site + its author.
         assert 'type="application/ld+json"' in out
         assert '"@type": "WebSite"' in out or '"@type":"WebSite"' in out
@@ -1230,7 +1230,7 @@ class TestSave:
         sitemap = (chdir_tmp / "sitemap.xml").read_text()
         assert sitemap.startswith('<?xml version="1.0" encoding="UTF-8"?>')
         assert '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' in sitemap
-        assert "<loc>https://jan-grzybek.github.io/investing/</loc>" in sitemap
+        assert "<loc>https://investing.jan-grzybek.com/</loc>" in sitemap
         # Lastmod uses the frozen "today".
         assert "<lastmod>2025-06-01</lastmod>" in sitemap
         assert "<changefreq>daily</changefreq>" in sitemap
@@ -1256,7 +1256,7 @@ class TestSave:
         assert "Allow: /" in robots
         # Sitemap pointer derived from ``SITE_URL`` (no trailing
         # double-slash even though SITE_URL ends with one).
-        assert "Sitemap: https://jan-grzybek.github.io/investing/sitemap.xml" in robots
+        assert "Sitemap: https://investing.jan-grzybek.com/sitemap.xml" in robots
         assert "//sitemap.xml" not in robots
 
     def test_save_wires_nav_anchors_to_every_section(

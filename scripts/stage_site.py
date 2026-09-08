@@ -48,6 +48,14 @@ _STATIC_ROOT_FILES = (
     "apple-touch-icon.png",
 )
 
+# The custom domain, which GitHub Pages reads from a ``CNAME`` file in the
+# published artifact. Deployment here is an Actions upload rather than a
+# branch, so nothing else puts one there: without this the site answers on
+# ``jan-grzybek.github.io`` alone and the custom domain 404s. Kept out of
+# ``_STATIC_ROOT_FILES`` because that tuple promises every entry is an icon
+# referenced from ``<head>``, and this is neither.
+_ROOT_EXTRAS = ("CNAME",)
+
 # Directories whose contents ship as-is (no ``src/`` subtrees).
 _SITE_DIRS = (
     "assets",
@@ -59,7 +67,7 @@ def _collect_source_paths(source: Path) -> dict[Path, Path]:
     """Return ``relative_dest -> absolute_source`` for every public file."""
     mapping: dict[Path, Path] = {}
 
-    for name in _ROOT_ARTIFACTS + _STATIC_ROOT_FILES:
+    for name in _ROOT_ARTIFACTS + _STATIC_ROOT_FILES + _ROOT_EXTRAS:
         src = source / name
         if src.is_file():
             mapping[Path(name)] = src

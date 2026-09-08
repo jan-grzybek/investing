@@ -29,8 +29,8 @@ def _meta() -> SiteMeta:
         title="JG Investing",
         seo_title="Jan Grzybek - Investment Portfolio",
         description="Synthetic preview description for CSP contract tests.",
-        url="https://jan-grzybek.github.io/investing/",
-        social_image="https://jan-grzybek.github.io/investing/og-image.png",
+        url="https://investing.jan-grzybek.com/",
+        social_image="https://investing.jan-grzybek.com/og-image.png",
     )
 
 

@@ -72,3 +72,22 @@ def test_every_head_icon_reference_is_staged():
     # And the committed source files must actually exist to be copied.
     for name in stage_site._STATIC_ROOT_FILES:
         assert (_REPO_ROOT / name).is_file(), f"missing committed asset: {name}"
+
+
+def test_the_custom_domain_ships_in_the_artifact(tmp_path: Path) -> None:
+    """GitHub Pages reads the custom domain from a ``CNAME`` file inside the
+    published artifact. This deployment is an Actions upload rather than a
+    branch, so nothing else puts one there -- without it the site answers on
+    ``jan-grzybek.github.io`` alone and the custom domain 404s."""
+    out = tmp_path / "site"
+    stage_site._write_staging(_REPO_ROOT, out)
+
+    cname = out / "CNAME"
+    assert cname.is_file(), "CNAME missing from the staged site"
+    assert cname.read_text(encoding="utf-8").strip() == "investing.jan-grzybek.com"
+
+
+def test_the_committed_domain_file_exists() -> None:
+    # The staging copies it; it has to be there to copy.
+    for name in stage_site._ROOT_EXTRAS:
+        assert (_REPO_ROOT / name).is_file(), f"missing committed file: {name}"
