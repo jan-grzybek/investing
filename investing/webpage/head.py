@@ -64,6 +64,14 @@ _CLOUDFLARE_ANALYTICS_TAG: SafeHtml = SafeHtml(
 )
 
 
+# Search Console's site token. Public by design -- it appears in the served
+# HTML and proves only that whoever put it there controls the site, which is
+# the whole point of it. Verification is what lets Google be told the canonical
+# title and favicon; until it happens, results keep whatever was cached from
+# the github.io days.
+_GOOGLE_SITE_VERIFICATION = "9y-xfdBP8e0z77neoo4Zmwqs3tJqpveH5Hlt-jE7r3Q"
+
+
 def build_analytics_tag() -> SafeHtml:
     """Return the Cloudflare Web Analytics beacon ``<script>`` tag.
 
@@ -186,6 +194,10 @@ def build_head(meta: SiteMeta) -> SafeHtml:
         f'<meta name="description" content="{desc}">\n'
         '<meta name="author" content="Jan Grzybek">\n'
         '<meta name="robots" content="index,follow,max-image-preview:large">\n'
+        # Search Console's proof that this site is ours to claim. It stays
+        # after verification: Google re-checks, and a property that silently
+        # unverifies stops reporting rather than announcing itself.
+        f'<meta name="google-site-verification" content="{_GOOGLE_SITE_VERIFICATION}">\n'
         f'<link rel="canonical" href="{url}">\n'
         f'<meta http-equiv="Content-Security-Policy" content="{csp}">\n'
         '<meta name="referrer" content="strict-origin-when-cross-origin">\n'

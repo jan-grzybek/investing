@@ -1498,3 +1498,28 @@ class TestTheTabAndTheSearchResultAreNotTheSameAudience:
     def test_the_rendered_page_carries_both(self) -> None:
         assert Webpage.TAB_TITLE == "JG - Investment Portfolio"
         assert Webpage.SEO_TITLE == "Jan Grzybek - Investment Portfolio"
+
+
+class TestGoogleCanVerifyTheSite:
+    """Search Console needs to see its own token in the head before it will
+    accept the property -- and until it does, Google keeps serving the stale
+    `github documentation` title it cached from the github.io days."""
+
+    def _head(self):
+        from investing.webpage.head import SiteMeta, build_head
+
+        return str(build_head(SiteMeta(
+            title="T", seo_title="S", description="D",
+            url="https://investing.jan-grzybek.com/",
+            social_image="https://investing.jan-grzybek.com/og.png")))
+
+    def test_the_verification_token_is_in_the_head(self):
+        head = self._head()
+        assert 'name="google-site-verification"' in head
+        assert "9y-xfdBP8e0z77neoo4Zmwqs3tJqpveH5Hlt-jE7r3Q" in head
+
+    def test_it_sits_inside_the_head_element(self):
+        """Google only reads the head. A tag emitted after </head> verifies
+        nothing and is the kind of thing nobody notices for a month."""
+        head = self._head()
+        assert head.index('name="google-site-verification"') < head.index("</head>")
