@@ -65,7 +65,7 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://jan-grzybek.github.io/investing/"
+Homepage = "https://investing.jan-grzybek.com/"
 Source = "https://github.com/jan-grzybek/investing"
 Issues = "https://github.com/jan-grzybek/investing/issues"
 

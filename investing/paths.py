@@ -43,8 +43,15 @@ __all__ = [
 # Env var the operator sets to override the canonical site URL. ``None``
 # (or empty) falls back to :data:`_DEFAULT_SITE_URL`, which matches the
 # production deployment so existing forks see no behavioural change.
+#
+# The custom domain, not ``jan-grzybek.github.io/investing/``. Shipping the
+# ``CNAME`` alone would have made the site *reachable* at the new name while
+# every ``<link rel="canonical">``, ``og:url`` and sitemap entry still named
+# the old one -- which is how two URLs for one page end up competing with
+# each other in a search index instead of one ranking. GitHub redirects the
+# old address to this, so nothing that already points at it breaks.
 _SITE_URL_ENV = "INVESTING_SITE_URL"
-_DEFAULT_SITE_URL = "https://jan-grzybek.github.io/investing/"
+_DEFAULT_SITE_URL = "https://investing.jan-grzybek.com/"
 
 
 def _resolve_site_url() -> str:
