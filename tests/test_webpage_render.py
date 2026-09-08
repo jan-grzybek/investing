@@ -948,7 +948,7 @@ class TestSave:
         assert out.rstrip().endswith("</html>")
         assert '<html lang="en">' in out
         # The descriptive title is what renders on SERPs/tabs.
-        assert "<title>Jan Grzybek - Investment Portfolio</title>" in out
+        assert "<title>JG - Investment Portfolio</title>" in out
         # Mobile readiness: viewport + theme-color metas, and at least
         # one narrow-width media query in the embedded stylesheet.
         assert 'name="viewport"' in out
@@ -1073,7 +1073,7 @@ class TestSave:
         w.save()
 
         out = (chdir_tmp / "index.html").read_text()
-        assert "<title>Jan Grzybek - Investment Portfolio</title>" in out
+        assert "<title>JG - Investment Portfolio</title>" in out
         assert 'name="description"' in out
         assert 'name="author" content="Jan Grzybek"' in out
         # ``index,follow`` plus large image previews to invite rich SERP
@@ -1452,3 +1452,49 @@ class TestAllocationBarsAlwaysAddUp:
             out = self._render(sectors=sectors)
             (legend,) = self._legend_values(out)
             assert sum(legend) == pytest.approx(100.0), sectors
+
+
+class TestTheTabAndTheSearchResultAreNotTheSameAudience:
+    """A tab is read at a glance beside twenty others and wants to be short.
+    A search headline is read once by someone who may be looking for the
+    person, and wants the name in full."""
+
+    def test_the_tab_is_short_and_the_search_title_is_not(self) -> None:
+        from investing.webpage.head import SiteMeta, build_head
+
+        head = str(
+            build_head(
+                SiteMeta(
+                    title="Long Form",
+                    seo_title="Jan Grzybek - Investment Portfolio",
+                    description="d",
+                    url="https://example.test/",
+                    social_image="https://example.test/og-image.png",
+                    tab_title="JG - Investment Portfolio",
+                )
+            )
+        )
+        assert "<title>JG - Investment Portfolio</title>" in head
+        # The name in full survives where it earns its keep.
+        assert 'property="og:title" content="Jan Grzybek - Investment Portfolio"' in head
+
+    def test_without_one_the_tab_is_the_search_title(self) -> None:
+        # The two only diverge where someone asked them to.
+        from investing.webpage.head import SiteMeta, build_head
+
+        head = str(
+            build_head(
+                SiteMeta(
+                    title="Long Form",
+                    seo_title="Only One Title",
+                    description="d",
+                    url="https://example.test/",
+                    social_image="https://example.test/og-image.png",
+                )
+            )
+        )
+        assert "<title>Only One Title</title>" in head
+
+    def test_the_rendered_page_carries_both(self) -> None:
+        assert Webpage.TAB_TITLE == "JG - Investment Portfolio"
+        assert Webpage.SEO_TITLE == "Jan Grzybek - Investment Portfolio"

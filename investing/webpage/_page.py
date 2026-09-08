@@ -358,6 +358,10 @@ class Webpage:
     # Used in <title>, OG/Twitter title, and JSON-LD. Keep it short so
     # search engines render it without truncation in SERPs (~60 chars).
     SEO_TITLE = "Jan Grzybek - Investment Portfolio"
+    # The tab, which is read at a glance beside twenty others. The name in
+    # full stays on the search result and the social card, where someone
+    # looking for the person is the one reading it.
+    TAB_TITLE = "JG - Investment Portfolio"
     # Sourced from :mod:`investing.paths`, where the canonical value
     # is env-overridable (``INVESTING_SITE_URL``) so a fork or staging
     # build can repoint the canonical / sitemap / OG URLs in one place
@@ -476,6 +480,7 @@ class Webpage:
         return SiteMeta(
             title=cls.SITE_TITLE,
             seo_title=cls.SEO_TITLE,
+            tab_title=cls.TAB_TITLE,
             description=cls.SITE_DESCRIPTION,
             url=cls.SITE_URL,
             social_image=cls.SOCIAL_IMAGE,

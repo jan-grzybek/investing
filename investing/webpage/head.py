@@ -37,10 +37,17 @@ class SiteMeta:
     """
 
     title: str  # Long-form site title (used in <h1>, og:site_name, JSON-LD ``name``).
-    seo_title: str  # SERP-friendly short title (used in <title> + Twitter / OG title meta).
+    seo_title: str  # SERP-friendly short title (Twitter / OG title meta, and <title> unless
+    #                 ``tab_title`` overrides it).
     description: str  # ~155-char meta description (description meta + Twitter / OG).
     url: str  # Canonical site URL.
     social_image: str  # Absolute URL of the rendered OG image.
+    # What the browser tab says, when that should differ from the search
+    # result. A tab is read at a glance among twenty others and wants to be
+    # short; a SERP headline is read once by someone who may be looking for
+    # the person, and wants the name in full. Defaults to ``seo_title`` so
+    # the two only diverge where someone asked them to.
+    tab_title: str | None = None
 
 
 # Cloudflare Web Analytics beacon. The token is a *write-only* identifier
@@ -164,6 +171,7 @@ def build_head(meta: SiteMeta) -> SafeHtml:
     document without an extra escape pass.
     """
     title = escape(meta.seo_title)
+    tab = escape(meta.tab_title or meta.seo_title)
     desc = escape(meta.description)
     site = escape(meta.title)
     url = escape(meta.url)
@@ -174,7 +182,7 @@ def build_head(meta: SiteMeta) -> SafeHtml:
         "<head>\n"
         '<meta charset="UTF-8">\n'
         '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n'
-        f"<title>{title}</title>\n"
+        f"<title>{tab}</title>\n"
         f'<meta name="description" content="{desc}">\n'
         '<meta name="author" content="Jan Grzybek">\n'
         '<meta name="robots" content="index,follow,max-image-preview:large">\n'

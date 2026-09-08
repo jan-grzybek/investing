@@ -193,7 +193,7 @@ class TestGenerateWebpage:
         generate_webpage(total_return, benchmarks, holdings, now=at_datetime(when))
 
         html = (chdir_tmp / "index.html").read_text()
-        assert "<title>Jan Grzybek - Investment Portfolio</title>" in html
+        assert "<title>JG - Investment Portfolio</title>" in html
         assert "NMS:AAA" in html
         assert "S&amp;P 500" in html
         assert "50.0%" in html
