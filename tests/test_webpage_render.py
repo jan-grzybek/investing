@@ -1508,10 +1508,17 @@ class TestGoogleCanVerifyTheSite:
     def _head(self):
         from investing.webpage.head import SiteMeta, build_head
 
-        return str(build_head(SiteMeta(
-            title="T", seo_title="S", description="D",
-            url="https://investing.jan-grzybek.com/",
-            social_image="https://investing.jan-grzybek.com/og.png")))
+        return str(
+            build_head(
+                SiteMeta(
+                    title="T",
+                    seo_title="S",
+                    description="D",
+                    url="https://investing.jan-grzybek.com/",
+                    social_image="https://investing.jan-grzybek.com/og.png",
+                )
+            )
+        )
 
     def test_the_verification_token_is_in_the_head(self):
         head = self._head()
