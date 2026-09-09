@@ -53,7 +53,7 @@ def test_every_head_icon_reference_is_staged():
         build_head(
             SiteMeta(
                 title="Site",
-                seo_title="Site",
+                document_title="Site",
                 description="Desc",
                 url="https://example.test/",
                 social_image="https://example.test/og-image.png",

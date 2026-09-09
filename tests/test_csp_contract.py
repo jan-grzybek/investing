@@ -27,7 +27,7 @@ _STYLE_PAYLOADS = (("page.css", assets._PAGE_STYLES),)
 def _meta() -> SiteMeta:
     return SiteMeta(
         title="JG Investing",
-        seo_title="Jan Grzybek - Investment Portfolio",
+        document_title="Investment Portfolio",
         description="Synthetic preview description for CSP contract tests.",
         url="https://investing.jan-grzybek.com/",
         social_image="https://investing.jan-grzybek.com/og-image.png",

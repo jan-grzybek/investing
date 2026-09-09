@@ -169,6 +169,43 @@ least one other leg are both currently held, so an entry can be
 declared before buying the second listing and left in place after
 exiting it. The single hard error is a ticker claimed by two groups.
 
+## Which title field feeds what
+
+[`investing/webpage/head.py`](investing/webpage/head.py) emits four
+title-ish strings and they are not interchangeable. The distinction has
+been got wrong once already, in the opposite direction, so it is written
+down here rather than left to be re-derived:
+
+| Field | Constant | Renders as | Read by |
+|---|---|---|---|
+| `document_title` | `DOCUMENT_TITLE` | `<title>` | The browser tab **and** the Google result headline |
+| `social_title` | `SOCIAL_TITLE` | `og:title`, `twitter:title`, `*:image:alt` | Social cards only |
+| `title` | `SITE_TITLE` | `og:site_name`, JSON-LD `name` | Card chrome, knowledge panels |
+| — | — | `<h1 class="site-brand">` | Screen readers, and Google when it checks `<title>` against the page |
+
+The trap is the first two. Google composes a search result's headline
+from `<title>`, from the page's own headings, and from its rewriting of
+both — **never from `og:title`**, which is an Open Graph field for
+shared cards. So there is no way to show a short title in a tab and a
+long one in search: they are one field. Shorten `DOCUMENT_TITLE` and the
+search headline shortens with it.
+
+Google may also rewrite the headline outright when `<title>` reads as
+generic, or when it leads with something that looks like a site name.
+`JG - Investment Portfolio` came back as `Investment Portfolio: JG` in
+the live SERP. The defence is an `<h1>` that corroborates `<title>`,
+which is why the masthead is marked up as one and why
+[`tests/test_webpage_render.py`](tests/test_webpage_render.py) asserts
+the document has exactly one, opening the outline with no level skipped.
+
+Two things Search Console does **not** do, despite being verified in the
+head: set a title, or set a favicon. Neither has an API or a form. It
+buys reporting, URL Inspection and a change-of-address tool; the title
+and the icon are read off the page on the next crawl either way. A
+favicon missing from a result is nearly always a recently-moved host
+waiting on a recrawl, not a broken `<link rel="icon">` — check that the
+icon actually 200s before changing anything.
+
 ## Commits
 
 This repo follows [Conventional Commits](https://www.conventionalcommits.org/)

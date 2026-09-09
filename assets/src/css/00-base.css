@@ -359,6 +359,21 @@ main:focus-visible { outline: none; }
    body size rather than at 30px / 800 -- on the old header it
    outranked every piece of evidence on the page. It identifies and
    then gets out of the way. */
+/* This is the document's h1 -- it is the page's visual title, and headings
+   that started at h2 left a screen reader no top-level landmark and left
+   Google's title algorithm nothing to check <title> against.
+
+   Four of the declarations below exist only to undo a user agent's h1
+   defaults, and none of them is safe to tidy away as flex boilerplate:
+
+     display: flex     (UA: block)
+     margin: 0         (UA: 0.67em 0 -- restoring it grows the sticky
+                        header, the failure the nav comment above
+                        already describes)
+     font-size: 1rem   (UA: 2em)
+     font-weight: 400  (UA: bold -- only __name sets a weight of its
+                        own, so the separator and the section label
+                        would go bold with the name) */
 .site-brand {
   display: flex;
   align-items: center;
@@ -366,6 +381,7 @@ main:focus-visible { outline: none; }
   margin: 0;
   min-width: 0;
   font-size: 1rem;
+  font-weight: 400;
 }
 .site-brand__mark {
   width: 26px;
