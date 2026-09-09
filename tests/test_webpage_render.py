@@ -4,6 +4,7 @@ pointer interaction styles, and the end-to-end ``save()`` flow."""
 from __future__ import annotations
 
 import inspect
+import itertools
 import re
 from datetime import date, datetime
 
@@ -1496,6 +1497,12 @@ class TestTheTitleGoogleActuallyUses:
         assert Webpage.DOCUMENT_TITLE == "Investment Portfolio"
         assert Webpage.SOCIAL_TITLE == "Jan Grzybek - Investment Portfolio"
 
+    def test_the_social_title_fits_the_width_a_card_lays_out(self):
+        # The budget the constant's comment claims, checked rather than
+        # asserted in prose: past it, og:title truncates mid-phrase on
+        # every share.
+        assert len(Webpage.SOCIAL_TITLE) <= 60
+
 
 class TestTheMastheadIsTheTopLevelHeading:
     """The document's headings used to start at ``<h2>``.
@@ -1507,9 +1514,33 @@ class TestTheMastheadIsTheTopLevelHeading:
     title; marking it up as one costs nothing.
     """
 
+    _HEADING = re.compile(r"<h([1-6])[\s>]")
+
     @staticmethod
     def _header():
         return Webpage()._build_site_header()
+
+    @staticmethod
+    def _elements_only(document: str) -> str:
+        """The document with its inline ``<style>`` / ``<script>`` payloads
+        dropped.
+
+        A heading probe has to read elements, not substrings of the whole
+        file: the stylesheet's own comments discuss ``<h1>`` in prose, and
+        counting those as markup would make this suite fail on a minifier
+        that stops stripping comments -- a true result for a false reason.
+        """
+        return re.sub(r"<(script|style)\b.*?</\1>", "", document, flags=re.S)
+
+    @staticmethod
+    def _saved(chdir_tmp, freeze_today) -> str:
+        freeze_today(datetime(2025, 6, 1))
+        w = Webpage()
+        w.add_allocations({"Equities": 100.0}, {"NMS:CURR": 100.0})
+        w.add_holding(_holding(ticker="NMS:CURR", is_current=True))
+        w.add_return(_total_return(), [_benchmark()])
+        w.save()
+        return (chdir_tmp / "index.html").read_text()
 
     def test_the_masthead_is_an_h1(self):
         header = self._header()
@@ -1520,22 +1551,56 @@ class TestTheMastheadIsTheTopLevelHeading:
         assert '<p class="site-brand">' not in self._header()
 
     def test_the_document_has_exactly_one_h1(self, stub_logo_lookup, chdir_tmp, freeze_today):
-        freeze_today(datetime(2025, 6, 1))
-        w = Webpage()
-        w.add_allocations({"Equities": 100.0}, {"NMS:CURR": 100.0})
-        w.add_holding(_holding(ticker="NMS:CURR", is_current=True))
-        w.add_return(_total_return(), [_benchmark()])
-        w.save()
+        markup = self._elements_only(self._saved(chdir_tmp, freeze_today))
+        assert [int(level) for level in self._HEADING.findall(markup)].count(1) == 1
 
-        out = (chdir_tmp / "index.html").read_text()
-        assert out.count("<h1") == 1
-        # Nothing above it to skip: the h1 is the first heading in the body.
-        assert out.index("<h1") < out.index("<h2")
+    def test_the_outline_opens_at_h1_and_skips_no_level(
+        self, stub_logo_lookup, chdir_tmp, freeze_today
+    ):
+        """An outline that jumps h1 -> h3 is the same defect as one that
+        starts at h2: the reader jumping by heading lands somewhere the
+        nesting does not explain."""
+        markup = self._elements_only(self._saved(chdir_tmp, freeze_today))
+        levels = [int(level) for level in self._HEADING.findall(markup)]
 
-    def test_it_still_names_the_person_and_the_section(self):
+        assert levels, "the document renders no headings at all"
+        assert levels[0] == 1, f"the outline opens at h{levels[0]}"
+        for previous, current in itertools.pairwise(levels):
+            assert current <= previous + 1, f"h{previous} -> h{current} skips a level"
+
+    def test_the_heading_announces_a_name_and_a_section_only(self):
+        """What the h1 reads as now matters more than it did as a ``<p>``:
+        it is the landmark a screen-reader user lands on first. The logo
+        is decorative and the slash is punctuation; neither is a word."""
         header = self._header()
-        assert '<span class="site-brand__name">Jan Grzybek</span>' in header
-        assert '<span class="site-brand__section">Investment Portfolio</span>' in header
+        heading = header[header.index("<h1") : header.index("</h1>")]
+
+        assert 'class="site-brand__mark"' in heading and 'alt=""' in heading
+        assert '<span class="site-brand__sep" aria-hidden="true">/</span>' in heading
+        assert '<span class="site-brand__name">Jan Grzybek</span>' in heading
+        assert '<span class="site-brand__section">Investment Portfolio</span>' in heading
+
+    def test_the_lockup_neutralises_every_h1_user_agent_default(self):
+        """A UA renders ``h1`` as a 2em bold block with 0.67em margins.
+        Each one is overridden, or promoting the ``<p>`` restyles the
+        masthead -- ``font-weight`` most visibly, since only ``__name``
+        sets a weight of its own and the separator and section label
+        would go bold with it."""
+        from investing.assets import _PAGE_STYLES
+        from tests._css_helpers import blocks_for, has_declaration
+
+        blocks = blocks_for(_PAGE_STYLES, ".site-brand")
+        # The responsive override declares only ``font-size``; the base
+        # rule is the one carrying the layout.
+        (base,) = [b for b in blocks if has_declaration(b, "display", "flex")]
+
+        for prop, value in (
+            ("display", "flex"),
+            ("margin", "0"),
+            ("font-size", "1rem"),
+            ("font-weight", "400"),
+        ):
+            assert has_declaration(base, prop, value), f"h1 default {prop} no longer undone"
 
 
 class TestGoogleCanVerifyTheSite:
