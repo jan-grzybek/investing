@@ -36,18 +36,21 @@ class SiteMeta:
     positional arguments.
     """
 
-    title: str  # Long-form site title (used in <h1>, og:site_name, JSON-LD ``name``).
-    seo_title: str  # SERP-friendly short title (Twitter / OG title meta, and <title> unless
-    #                 ``tab_title`` overrides it).
+    title: str  # Long-form site name (og:site_name, JSON-LD ``name``).
+    # ``<title>``: the browser tab and the search headline, which are one
+    # field and not two. Google composes a title link from this, from the
+    # page's own headings, and from its rewriting of both -- so whatever is
+    # short enough for a tab is what a search result gets as well.
+    document_title: str
     description: str  # ~155-char meta description (description meta + Twitter / OG).
     url: str  # Canonical site URL.
     social_image: str  # Absolute URL of the rendered OG image.
-    # What the browser tab says, when that should differ from the search
-    # result. A tab is read at a glance among twenty others and wants to be
-    # short; a SERP headline is read once by someone who may be looking for
-    # the person, and wants the name in full. Defaults to ``seo_title`` so
-    # the two only diverge where someone asked them to.
-    tab_title: str | None = None
+    # ``og:title`` / ``twitter:title`` -- the headline on a shared card,
+    # which unlike a search result has no domain printed beside it to say
+    # whose portfolio this is, so the name earns its keep here. Search does
+    # not read this field; a longer form parked here reaches social and
+    # nowhere else. Defaults to ``document_title``.
+    social_title: str | None = None
 
 
 # Cloudflare Web Analytics beacon. The token is a *write-only* identifier
@@ -66,9 +69,10 @@ _CLOUDFLARE_ANALYTICS_TAG: SafeHtml = SafeHtml(
 
 # Search Console's site token. Public by design -- it appears in the served
 # HTML and proves only that whoever put it there controls the site, which is
-# the whole point of it. Verification is what lets Google be told the canonical
-# title and favicon; until it happens, results keep whatever was cached from
-# the github.io days.
+# the whole point of it. What verification buys is reporting, URL Inspection
+# and a change-of-address form; it is not a channel for telling Google a
+# title or a favicon, because no such channel exists. Both are read from the
+# page on the next crawl whether the property is verified or not.
 _GOOGLE_SITE_VERIFICATION = "9y-xfdBP8e0z77neoo4Zmwqs3tJqpveH5Hlt-jE7r3Q"
 
 
@@ -178,8 +182,8 @@ def build_head(meta: SiteMeta) -> SafeHtml:
     Returns a :class:`SafeHtml` so the caller can append it to the
     document without an extra escape pass.
     """
-    title = escape(meta.seo_title)
-    tab = escape(meta.tab_title or meta.seo_title)
+    document = escape(meta.document_title)
+    social = escape(meta.social_title or meta.document_title)
     desc = escape(meta.description)
     site = escape(meta.title)
     url = escape(meta.url)
@@ -190,7 +194,7 @@ def build_head(meta: SiteMeta) -> SafeHtml:
         "<head>\n"
         '<meta charset="UTF-8">\n'
         '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n'
-        f"<title>{tab}</title>\n"
+        f"<title>{document}</title>\n"
         f'<meta name="description" content="{desc}">\n'
         '<meta name="author" content="Jan Grzybek">\n'
         '<meta name="robots" content="index,follow,max-image-preview:large">\n'
@@ -207,22 +211,22 @@ def build_head(meta: SiteMeta) -> SafeHtml:
         '<link rel="icon" type="image/png" href="favicon.png">\n'
         '<link rel="apple-touch-icon" href="apple-touch-icon.png">\n'
         '<link rel="icon" href="favicon.ico">\n'
-        f'<meta property="og:title" content="{title}">\n'
+        f'<meta property="og:title" content="{social}">\n'
         f'<meta property="og:description" content="{desc}">\n'
         f'<meta property="og:image" content="{image}">\n'
         '<meta property="og:image:type" content="image/png">\n'
         '<meta property="og:image:width" content="1200">\n'
         '<meta property="og:image:height" content="630">\n'
-        f'<meta property="og:image:alt" content="{title}">\n'
+        f'<meta property="og:image:alt" content="{social}">\n'
         f'<meta property="og:url" content="{url}">\n'
         '<meta property="og:type" content="website">\n'
         '<meta property="og:locale" content="en_US">\n'
         f'<meta property="og:site_name" content="{site}">\n'
         '<meta name="twitter:card" content="summary_large_image">\n'
-        f'<meta name="twitter:title" content="{title}">\n'
+        f'<meta name="twitter:title" content="{social}">\n'
         f'<meta name="twitter:description" content="{desc}">\n'
         f'<meta name="twitter:image" content="{image}">\n'
-        f'<meta name="twitter:image:alt" content="{title}">\n'
+        f'<meta name="twitter:image:alt" content="{social}">\n'
         f'<script type="application/ld+json">{jsonld_str}</script>\n'
         f"<script>{_HASH_CLEAR_SCRIPT}</script>\n"
         f"<script>{_NAV_SCROLL_SCRIPT}</script>\n"

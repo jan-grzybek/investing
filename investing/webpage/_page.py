@@ -355,13 +355,16 @@ class Webpage:
     # ----------------------------------------------------------- internals
 
     SITE_TITLE = "Jan Grzybek Investment Portfolio"
-    # Used in <title>, OG/Twitter title, and JSON-LD. Keep it short so
-    # search engines render it without truncation in SERPs (~60 chars).
-    SEO_TITLE = "Jan Grzybek - Investment Portfolio"
-    # The tab, which is read at a glance beside twenty others. The name in
-    # full stays on the search result and the social card, where someone
-    # looking for the person is the one reading it.
-    TAB_TITLE = "JG - Investment Portfolio"
+    # ``<title>`` -- the tab and the search headline both. The name is not
+    # repeated here because the domain already carries it: a result renders
+    # ``jan-grzybek.com`` on its own line above the headline, and a tab
+    # showing "Jan Grzybek - Investment Portfolio" spends two thirds of its
+    # width restating the address the reader followed to get there.
+    DOCUMENT_TITLE = "Investment Portfolio"
+    # ``og:title`` / ``twitter:title``. A shared card prints no domain, so
+    # the name has work to do there that it does not have in a SERP. Kept
+    # under ~60 characters, the width a card lays out without truncating.
+    SOCIAL_TITLE = "Jan Grzybek - Investment Portfolio"
     # Sourced from :mod:`investing.paths`, where the canonical value
     # is env-overridable (``INVESTING_SITE_URL``) so a fork or staging
     # build can repoint the canonical / sitemap / OG URLs in one place
@@ -430,13 +433,13 @@ class Webpage:
             )
         return (
             '<header class="site-header">'
-            '<p class="site-brand">'
+            '<h1 class="site-brand">'
             f'<img class="site-brand__mark" src="{html.escape(COURAGE_LOGO)}" alt="" '
             'width="26" height="26" decoding="async">'
             '<span class="site-brand__name">Jan Grzybek</span>'
             '<span class="site-brand__sep" aria-hidden="true">/</span>'
             '<span class="site-brand__section">Investment Portfolio</span>'
-            "</p>"
+            "</h1>"
             f"{nav_html}"
             "</header>"
         )
@@ -479,8 +482,8 @@ class Webpage:
         """
         return SiteMeta(
             title=cls.SITE_TITLE,
-            seo_title=cls.SEO_TITLE,
-            tab_title=cls.TAB_TITLE,
+            document_title=cls.DOCUMENT_TITLE,
+            social_title=cls.SOCIAL_TITLE,
             description=cls.SITE_DESCRIPTION,
             url=cls.SITE_URL,
             social_image=cls.SOCIAL_IMAGE,

@@ -947,8 +947,8 @@ class TestSave:
         assert out.startswith("<!DOCTYPE html>")
         assert out.rstrip().endswith("</html>")
         assert '<html lang="en">' in out
-        # The descriptive title is what renders on SERPs/tabs.
-        assert "<title>JG - Investment Portfolio</title>" in out
+        # One field feeds the tab and the search headline alike.
+        assert "<title>Investment Portfolio</title>" in out
         # Mobile readiness: viewport + theme-color metas, and at least
         # one narrow-width media query in the embedded stylesheet.
         assert 'name="viewport"' in out
@@ -959,7 +959,7 @@ class TestSave:
         assert contains_at_rule(out, "@media (max-width: 560px)")
         # Brand lockup + in-page nav anchored to each section.
         assert '<header class="site-header">' in out
-        assert '<p class="site-brand">' in out
+        assert '<h1 class="site-brand">' in out
         assert "Jan Grzybek" in out
         assert '<nav class="site-nav"' in out
         assert 'href="#performance"' in out
@@ -1073,7 +1073,7 @@ class TestSave:
         w.save()
 
         out = (chdir_tmp / "index.html").read_text()
-        assert "<title>JG - Investment Portfolio</title>" in out
+        assert "<title>Investment Portfolio</title>" in out
         assert 'name="description"' in out
         assert 'name="author" content="Jan Grzybek"' in out
         # ``index,follow`` plus large image previews to invite rich SERP
@@ -1454,56 +1454,95 @@ class TestAllocationBarsAlwaysAddUp:
             assert sum(legend) == pytest.approx(100.0), sectors
 
 
-class TestTheTabAndTheSearchResultAreNotTheSameAudience:
-    """A tab is read at a glance beside twenty others and wants to be short.
-    A search headline is read once by someone who may be looking for the
-    person, and wants the name in full."""
+class TestTheTitleGoogleActuallyUses:
+    """``<title>`` is the tab and the search headline at once.
 
-    def test_the_tab_is_short_and_the_search_title_is_not(self) -> None:
+    Google builds a title link from the document title, the page's own
+    headings and its rewriting of both -- never from ``og:title``, which
+    is a social-card field. So there is no second field to keep a longer
+    form in, and abbreviating the tab abbreviates the search result with
+    it. The name is carried by the domain, the card and the JSON-LD
+    instead, and the bare section is what titles the document.
+    """
+
+    @staticmethod
+    def _head(**overrides):
         from investing.webpage.head import SiteMeta, build_head
 
-        head = str(
-            build_head(
-                SiteMeta(
-                    title="Long Form",
-                    seo_title="Jan Grzybek - Investment Portfolio",
-                    description="d",
-                    url="https://example.test/",
-                    social_image="https://example.test/og-image.png",
-                    tab_title="JG - Investment Portfolio",
-                )
-            )
-        )
-        assert "<title>JG - Investment Portfolio</title>" in head
-        # The name in full survives where it earns its keep.
+        fields = {
+            "title": "Long Form",
+            "document_title": "Investment Portfolio",
+            "social_title": "Jan Grzybek - Investment Portfolio",
+            "description": "d",
+            "url": "https://example.test/",
+            "social_image": "https://example.test/og-image.png",
+        }
+        return str(build_head(SiteMeta(**{**fields, **overrides})))
+
+    def test_the_document_title_carries_no_name(self):
+        assert "<title>Investment Portfolio</title>" in self._head()
+
+    def test_the_social_card_keeps_the_name_in_full(self):
+        head = self._head()
         assert 'property="og:title" content="Jan Grzybek - Investment Portfolio"' in head
+        assert 'name="twitter:title" content="Jan Grzybek - Investment Portfolio"' in head
 
-    def test_without_one_the_tab_is_the_search_title(self) -> None:
+    def test_the_card_falls_back_to_the_document_title(self):
         # The two only diverge where someone asked them to.
-        from investing.webpage.head import SiteMeta, build_head
+        head = self._head(social_title=None)
+        assert 'property="og:title" content="Investment Portfolio"' in head
 
-        head = str(
-            build_head(
-                SiteMeta(
-                    title="Long Form",
-                    seo_title="Only One Title",
-                    description="d",
-                    url="https://example.test/",
-                    social_image="https://example.test/og-image.png",
-                )
-            )
-        )
-        assert "<title>Only One Title</title>" in head
+    def test_the_rendered_page_carries_both(self):
+        assert Webpage.DOCUMENT_TITLE == "Investment Portfolio"
+        assert Webpage.SOCIAL_TITLE == "Jan Grzybek - Investment Portfolio"
 
-    def test_the_rendered_page_carries_both(self) -> None:
-        assert Webpage.TAB_TITLE == "JG - Investment Portfolio"
-        assert Webpage.SEO_TITLE == "Jan Grzybek - Investment Portfolio"
+
+class TestTheMastheadIsTheTopLevelHeading:
+    """The document's headings used to start at ``<h2>``.
+
+    That leaves a screen reader with no top-level landmark to jump to,
+    and leaves Google's title algorithm nothing on the page to
+    corroborate ``<title>`` against -- a gap it closes by synthesising a
+    title link of its own. The masthead is already the page's visual
+    title; marking it up as one costs nothing.
+    """
+
+    @staticmethod
+    def _header():
+        return Webpage()._build_site_header()
+
+    def test_the_masthead_is_an_h1(self):
+        header = self._header()
+        assert '<h1 class="site-brand">' in header
+        assert "</h1>" in header
+
+    def test_the_brand_is_no_longer_a_paragraph(self):
+        assert '<p class="site-brand">' not in self._header()
+
+    def test_the_document_has_exactly_one_h1(self, stub_logo_lookup, chdir_tmp, freeze_today):
+        freeze_today(datetime(2025, 6, 1))
+        w = Webpage()
+        w.add_allocations({"Equities": 100.0}, {"NMS:CURR": 100.0})
+        w.add_holding(_holding(ticker="NMS:CURR", is_current=True))
+        w.add_return(_total_return(), [_benchmark()])
+        w.save()
+
+        out = (chdir_tmp / "index.html").read_text()
+        assert out.count("<h1") == 1
+        # Nothing above it to skip: the h1 is the first heading in the body.
+        assert out.index("<h1") < out.index("<h2")
+
+    def test_it_still_names_the_person_and_the_section(self):
+        header = self._header()
+        assert '<span class="site-brand__name">Jan Grzybek</span>' in header
+        assert '<span class="site-brand__section">Investment Portfolio</span>' in header
 
 
 class TestGoogleCanVerifyTheSite:
     """Search Console needs to see its own token in the head before it will
-    accept the property -- and until it does, Google keeps serving the stale
-    `github documentation` title it cached from the github.io days."""
+    accept the property. What that buys is reporting, URL Inspection and the
+    change-of-address form -- not a lever on the title or the favicon, which
+    Google reads off the page on its own schedule either way."""
 
     def _head(self):
         from investing.webpage.head import SiteMeta, build_head
@@ -1512,7 +1551,7 @@ class TestGoogleCanVerifyTheSite:
             build_head(
                 SiteMeta(
                     title="T",
-                    seo_title="S",
+                    document_title="S",
                     description="D",
                     url="https://investing.jan-grzybek.com/",
                     social_image="https://investing.jan-grzybek.com/og.png",
