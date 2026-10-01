@@ -86,7 +86,7 @@ numpy==2.5.3
     #   jg-investing (pyproject.toml)
     #   pandas
     #   yfinance
-oauthlib==3.3.1
+oauthlib==4.0.0
     # via requests-oauthlib
 packaging==26.3
     # via
