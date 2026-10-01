@@ -42,8 +42,6 @@ def test_preview_headline_figures_survive_the_readers_arithmetic(preview_html: s
     the relationship on the *rendered* page, so neither the fixture nor
     the renderer can quietly drift from it.
     """
-    import re
-
     from investing.holdings import DAYS_YEAR
 
     def figure(label: str) -> float:
