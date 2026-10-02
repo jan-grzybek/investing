@@ -332,6 +332,16 @@ class TestAddTrades:
         )
         assert ">4,820.50 GBp<" in w.trades[0]
 
+    def test_sort_key_is_no_more_precise_than_the_printed_price(self, stub_logo_lookup):
+        # The cell prints two decimals; the attribute the sort script
+        # reads must not carry more.
+        w = Webpage()
+        w.add_trades([_trade_event(price=(1000 * 100.0 + 260 * 111.0) / 1260, currency="USD")])
+        row = w.trades[0]
+        assert ">102.27 USD<" in row
+        assert 'data-sort-price="102.27"' in row
+        assert "102.269" not in row
+
     def test_details_pct_renders_as_whole_number(self, stub_logo_lookup):
         # Whole-number percentages by design in this section: the
         # one-decimal page convention from ``_fmt_pct`` is reserved

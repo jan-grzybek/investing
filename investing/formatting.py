@@ -162,14 +162,28 @@ def _value_class(value: float) -> str:
 def _format_sort_number(value: float) -> str:
     """Stringify a numeric sort key for a ``data-sort-*`` attribute.
 
-    Holding cards expose TSR / CAGR / weight as raw numbers via
-    ``data-sort-*`` attributes that the inline holdings-sort
-    script reads back with ``parseFloat``. Padding to a fixed
-    decimal count keeps the markup tidy and ensures values like
-    ``-12`` and ``-12.0`` serialise identically across calls so
-    the rendered HTML stays diff-stable regardless of whether
-    the upstream computation emitted an int or a float."""
-    return format(float(value), ".4f")
+    Holding cards expose TSR / CAGR / weight as numbers via
+    ``data-sort-*`` attributes that the inline holdings-sort script
+    reads back with ``parseFloat``. The key is serialised at exactly
+    the precision :func:`_fmt_pct` prints the same figure with -- one
+    decimal, none once it reaches three digits -- so values like
+    ``-12`` and ``-12.0`` still serialise identically across calls
+    and the rendered HTML stays diff-stable regardless of whether the
+    upstream computation emitted an int or a float.
+
+    It used to be four decimals. The attribute is as public as the
+    cell beside it, and nothing is gained by sorting on digits the
+    reader cannot see -- while every extra digit of a weight or a
+    return is extra material for reasoning backwards from the page
+    towards sizes, which SECURITY.md rules out.
+
+    The rule for every sort key and bar that carries a weight, a
+    return or a per-share price: it is never more precise than the
+    figure printed for the reader. ``tests/test_preview_html.py``
+    holds the rendered page to it.
+    """
+    places = 0 if round(abs(value), 1) >= 100 else 1
+    return format(float(value), f".{places}f")
 
 
 def _fmt_pct(value: float, *, signed: bool = False) -> str:

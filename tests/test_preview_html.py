@@ -92,6 +92,33 @@ def test_preview_has_required_document_skeleton(preview_html: str):
     assert soup.find("main", id="main-content") is not None
 
 
+def test_no_sort_key_or_bar_is_more_precise_than_the_page_prints(preview_html: str):
+    """The markup behind the tables says no more than the cells do.
+
+    Weights and returns are printed to one decimal and per-share
+    prices to two. The ``data-sort-*`` attributes and the custom
+    properties that size the weight bars exist for the scripts and the
+    stylesheet, and are as public as the text. Checked on the whole
+    rendered page rather than key by key, so a sort key added later is
+    held to the same rule without anyone remembering to list it.
+    """
+
+    def decimals(figure: str) -> int:
+        return len(figure.partition(".")[2])
+
+    keys = re.findall(r'\bdata-sort-([a-z]+)="(-?\d+(?:\.\d+)?)"', preview_html)
+    bars = re.findall(r"(--w|--holdings-weight-scale):\s*(-?\d+(?:\.\d+)?)", preview_html)
+    # Guard against the check passing because it matched nothing.
+    assert {"weight", "tsr", "cagr", "price"} <= {name for name, _ in keys}
+    assert {"--w", "--holdings-weight-scale"} <= {name for name, _ in bars}
+
+    allowed = {"price": 2}
+    too_precise = [
+        (name, figure) for name, figure in keys if decimals(figure) > allowed.get(name, 1)
+    ] + [(name, figure) for name, figure in bars if decimals(figure) > 1]
+    assert not too_precise, too_precise
+
+
 def test_preview_sections_are_structurally_wired(preview_html: str):
     soup = parse_html(preview_html)
     for section_id in ("performance", "allocation", "holdings", "closed", "activity", "method"):
