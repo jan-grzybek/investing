@@ -347,6 +347,38 @@ class TestReturnChartScrubber:
         assert bench["y"][0] == 1.0
         assert bench["y"][-1] == 1.05
 
+    def test_chart_says_no_more_than_the_figures_it_prints(self):
+        # The tooltip, the end labels and the hero all print a return
+        # to a tenth of a percentage point. The curve is drawn from,
+        # and the scrubber reads, a series that used to carry six
+        # decimals -- digits no reader is shown, in markup as public
+        # as the text. Two histories that agree to the printed
+        # precision must therefore produce the same chart, byte for
+        # byte: whatever lies below that precision reaches neither the
+        # JSON nor the path.
+        dates = (datetime(2024, 1, 1), datetime(2024, 6, 1), datetime(2024, 12, 1))
+        bench_dates = dates
+
+        def chart(portfolio, bench):
+            benchmark = {
+                "ticker": "LSE:VUAA.L",
+                "history": list(zip(bench_dates, bench, strict=True)),
+            }
+            return Webpage._render_return_chart(
+                {"history": list(zip(dates, portfolio, strict=True))}, [benchmark]
+            )
+
+        printed = chart((1.0, 1.051, 1.148), (1.0, 1.02, 1.05))
+        finer = chart((1.0, 1.05149, 1.14772), (1.0, 1.02031, 1.04958))
+        assert finer == printed
+
+        # ... while a difference the reader *can* see still shows.
+        assert chart((1.0, 1.051, 1.149), (1.0, 1.02, 1.05)) != printed
+
+        data = self._parse_chart_attr(finer)
+        assert data["series"][0]["y"][-1] == 1.148
+        assert data["series"][1]["y"][-1] == 1.05
+
     def test_curve_faithfully_reproduces_input_history(self):
         # The renderer is a pure projection of its inputs: the chart's
         # right-edge sample IS whatever ``history[-1][1]`` says, with

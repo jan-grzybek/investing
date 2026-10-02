@@ -68,6 +68,31 @@ PLOT_X1 = 886.0
 PLOT_Y0 = 16.0
 PLOT_Y1 = 318.0
 
+
+def _at_printed_precision(multipliers: np.ndarray) -> np.ndarray:
+    """Round a series of growth multipliers to what the chart prints.
+
+    Every figure the reader is given off this chart -- the tooltip,
+    the end labels, the hero number beside it -- is a return to a
+    tenth of a percentage point. The series behind them used to be
+    drawn and embedded at full precision: six decimals in the
+    ``data-chart`` JSON and about five in the path coordinates, in
+    markup as public as the text.
+
+    Rounding happens here, before the domain is chosen and before the
+    curve is fitted, so everything downstream inherits it -- the JSON
+    the scrubber reads, the polyline, the band and the end labels are
+    all functions of the rounded samples and of nothing finer. The
+    curve moves by at most a twentieth of a percentage point, well
+    under a pixel on any plot this draws.
+
+    The rounding is done on the return in percent rather than on the
+    multiplier, so the far-right sample still reads the same number
+    as the hero figure derived from the same value.
+    """
+    return 1.0 + np.round((multipliers - 1.0) * 100.0, 1) / 100.0
+
+
 # Vertical room one end label needs. Two labels closer than this are
 # pushed apart so the "JG +48.4% / S&P +41.7%" stack never collides
 # on a window where the two series finish within a point of each
@@ -191,7 +216,7 @@ def render(
 
     start_date = history[0][0]
     time_x = np.array([int((d - start_date).days) for d, _ in history], dtype=float)
-    jg_y = np.array([v for _, v in history], dtype=float)
+    jg_y = _at_printed_precision(np.array([v for _, v in history], dtype=float))
 
     series: list[tuple[str, str, np.ndarray]] = [("jg", "Portfolio", jg_y)]
     for benchmark in benchmarks or []:
@@ -199,7 +224,11 @@ def render(
         if len(bh) < 2:
             continue
         series.append(
-            ("bench", benchmark_label(benchmark), np.array([v for _, v in bh], dtype=float)),
+            (
+                "bench",
+                benchmark_label(benchmark),
+                _at_printed_precision(np.array([v for _, v in bh], dtype=float)),
+            ),
         )
 
     # The upstream contract is: each series' rightmost sample IS the
