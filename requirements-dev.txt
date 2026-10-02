@@ -186,7 +186,7 @@ tinycss2==1.5.1
     #   cssselect2
 types-python-dateutil==2.9.0.20260807
     # via jg-investing (pyproject.toml)
-types-requests==2.33.0.20260712
+types-requests==2.33.0.20260906
     # via jg-investing (pyproject.toml)
 typing-extensions==4.16.0
     # via
