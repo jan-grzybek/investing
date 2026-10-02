@@ -10,14 +10,15 @@ So: every year renders, the column is called "Alpha" and carries
 ``pp``, and a pair of bars per row makes the shape of the record
 scannable before any number is read. The bars are normalised to the
 largest magnitude in the table, so the tallest pair fills its track
-and the rest read as fractions of the best year.
+and the rest read as fractions of the best year. They are drawn from
+the figures as printed, see :func:`_printed`.
 """
 
 from __future__ import annotations
 
 import html
 
-from ..formatting import _fmt_pct, _value_class
+from ..formatting import _fmt_pct, _format_sort_number, _value_class
 from ..types import BenchmarkSummary, YearlyReturn
 
 
@@ -38,10 +39,22 @@ def _summary_line(rows: list[YearlyReturn], has_benchmark: bool) -> str:
     return " &middot; ".join(parts)
 
 
+def _printed(value: float) -> float:
+    """A return as its cell prints it, which is what its bar is sized from.
+
+    A bar's width is the return in another form, in markup as public
+    as the cell beside it. Sized from the unrounded return it would
+    carry digits that cell does not print, however few decimals the
+    width itself is written with: it is a ratio of two returns. Sized
+    from the printed figures it cannot say more than they do.
+    """
+    return float(_format_sort_number(value))
+
+
 def _bar_scale(rows: list[YearlyReturn]) -> float:
-    """Largest magnitude across both series, used to size the bars."""
-    values = [abs(row["jg%"]) for row in rows]
-    values += [abs(row["bench%"]) for row in rows if row.get("bench%") is not None]
+    """Largest printed magnitude across both series, used to size the bars."""
+    values = [abs(_printed(row["jg%"])) for row in rows]
+    values += [abs(_printed(row["bench%"])) for row in rows if row.get("bench%") is not None]
     return max(values, default=0.0)
 
 
@@ -132,8 +145,12 @@ def render(
 
 
 def _bar(value: float, scale: float, kind: str) -> str:
-    """One normalised bar. Negative years render in the loss colour."""
-    width = 0.0 if scale <= 0 else min(100.0, abs(value) / scale * 100.0)
+    """One normalised bar. Negative years render in the loss colour.
+
+    ``scale`` is the largest of the figures the bars are drawn for,
+    this one included, so the width never passes 100.
+    """
+    width = 0.0 if scale <= 0 else abs(_printed(value)) / scale * 100.0
     sign = "neg" if value < 0 else "pos"
     return (
         f'<span class="yearly__bar yearly__bar--{kind} yearly__bar--{sign}" '
