@@ -213,7 +213,7 @@ class Webpage:
         self.top_10 = top_10
 
     def add_trades(self, trade_events: list[TradeEvent]) -> None:
-        """Render each burst-aggregated trade event into a table row.
+        """Render each net activity entry into a table row.
 
         ``trade_events`` is the newest-first list produced by
         ``get_holdings`` (or by ``Holding.trade_events`` directly in
@@ -306,22 +306,27 @@ class Webpage:
                     f"{len(self.trades)} entries since inception",
                 )
             )
-            # Pins the one methodology detail the reader would
-            # otherwise have to infer from the data: what "combined"
-            # rows represent. The "rolling quarter" wording matches
-            # the long-term-investor framing of the page (a
+            # Pins the methodology the reader would otherwise have to
+            # infer from the data: an entry is the *net* change to a
+            # holding over a rolling quarter, not a single trade, and
+            # its price is the average of the fills that produced that
+            # change. The opening words deliberately do not promise
+            # "every trade": a sale bought back within the quarter
+            # nets out and has no entry. The "rolling quarter" wording
+            # matches the long-term-investor framing of the page (a
             # fund-letter cadence rather than a high-frequency trade
             # log) and is the natural human reading of the 90-day
-            # numerical ``TRADE_WINDOW_DAYS`` constant. The second
+            # numerical ``TRADE_WINDOW_DAYS`` constant. The last
             # sentence is the privacy contract, stated where a reader
             # would otherwise wonder why no sizes appear.
             parts.append(
                 '<p class="section__intro">'
-                "Every executed trade since inception. Fills within a "
-                "rolling quarter are combined into a single entry at "
-                "their volume-weighted average per-share price. Sizes are "
-                "never published &mdash; only relative changes and "
-                "per-share prices."
+                "Net changes to each holding since inception. A holding's "
+                "fills within a rolling quarter are netted into one entry, "
+                "priced at the volume-weighted average of the buys if it "
+                "grew or of the sells if it shrank. Sizes are never "
+                "published &mdash; only relative changes and per-share "
+                "prices."
                 "</p>"
             )
             parts.append(self._build_trades_table(self.trades))

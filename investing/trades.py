@@ -1,5 +1,6 @@
-"""``Trade`` records and the burst-aggregation logic that
-powers the "Trades" section.
+"""``Trade`` records and the aggregation that powers the "Activity"
+section: one entry per holding per rolling quarter, stating the net
+change to the position.
 """
 
 from __future__ import annotations
@@ -91,7 +92,7 @@ def combine_and_sort(transactions: list[EquityTransaction]) -> list[Trade]:
 
 
 # ---------------------------------------------------------------------------
-# Recent-trades aggregation
+# Activity aggregation
 # ---------------------------------------------------------------------------
 #
 # Each ``Holding`` records a raw "trade event" for every BUY/SELL it
@@ -103,22 +104,32 @@ def combine_and_sort(transactions: list[EquityTransaction]) -> list[Trade]:
 #   DECREASE - SELL that leaves a non-zero residual position (>0 -> >0)
 #   CLOSE    - SELL that brings the position back to zero (>0 -> 0)
 #
-# Bursts of small same-action trades within a rolling 90-day window get
-# folded into a single reported trade with a volume-weighted average
-# per-share price -- the granularity that matters to the reader is "did
-# the position open / grow / shrink / close around this time?", not
-# every individual fill. 90 days approximates a fiscal quarter, which
-# is the natural cadence for a long-term-investor portfolio: a stake
-# accumulated through three or four tranches over a quarter reads as a
-# single deliberate action, not four separate trades.
+# Every fill of a holding within a rolling 90-day window is folded
+# into one reported entry stating the *net* effect on the position,
+# at a volume-weighted average per-share price -- the granularity that
+# matters to the reader is "did the position open / grow / shrink /
+# close around this time?", not every individual fill. 90 days
+# approximates a fiscal quarter, which is the natural cadence for a
+# long-term-investor portfolio: a stake accumulated through three or
+# four tranches over a quarter reads as a single deliberate action,
+# not four separate trades.
+#
+# Direction does not end an entry. It used to: a sale always started a
+# new one, so trimming a quarter of a position and buying slightly
+# more back the next day was published as "Decreased by 25%" followed
+# by "Increased by 35%", when what happened to the position was +1%.
+# Each figure was true and the pair was misleading -- and the page's
+# own description of the section ("fills within a rolling quarter are
+# combined") had been promising the net all along.
 
 TRADE_WINDOW_DAYS = 90
 
 
 # Reading these as a buy-vs-sell action partitions the four categories
-# along the only axis that matters for grouping (same-action trades go
-# together) and for picking the group's effective category (first event
-# decides BUY bursts, last event decides SELL bursts).
+# along the one axis the aggregation needs: which fills added to the
+# position and which took from it. That gives each quantity its sign
+# in the net, and decides which fills an entry's price is averaged
+# over.
 _BUY_CATEGORIES = frozenset({"OPEN", "INCREASE"})
 
 
@@ -159,98 +170,156 @@ _TRADE_DETAIL_LABELS: dict[str, str] = {
 }
 
 
+def _vwap(events: list[dict]) -> float:
+    """Volume-weighted average per-share price of ``events``.
+
+    ``quantity`` is always positive here -- ``sheets._parse_equity_row``
+    rejects zero / negative quantities at ingestion -- so the divide is
+    safe for any non-empty list, and no caller passes an empty one.
+    """
+    total_quantity = sum(e["quantity"] for e in events)
+    return sum(e["quantity"] * e["price"] for e in events) / total_quantity
+
+
 def _combine_trade_events(
     events: list[dict],
     *,
     window_days: int = TRADE_WINDOW_DAYS,
 ) -> list[dict]:
-    """Fold a ticker's raw trade events into burst-level rows.
+    """Fold a ticker's raw trade events into one entry per window.
 
     Walks ``events`` chronologically and joins each event to the
-    running group iff (a) the group has the same action (BUY/SELL),
-    and (b) the span between the group's first event and the new event
-    is at most ``window_days``. Anchoring on the FIRST event (rather
-    than the most recent) caps each combined burst at ~one fiscal
-    quarter -- the user-facing meaning of "rolling quarter" here is
-    "a contiguous run of small trades whose first-to-last span fits
-    inside a 90-day window", not a sliding window that can keep
-    extending indefinitely as long as consecutive trades stay close.
+    running group iff the span between the group's first event and the
+    new event is at most ``window_days`` -- whichever way the fill
+    went -- and no stock split separates the two. Anchoring on the
+    FIRST event (rather than the most recent)
+    caps each entry at ~one fiscal quarter -- the user-facing meaning
+    of "rolling quarter" here is "a contiguous run of fills whose
+    first-to-last span fits inside a 90-day window", not a sliding
+    window that can keep extending indefinitely as long as consecutive
+    trades stay close.
+
+    A split ends the group because it changes the unit. Everything
+    below adds quantities and averages per-share prices, and neither
+    means anything across a split: 400 old shares sold and 500 new
+    ones bought either side of a 2:1 is a position that *shrank*,
+    though the raw numbers net to +100. ``Holding`` tags each event
+    with the ``share_frame`` it was recorded in; events without the
+    tag (hand-built in tests) all count as one frame.
+
+    Each group is then reduced to what it did to the position:
+
+    * nothing held, then something   -- ``OPEN``;
+    * something held, then nothing   -- ``CLOSE``;
+    * opened *and* closed in between -- an ``OPEN`` and a ``CLOSE``;
+    * ends larger than it started    -- ``INCREASE``;
+    * ends smaller than it started   -- ``DECREASE``;
+    * ends where it started          -- no entry.
+
+    The two boundaries are read off the events themselves: a group
+    started from nothing iff its first event is an ``OPEN``, and ended
+    at nothing iff its last is a ``CLOSE``. ``Holding`` assigns those
+    categories in split-adjusted units, which makes them a sounder
+    witness than re-deriving the position here. Between the
+    boundaries the direction is the sign of the net quantity. A
+    position that passes through zero mid-window (sold out and bought
+    back) is deliberately not special -- only where it started and
+    ended counts, the same call ``Holding`` makes when it reports a
+    round trip that quick as uninterrupted ownership.
+
+    The opened-and-closed pair is the one exception to "net". It nets
+    to nothing, but it is a whole position with a realised result in
+    the closed-positions table, so both legs are reported, each over
+    its own fills.
 
     Each combined record carries:
 
-    * ``start_date`` / ``end_date`` -- first and last event in the burst;
-    * ``price``                     -- volume-weighted average of the burst;
-    * ``category``                  -- ``OPEN`` / ``INCREASE`` for BUYs and
-                                       ``DECREASE`` / ``CLOSE`` for SELLs.
-
-    Category resolution follows the boundary that matters semantically:
-    a BUY burst is "Initiated" if the first event opened the position
-    (regardless of any subsequent INCREASEs that piled on within the
-    window); a SELL burst is "Divested" if the last event zeroed the
-    position out (regardless of preceding partial DECREASEs).
+    * ``start_date`` / ``end_date`` -- first and last event in the
+      window (in the leg, for the opened-and-closed pair);
+    * ``price``     -- volume-weighted average of the fills in the
+      entry's own direction: buys for ``OPEN`` / ``INCREASE``, sells
+      for ``CLOSE`` / ``DECREASE``. A net purchase is priced at what
+      the purchases cost. Averaging in the sales it was netted against
+      would publish a figure nobody paid or received;
+    * ``category``  -- as listed above;
+    * ``delta_pct`` -- the net change as a percentage of the holding
+      right before the window's first event, on ``INCREASE`` /
+      ``DECREASE`` only.
     """
     if not events:
         return []
     events = sorted(events, key=lambda e: e["date"])
     groups: list[list[dict]] = []
-    # ``head_action`` is invariant across the lifetime of a group, so
-    # we cache it on the side rather than recomputing from
-    # ``head["category"]`` on every event. Tiny saving in absolute
-    # terms; the win is reading the loop top-to-bottom without an
-    # implicit "what does the head look like?" branch.
-    head_action: str | None = None
-    head_date = None
+    head_date = events[0]["date"]
+    head_frame = events[0].get("share_frame", 0)
     for event in events:
-        action = "BUY" if event["category"] in _BUY_CATEGORIES else "SELL"
-        if groups and head_action == action:
-            within_window = (event["date"] - head_date).days <= window_days
-            if within_window:
-                groups[-1].append(event)
-                continue
+        frame = event.get("share_frame", 0)
+        if groups and frame == head_frame and (event["date"] - head_date).days <= window_days:
+            groups[-1].append(event)
+            continue
         groups.append([event])
-        head_action = action
         head_date = event["date"]
+        head_frame = frame
 
     combined: list[dict] = []
     for group in groups:
-        total_qty = sum(e["quantity"] for e in group)
-        # ``quantity`` is always positive here -- ``sheets._parse_equity_row``
-        # rejects zero / negative quantities at ingestion -- so the divide
-        # is safe.
-        weighted_price = sum(e["quantity"] * e["price"] for e in group) / total_qty
-        # BUY bursts inherit their effective category from the FIRST
-        # event (did this burst open the position?); SELL bursts from
-        # the LAST one (did this burst close the position?).
-        if group[0]["category"] in _BUY_CATEGORIES:
-            category = group[0]["category"]
+        buys = [e for e in group if e["category"] in _BUY_CATEGORIES]
+        sells = [e for e in group if e["category"] not in _BUY_CATEGORIES]
+        opened = group[0]["category"] == "OPEN"
+        closed = group[-1]["category"] == "CLOSE"
+        if opened and closed:
+            # A whole position inside one window. Each leg spans its
+            # own fills rather than the window, so a position bought
+            # in week one and sold in week ten does not read as two
+            # ten-week-long actions.
+            for category, legs in (("OPEN", buys), ("CLOSE", sells)):
+                combined.append(
+                    {
+                        "start_date": legs[0]["date"],
+                        "end_date": legs[-1]["date"],
+                        "price": _vwap(legs),
+                        "category": category,
+                        "delta_pct": None,
+                    }
+                )
+            continue
+        net = sum(e["quantity"] for e in buys) - sum(e["quantity"] for e in sells)
+        if opened:
+            category, legs = "OPEN", buys
+        elif closed:
+            category, legs = "CLOSE", sells
+        elif net > 0:
+            category, legs = "INCREASE", buys
+        elif net < 0:
+            category, legs = "DECREASE", sells
         else:
-            category = group[-1]["category"]
+            # Whatever was sold was bought back (or the reverse) before
+            # the window closed. The position is where it started, and
+            # an entry would have nothing to say about it.
+            continue
         # Magnitude of the position change expressed as a percentage
-        # of the pre-burst holding -- e.g. holding 1,000 shares and
-        # buying another 1,000 reads as "+100%"; holding 1,000 and
-        # selling 500 reads as "50%". Only meaningful for INCREASE /
-        # DECREASE rows: OPEN has no prior position to compare to
-        # (division by zero) and CLOSE always zeros the holding out,
-        # so the badge text "Divested" already conveys the magnitude.
-        # The denominator is the FIRST event's pre-trade quantity --
-        # i.e. the holding right before the burst started -- so the
-        # ratio reads as "what fraction did this whole burst add to /
-        # remove from what we held going in?". Numerator is the sum
-        # of raw trade quantities in the burst. We accept a small
-        # inaccuracy when a stock-split lands mid-burst (the
-        # split-adjusted denominator is the right share frame for
-        # the first event but later events live in a post-split
-        # frame); splits inside a 90-day window are vanishingly rare
-        # on the portfolios this page targets.
+        # of the holding going into the window -- e.g. holding 1,000
+        # shares and buying another 1,000 reads as "+100%"; holding
+        # 1,000, selling 250 and buying 260 back reads as "+1%". Only
+        # meaningful for INCREASE / DECREASE rows: OPEN has no prior
+        # position to compare to (division by zero) and CLOSE always
+        # zeros the holding out, so the badge text "Divested" already
+        # conveys the magnitude. The denominator is the FIRST event's
+        # pre-trade quantity -- i.e. the holding right before the
+        # window started -- so the ratio reads as "what fraction did
+        # this whole run add to / remove from what we held going in?".
+        # Numerator is the net of the raw trade quantities, which is
+        # sound because a group never spans a split: the denominator
+        # and every quantity in the numerator are in one share frame.
         pre_quantity = group[0].get("pre_quantity", 0)
         delta_pct: float | None = None
         if category in ("INCREASE", "DECREASE") and pre_quantity > 0:
-            delta_pct = total_qty / pre_quantity * 100
+            delta_pct = abs(net) / pre_quantity * 100
         combined.append(
             {
                 "start_date": group[0]["date"],
                 "end_date": group[-1]["date"],
-                "price": weighted_price,
+                "price": _vwap(legs),
                 "category": category,
                 "delta_pct": delta_pct,
             }

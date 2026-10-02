@@ -1025,6 +1025,70 @@ class TestSplitTradeBoundaryInvariant:
         assert ledger.current_value_usd == pytest.approx(25 * 100.0)
 
 
+class TestActivityEntriesNeverSpanASplit:
+    """A split changes what one share is, so quantities either side of
+    it cannot be netted, summed or averaged as if they were the same
+    unit. An activity entry therefore ends at a split.
+    """
+
+    def test_a_trim_and_an_add_either_side_of_a_split_stay_two_entries(
+        self, install_ticker, stub_exchange_rate
+    ):
+        install_ticker(_make_ticker(splits={_date_key(datetime(2024, 6, 10)): 2.0}))
+        holding = Holding("TST", now=lambda: datetime(2024, 12, 1))
+        holding.buy(Trade(datetime(2024, 1, 1), "TST", 1000, 100.0, "BUY"))
+        holding.sell(Trade(datetime(2024, 6, 5), "TST", 400, 110.0, "SELL"))
+        holding.buy(Trade(datetime(2024, 6, 15), "TST", 500, 56.0, "BUY"))
+
+        events = holding.trade_events()
+
+        # Netted as raw numbers, -400 and +500 read "Increased by
+        # 10%". In fact the 600 left after the sale became 1,200 at
+        # the split, and 500 more makes 1,700 -- 850 in the old
+        # units, so the position *shrank* by 15% overall. Kept apart,
+        # each entry is true in its own share frame.
+        assert [e["category"] for e in events] == ["OPEN", "DECREASE", "INCREASE"]
+        assert events[1]["delta_pct"] == pytest.approx(40.0)
+        assert events[2]["delta_pct"] == pytest.approx(500 / 1200 * 100)
+        assert events[2]["price"] == pytest.approx(56.0)
+
+    def test_a_buying_run_either_side_of_a_split_is_two_entries(
+        self, install_ticker, stub_exchange_rate
+    ):
+        install_ticker(_make_ticker(splits={_date_key(datetime(2024, 6, 10)): 2.0}))
+        holding = Holding("TST", now=lambda: datetime(2024, 12, 1))
+        holding.buy(Trade(datetime(2024, 1, 1), "TST", 1000, 100.0, "BUY"))
+        holding.buy(Trade(datetime(2024, 6, 5), "TST", 100, 110.0, "BUY"))
+        holding.buy(Trade(datetime(2024, 6, 15), "TST", 220, 56.0, "BUY"))
+
+        events = holding.trade_events()
+
+        # One entry would price the run at an average of a pre-split
+        # 110.00 and a post-split 56.00 -- a number in neither frame --
+        # and call 320 shares against 1,000 a 32% increase when the
+        # two purchases were 10% each.
+        assert [e["category"] for e in events] == ["OPEN", "INCREASE", "INCREASE"]
+        assert events[1]["delta_pct"] == pytest.approx(10.0)
+        assert events[1]["price"] == pytest.approx(110.0)
+        assert events[2]["delta_pct"] == pytest.approx(10.0)
+        assert events[2]["price"] == pytest.approx(56.0)
+
+    def test_fills_on_one_side_of_a_split_still_net(self, install_ticker, stub_exchange_rate):
+        # The guard is the split, not its neighbourhood: a trim and a
+        # re-add that both come after it are one entry as usual.
+        install_ticker(_make_ticker(splits={_date_key(datetime(2024, 6, 10)): 2.0}))
+        holding = Holding("TST", now=lambda: datetime(2024, 12, 1))
+        holding.buy(Trade(datetime(2024, 1, 1), "TST", 1000, 100.0, "BUY"))
+        holding.sell(Trade(datetime(2024, 6, 15), "TST", 500, 56.0, "SELL"))
+        holding.buy(Trade(datetime(2024, 6, 16), "TST", 520, 57.0, "BUY"))
+
+        events = holding.trade_events()
+
+        assert [e["category"] for e in events] == ["OPEN", "INCREASE"]
+        # +20 on the 2,000 held (post-split) going into the window.
+        assert events[1]["delta_pct"] == pytest.approx(1.0)
+
+
 class TestSameDayClosingSell:
     def test_a_sell_on_the_opening_date_closes_in_place(self, install_ticker, stub_exchange_rate):
         """Buying and selling out on one day leaves no open position."""

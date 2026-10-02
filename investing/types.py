@@ -142,12 +142,13 @@ HoldingSummary = TypedDict(
 
 
 class TradeEvent(TypedDict, total=False):
-    """One row in the rendered "Trades" table.
+    """One row in the rendered "Activity" table.
 
     Produced by :func:`investing.trades._combine_trade_events` after
-    bursts of small same-action trades are folded together.
-    ``category`` is one of ``OPEN`` / ``INCREASE`` / ``DECREASE`` /
-    ``CLOSE``; ``ticker`` / ``name`` / ``currency`` are filled in by
+    a holding's fills within a rolling quarter are netted into one
+    entry. ``category`` is one of ``OPEN`` / ``INCREASE`` /
+    ``DECREASE`` / ``CLOSE`` and describes that net effect;
+    ``ticker`` / ``name`` / ``currency`` are filled in by
     :meth:`Holding.trade_events`, not by the combiner itself.
     """
 

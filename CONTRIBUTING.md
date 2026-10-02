@@ -21,7 +21,7 @@ deploy workflow runs the same command. New code should
 | `investing/types.py` | TypedDict shapes for the dicts threaded through the pipeline. |
 | `investing/formatting.py` | Date / percentage / duration / hash helpers. |
 | `investing/fx.py` | `ExchangeRate` + the `fx` callable threaded through the API. |
-| `investing/trades.py` | `Trade` records and burst aggregation. |
+| `investing/trades.py` | `Trade` records and the Activity aggregation: one entry per holding per rolling quarter, stating the net change. |
 | `investing/holdings.py` | `Holding` (positions, periods, dividends, TSR / CAGR) + `PositionLedger`, the USD cashflow timeline the return figures reduce from. |
 | `investing/position_groups.py` | Loader + validator for `position_groups.toml` (several listings of one company reported as one holding). |
 | `investing/positions.py` | Folds a group's per-listing ledgers into one summary; owns which listing supplies the combined position's identity. |

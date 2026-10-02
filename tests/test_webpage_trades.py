@@ -342,6 +342,25 @@ class TestAddTrades:
         assert 'data-sort-price="102.27"' in row
         assert "102.269" not in row
 
+    def test_a_change_that_rounds_to_nothing_is_not_printed_as_zero(self, stub_logo_lookup):
+        # Netting makes small changes common: a trim bought back a
+        # touch larger is a fraction of a percent. Whole-number
+        # rounding would print that as "Increased by 0%", which reads
+        # as a contradiction. It is a change, just under one percent.
+        w = Webpage()
+        w.add_trades(
+            [
+                _trade_event(category="INCREASE", delta_pct=0.4),
+                _trade_event(category="DECREASE", delta_pct=0.04),
+                _trade_event(category="INCREASE", delta_pct=0.6),
+            ]
+        )
+        assert "Increased by &lt;1%" in w.trades[0]
+        assert "Decreased by &lt;1%" in w.trades[1]
+        assert "by 0%" not in w.trades[0] + w.trades[1]
+        # From a half up it rounds to a whole number as before.
+        assert "Increased by 1%" in w.trades[2]
+
     def test_details_pct_renders_as_whole_number(self, stub_logo_lookup):
         # Whole-number percentages by design in this section: the
         # one-decimal page convention from ``_fmt_pct`` is reserved
@@ -673,10 +692,17 @@ class TestSaveTradesSection:
         assert ">Trades</h2>" not in out
         # Subtitle covers the section's three methodology facts: it
         # spans the full ownership history (no trailing-year cutoff),
-        # rolling-quarter bursts are combined, and sizes are never
-        # published.
-        assert "Every executed trade since inception" in out
+        # each entry is the net change over a rolling quarter, and
+        # sizes are never published. It must not claim to list every
+        # trade: a sale reversed within the quarter nets out and has
+        # no entry.
+        assert "Net changes to each holding since inception" in out
+        assert "Every executed trade" not in out
         assert "rolling quarter" in out
+        # ... and it says which fills an entry's price is the average
+        # of, because "the price of a net change" is not self-evident.
+        assert "the buys if it grew" in out
+        assert "the sells if it shrank" in out
         assert "Sizes are never published" in out
         # Nav picks up the new section once trades are present.
         assert 'href="#activity"' in out

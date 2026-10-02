@@ -508,6 +508,19 @@ class Holding:
             return 1.0
         return float(self._split_factors[idx:].prod())
 
+    def _share_frame(self, date: datetime) -> int:
+        """How many splits had taken effect by ``date``.
+
+        Two trades with the same answer are denominated in the same
+        share: their quantities can be added and their per-share
+        prices averaged. Two trades with different answers cannot --
+        between them one share became several -- and the activity
+        combiner uses this to keep an entry from reaching across a
+        split. A split landing exactly on a trade date never gets
+        this far; :meth:`_apply_splits_between` rejects it.
+        """
+        return bisect.bisect_right(self._split_dates, date)
+
     def _reopens_within_trade_window(
         self,
         close_date: datetime,
@@ -568,6 +581,7 @@ class Holding:
                 "quantity": trade.quantity,
                 "category": category,
                 "pre_quantity": current_quantity,
+                "share_frame": self._share_frame(trade.date),
             }
         )
         self._inflows.append(
@@ -609,6 +623,7 @@ class Holding:
                 "quantity": trade.quantity,
                 "category": "CLOSE" if is_closing else "DECREASE",
                 "pre_quantity": current_quantity,
+                "share_frame": self._share_frame(trade.date),
             }
         )
         if is_closing:
@@ -636,13 +651,16 @@ class Holding:
         *,
         window_days: int = TRADE_WINDOW_DAYS,
     ) -> list[TradeEvent]:
-        """Return this ticker's burst-aggregated trades for the
-        "Trades" section.
+        """Return this ticker's net entries for the "Activity"
+        section, one per rolling quarter it traded in.
 
-        Every burst this holding has ever recorded comes through -- the
-        section is now a complete activity log rather than a rolling
-        window. The reader can still drill into "what happened most
-        recently?" via the sortable date column on the rendered table.
+        Every such quarter this holding has ever recorded comes
+        through, however old -- the section covers the full ownership
+        history rather than a trailing window. The one thing that does
+        not is a quarter whose fills cancelled out exactly; see
+        :func:`investing.trades._combine_trade_events`. The reader can
+        still drill into "what happened most recently?" via the
+        sortable date column on the rendered table.
         Each row is decorated with the identifying ``ticker`` / ``name``
         / ``currency`` so the renderer can produce a self-contained
         row without holding a reference to the originating ``Holding``.

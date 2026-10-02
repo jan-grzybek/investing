@@ -1,14 +1,14 @@
-"""Tests for the trade-event categorisation and burst combiner.
+"""Tests for the trade-event categorisation and the activity combiner.
 
-The "Trades" section on the webpage is built from per-ticker
+The "Activity" section on the webpage is built from per-ticker
 events that ``Holding`` tags with one of four semantic categories
 (OPEN/INCREASE/DECREASE/CLOSE), then folded by
-``_combine_trade_events`` into burst-level rows. These tests pin both
-halves:
+``_combine_trade_events`` into one entry per window. These tests pin
+both halves:
 
-* the combiner's grouping rules (same-action, within ``window_days``
-  from the first event in the group) and category resolution (first
-  event for BUY bursts, last event for SELL bursts);
+* the combiner's grouping rule (every fill within ``window_days`` of
+  the first event in the group, in either direction) and how a group
+  is reduced to its net effect on the position;
 * ``Holding.buy`` / ``Holding.sell`` correctly tagging each transaction
   as the position quantity transitions across the 0 boundary, plus the
   ``trade_events`` helper that combines and decorates rows for the
@@ -79,9 +79,9 @@ class TestCombineWindow:
         out = _combine_trade_events(events, window_days=30)
         assert len(out) == 1
         burst = out[0]
-        # First event decides the BUY-burst category: was the position
-        # opened with this run? Yes -> "Opening" even though a later
-        # INCREASE piled on within the same window.
+        # The run started from nothing held, so it reads as an
+        # opening even though a later INCREASE piled on within the
+        # same window.
         assert burst["category"] == "OPEN"
         # Volume-weighted price: (10*100 + 5*110) / 15 = 103.333...
         assert burst["price"] == pytest.approx((1000 + 550) / 15)
@@ -96,9 +96,8 @@ class TestCombineWindow:
         out = _combine_trade_events(events, window_days=30)
         assert len(out) == 1
         burst = out[0]
-        # Last event decides the SELL-burst category: did the run end
-        # with the position fully closed? Yes -> "Closing", even though
-        # a prior partial DECREASE preceded it.
+        # The run ended with nothing held, so it reads as a closing
+        # even though a partial DECREASE preceded the final sale.
         assert burst["category"] == "CLOSE"
         # VWAP: (4*200 + 6*195) / 10 = 197.0
         assert burst["price"] == pytest.approx(197.0)
@@ -171,35 +170,188 @@ class TestCombineWindow:
         assert out[1]["start_date"] == datetime(2024, 2, 20)
 
 
-class TestCombineCrossActionSplits:
-    def test_buy_then_sell_within_window_are_not_merged(self):
-        # Even when the two events sit only days apart, BUY vs SELL
-        # never merges -- the category space wouldn't make sense.
+def _fill(date, price, quantity, category, pre_quantity):
+    """An event with an explicit ``pre_quantity``.
+
+    Netting is about what a run of fills did to the holding going in,
+    so these cases have to say how large that holding was. ``_ev``
+    defaults it to zero, which suits the grouping tests above and
+    would make every percentage here undefined.
+    """
+    return _ev(date, price, quantity, category, pre_quantity=pre_quantity)
+
+
+class TestCombineNetsAcrossDirections:
+    """A change of direction does not end an entry; the window does.
+
+    The reader's question is what the position did around a given
+    time, and a sale followed by a purchase a day later answers it
+    with one number, not two.
+    """
+
+    def test_trim_then_larger_add_reads_as_one_net_increase(self):
+        events = [
+            _fill(datetime(2024, 6, 1), 110.0, 250, "DECREASE", 1000),
+            _fill(datetime(2024, 6, 2), 111.0, 260, "INCREASE", 750),
+        ]
+        out = _combine_trade_events(events, window_days=30)
+        assert len(out) == 1
+        entry = out[0]
+        assert entry["category"] == "INCREASE"
+        # Net +10 on the 1,000 held before the first fill -- not the
+        # +35% the purchase alone was against the trimmed holding.
+        assert entry["delta_pct"] == pytest.approx(1.0)
+        # The price of a net purchase is what the purchases cost; the
+        # sale inside the window does not pull it down.
+        assert entry["price"] == pytest.approx(111.0)
+        assert entry["start_date"] == datetime(2024, 6, 1)
+        assert entry["end_date"] == datetime(2024, 6, 2)
+
+    def test_add_then_larger_trim_reads_as_one_net_decrease(self):
+        events = [
+            _fill(datetime(2024, 6, 1), 50.0, 100, "INCREASE", 1000),
+            _fill(datetime(2024, 6, 9), 60.0, 300, "DECREASE", 1100),
+        ]
+        out = _combine_trade_events(events, window_days=30)
+        assert len(out) == 1
+        entry = out[0]
+        assert entry["category"] == "DECREASE"
+        # Net -200 on the 1,000 held going in.
+        assert entry["delta_pct"] == pytest.approx(20.0)
+        # ... at what the sales fetched.
+        assert entry["price"] == pytest.approx(60.0)
+
+    def test_trim_fully_bought_back_leaves_no_entry(self):
+        # The holding ends the window exactly where it started, so
+        # there is no change to report.
+        events = [
+            _fill(datetime(2024, 6, 1), 110.0, 200, "DECREASE", 1000),
+            _fill(datetime(2024, 6, 2), 111.0, 200, "INCREASE", 800),
+        ]
+        assert _combine_trade_events(events, window_days=30) == []
+
+    def test_opening_absorbs_a_trim_and_a_re_add_inside_its_window(self):
+        # The position came into existence in this window; a trim and
+        # a top-up a month later are part of the same act of building
+        # it, so the whole run reads "Initiated".
+        events = [
+            _fill(datetime(2024, 5, 3), 100.0, 1000, "OPEN", 0),
+            _fill(datetime(2024, 6, 1), 110.0, 250, "DECREASE", 1000),
+            _fill(datetime(2024, 6, 2), 111.0, 260, "INCREASE", 750),
+        ]
+        out = _combine_trade_events(events, window_days=90)
+        assert len(out) == 1
+        entry = out[0]
+        assert entry["category"] == "OPEN"
+        assert entry["delta_pct"] is None
+        assert entry["price"] == pytest.approx((1000 * 100.0 + 260 * 111.0) / 1260)
+        assert entry["start_date"] == datetime(2024, 5, 3)
+        assert entry["end_date"] == datetime(2024, 6, 2)
+
+    def test_exit_absorbs_an_earlier_add_inside_its_window(self):
+        events = [
+            _fill(datetime(2024, 6, 1), 50.0, 100, "INCREASE", 1000),
+            _fill(datetime(2024, 6, 9), 55.0, 1100, "CLOSE", 1100),
+        ]
+        out = _combine_trade_events(events, window_days=30)
+        assert len(out) == 1
+        entry = out[0]
+        assert entry["category"] == "CLOSE"
+        assert entry["delta_pct"] is None
+        assert entry["price"] == pytest.approx(55.0)
+
+    def test_round_trip_inside_one_window_keeps_both_legs(self):
+        # Opened and fully closed within the window nets to nothing,
+        # but it is a whole position with a result of its own in the
+        # closed-positions table. It has to stay visible here.
         events = [
             _ev(datetime(2024, 4, 1), 100.0, 10, "OPEN"),
             _ev(datetime(2024, 4, 5), 110.0, 10, "CLOSE"),
         ]
         out = _combine_trade_events(events, window_days=30)
-        assert len(out) == 2
-        assert out[0]["category"] == "OPEN"
-        assert out[1]["category"] == "CLOSE"
+        assert [b["category"] for b in out] == ["OPEN", "CLOSE"]
 
-    def test_buy_sell_buy_yields_three_rows(self):
-        # OPEN -> CLOSE -> OPEN-again pattern: each ownership cycle
-        # should surface as its own row, including the second OPEN
-        # (a re-entry, not an INCREASE of the first holding).
+    def test_interleaved_round_trip_still_shows_two_legs(self):
+        # Buys and sells alternating between the opening and the exit
+        # collapse into one row per direction, each at its own average
+        # and spanning its own fills.
+        events = [
+            _fill(datetime(2024, 4, 1), 100.0, 10, "OPEN", 0),
+            _fill(datetime(2024, 4, 2), 104.0, 4, "DECREASE", 10),
+            _fill(datetime(2024, 4, 3), 102.0, 6, "INCREASE", 6),
+            _fill(datetime(2024, 4, 5), 110.0, 12, "CLOSE", 12),
+        ]
+        out = _combine_trade_events(events, window_days=30)
+        assert [b["category"] for b in out] == ["OPEN", "CLOSE"]
+        bought, sold = out
+        assert bought["price"] == pytest.approx((10 * 100.0 + 6 * 102.0) / 16)
+        assert (bought["start_date"], bought["end_date"]) == (
+            datetime(2024, 4, 1),
+            datetime(2024, 4, 3),
+        )
+        assert sold["price"] == pytest.approx((4 * 104.0 + 12 * 110.0) / 16)
+        assert (sold["start_date"], sold["end_date"]) == (
+            datetime(2024, 4, 2),
+            datetime(2024, 4, 5),
+        )
+
+    def test_exit_and_re_entry_inside_one_window_reads_as_the_net_change(self):
+        # Selling everything and buying back the next day is, to the
+        # reader, a position that grew by 5%. The holdings table makes
+        # the same call: it reports a round trip this quick as
+        # uninterrupted ownership.
+        events = [
+            _fill(datetime(2024, 1, 5), 100.0, 1000, "CLOSE", 1000),
+            _fill(datetime(2024, 1, 6), 101.0, 1050, "OPEN", 0),
+        ]
+        out = _combine_trade_events(events, window_days=30)
+        assert len(out) == 1
+        entry = out[0]
+        assert entry["category"] == "INCREASE"
+        assert entry["delta_pct"] == pytest.approx(5.0)
+        assert entry["price"] == pytest.approx(101.0)
+
+    def test_open_close_reopen_inside_one_window_is_one_opening(self):
+        # Nothing held going in, something held coming out: one
+        # "Initiated", at what the purchases cost. The exit in between
+        # does not get a row and does not move the price.
         events = [
             _ev(datetime(2024, 1, 1), 100.0, 5, "OPEN"),
-            _ev(datetime(2024, 1, 5), 110.0, 5, "CLOSE"),
+            _ev(datetime(2024, 1, 5), 130.0, 5, "CLOSE"),
             _ev(datetime(2024, 1, 8), 120.0, 5, "OPEN"),
         ]
         out = _combine_trade_events(events, window_days=30)
-        assert [b["category"] for b in out] == ["OPEN", "CLOSE", "OPEN"]
-        assert [b["start_date"] for b in out] == [
-            datetime(2024, 1, 1),
-            datetime(2024, 1, 5),
-            datetime(2024, 1, 8),
+        assert len(out) == 1
+        assert out[0]["category"] == "OPEN"
+        assert out[0]["price"] == pytest.approx(110.0)
+        assert out[0]["start_date"] == datetime(2024, 1, 1)
+        assert out[0]["end_date"] == datetime(2024, 1, 8)
+
+    def test_opposite_fill_outside_the_window_starts_its_own_entry(self):
+        # Netting is bounded by the window like everything else: an
+        # add and a trim five weeks apart, against a 30-day window,
+        # are two decisions.
+        events = [
+            _fill(datetime(2024, 1, 1), 50.0, 100, "INCREASE", 1000),
+            _fill(datetime(2024, 2, 5), 60.0, 100, "DECREASE", 1100),
         ]
+        out = _combine_trade_events(events, window_days=30)
+        assert [b["category"] for b in out] == ["INCREASE", "DECREASE"]
+
+    def test_window_stays_anchored_on_the_first_fill_across_directions(self):
+        # Same contract as the same-direction case above: the third
+        # fill is 50 days from the first, so it cannot ride on the
+        # second one's proximity into the first entry.
+        events = [
+            _fill(datetime(2024, 1, 1), 50.0, 100, "INCREASE", 1000),
+            _fill(datetime(2024, 1, 26), 60.0, 40, "DECREASE", 1100),
+            _fill(datetime(2024, 2, 20), 55.0, 30, "INCREASE", 1060),
+        ]
+        out = _combine_trade_events(events, window_days=30)
+        assert len(out) == 2
+        assert out[0]["delta_pct"] == pytest.approx(6.0)
+        assert out[0]["end_date"] == datetime(2024, 1, 26)
+        assert out[1]["start_date"] == datetime(2024, 2, 20)
 
 
 class TestCombineDeltaPct:
@@ -449,10 +601,12 @@ class TestHoldingCategorisesTrades:
         stub_exchange_rate,
         fake_apple,
     ):
-        # Closing then re-buying must read as a fresh "Opening", not
-        # an "Increase". The page's category column distinguishes
-        # entries from add-ons; collapsing them would lie about the
-        # nature of the action.
+        # Closing then re-buying must be *recorded* as a fresh
+        # "Opening", not an "Increase": the raw events are what the
+        # combiner reads its boundaries from, so they have to say what
+        # each fill did to the position. Whether the page then shows
+        # the three as one entry is the combiner's call, not this
+        # bookkeeping's.
         h = Holding("AAPL", fx=stub_exchange_rate)
         h.buy(_trade(datetime(2024, 1, 1), 10, 100.0, "BUY"))
         h.sell(_trade(datetime(2024, 2, 1), 10, 110.0, "SELL"))
@@ -523,6 +677,25 @@ class TestHoldingTradeEventsDecoration:
         assert ev["price"] == pytest.approx((2 * 100 + 8 * 110) / 10)
         assert ev["start_date"] == datetime(2024, 6, 1)
         assert ev["end_date"] == datetime(2024, 6, 10)
+
+    def test_trim_and_re_add_net_out_through_trade_events(
+        self,
+        stub_exchange_rate,
+        fake_apple,
+    ):
+        # The same netting, driven through the real bookkeeping: the
+        # categories and ``pre_quantity`` values come from ``buy`` /
+        # ``sell`` rather than being written out by hand. A trim and a
+        # slightly larger re-add a day apart, long after the opening,
+        # surface as one small net increase.
+        h = Holding("AAPL", fx=stub_exchange_rate)
+        h.buy(_trade(datetime(2024, 1, 1), 1000, 100.0, "BUY"))
+        h.sell(_trade(datetime(2024, 6, 1), 250, 110.0, "SELL"))
+        h.buy(_trade(datetime(2024, 6, 2), 260, 111.0, "BUY"))
+        events = h.trade_events()
+        assert [e["category"] for e in events] == ["OPEN", "INCREASE"]
+        assert events[1]["delta_pct"] == pytest.approx(1.0)
+        assert events[1]["price"] == pytest.approx(111.0)
 
     def test_delta_pct_flows_through_trade_events(
         self,
