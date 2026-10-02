@@ -154,7 +154,7 @@ python-dateutil==2.9.0.post0
     #   pandas
 python-discovery==1.6.1
     # via virtualenv
-python-slugify==8.0.4
+python-slugify==9.1.2
     # via pytest-playwright
 pytz==2026.4
     # via yfinance
