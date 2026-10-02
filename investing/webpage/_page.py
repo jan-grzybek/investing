@@ -28,7 +28,6 @@ from ..paths import COURAGE_LOGO
 from ..paths import SITE_URL as _SITE_URL
 from ..paths import SOCIAL_IMAGE as _SOCIAL_IMAGE
 from ..performance import _BENCHMARK_DISPLAY_NAMES
-from ..trades import _TRADE_DETAIL_LABELS
 from ..types import (
     BenchmarkSummary,
     HoldingsRollup,
@@ -44,7 +43,7 @@ from . import og_image as _og_image
 from . import return_chart as _return_chart
 from . import trades_view as _trades_view
 from . import yearly_view as _yearly_view
-from .anchors import holding_anchor, strip_exchange
+from .anchors import holding_anchor
 from .head import SiteMeta, build_analytics_tag, build_head
 from .sitemap import write_robots_txt, write_sitemap
 
@@ -539,11 +538,10 @@ class Webpage:
             output_dir=output_dir,
         )
 
-    # ``holding_anchor`` and ``strip_exchange`` are imported from
-    # :mod:`investing.webpage.anchors`; the static-method wrappers
-    # below preserve the historical ``Webpage._holding_anchor`` /
-    # ``Webpage._strip_exchange`` callsites used by the renderer and
-    # the test suite.
+    # ``holding_anchor`` is imported from
+    # :mod:`investing.webpage.anchors`; the static-method wrapper
+    # below preserves the historical ``Webpage._holding_anchor``
+    # callsites used by the test suite.
     _holding_anchor = staticmethod(holding_anchor)
 
     @staticmethod
@@ -810,26 +808,15 @@ class Webpage:
 
     # The trades-table renderer (row builder, headers, sort indices,
     # "Show all" toggle) lives in :mod:`investing.webpage.trades_view`.
-    # The class-level attributes below preserve the historical
+    # The two class-level attributes below preserve the historical
     # ``Webpage._build_trades_table`` /
-    # ``Webpage._TRADES_VISIBLE_DEFAULT`` call surface used by the
-    # test suite.
-    _strip_exchange = staticmethod(strip_exchange)
+    # ``Webpage._TRADES_VISIBLE_DEFAULT`` call surface: ``save`` calls
+    # the first, and the test suite reads both.
     _build_trades_table = staticmethod(_trades_view.build_table)
     _TRADES_VISIBLE_DEFAULT = _trades_view.VISIBLE_DEFAULT
-    _TRADES_SORTABLE_COLUMNS = _trades_view.SORTABLE_COLUMNS
-    _TRADE_DETAIL_SORT_INDEX = _trades_view.TRADE_DETAIL_SORT_INDEX
-    _TRADE_ACTION_SORT_INDEX = _trades_view.TRADE_ACTION_SORT_INDEX
-    _TRADE_DETAIL_LABELS_REF = _TRADE_DETAIL_LABELS
 
     # Holdings rows + table assembly live in
-    # :mod:`investing.webpage.holdings_view`. The class-level
-    # attributes below preserve the historical call surface.
-    _OPEN_COLUMNS = _holdings_view.OPEN_COLUMNS
-    _CLOSED_COLUMNS = _holdings_view.CLOSED_COLUMNS
-    _build_holdings_group = staticmethod(_holdings_view.build_group)
-    _build_holdings_table = staticmethod(_holdings_view.build_table)
-
+    # :mod:`investing.webpage.holdings_view`.
     def _build_holding_card(self, holding: HoldingSummary) -> str:
         return _holdings_view.build_row(holding, logo_url_for=self._get_logo_url)
 
