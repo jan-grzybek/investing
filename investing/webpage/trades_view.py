@@ -2,7 +2,7 @@
 
 Two public entrypoints:
 
-* :func:`build_row` renders one burst-aggregated trade as a
+* :func:`build_row` renders one net activity entry as a
   ``<tr>``; the renderer calls it once per event so it can
   collect the strings and pass them to :func:`build_table`.
 * :func:`build_table` wraps the row fragments in the sortable
@@ -94,8 +94,8 @@ def _detail_text(event: TradeEvent) -> str:
     into existence, or was disposed of.
 
     INCREASE / DECREASE name what changed and by how much -- "Increased
-    by 30%", "Decreased by 25%" -- as a percentage of the position
-    *before* the trade.
+    by 30%", "Decreased by 25%" -- the net of the quarter's fills as a
+    percentage of the position going *into* it.
 
     They used to render as a bare signed percentage, ``+30%`` and
     ``\u221225%``. On this page that is ambiguous in the worst way: every
@@ -114,11 +114,17 @@ def _detail_text(event: TradeEvent) -> str:
     if delta_pct is None:
         return _TRADE_ACTION_DISPLAY[category][0]
     verb = "Increased" if category == "INCREASE" else "Decreased"
-    return f"{verb} by {delta_pct:.0f}%"
+    whole = f"{delta_pct:.0f}"
+    # An entry is the net of a quarter's fills, and a trim bought back
+    # a touch larger nets to a fraction of a percent. Printed as a
+    # whole number that is "Increased by 0%" -- a row saying something
+    # happened and that nothing did. It gets the one honest label
+    # available at this precision instead.
+    return f"{verb} by <1%" if whole == "0" else f"{verb} by {whole}%"
 
 
 def build_row(event: TradeEvent) -> str:
-    """Render one burst-aggregated trade as a ``<tr>``.
+    """Render one net activity entry as a ``<tr>``.
 
     Five columns: ticker (without exchange prefix), company
     name, action badge (Bought / Sold), details (initial stake
