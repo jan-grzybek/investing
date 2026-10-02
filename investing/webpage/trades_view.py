@@ -133,6 +133,9 @@ def build_row(event: TradeEvent) -> str:
     counts are deliberately absent: the page commits to
     publishing only relative percentages and per-share prices,
     never sizes.
+
+    That commitment reaches the sort key too: ``data-sort-price``
+    carries the two decimals the cell prints and no more.
     """
     category = event["category"]
     action_label, action_modifier = _TRADE_ACTION_DISPLAY[category]
@@ -176,7 +179,7 @@ def build_row(event: TradeEvent) -> str:
         f' data-sort-action="{sort_action}"'
         f' data-sort-detail="{sort_detail}"'
         f' data-sort-currency="{html.escape(event["currency"])}"'
-        f' data-sort-price="{event["price"]:.6f}">'
+        f' data-sort-price="{event["price"]:.2f}">'
         f'<td class="trades__cell trades__cell--ticker" role="cell">{html.escape(symbol)}</td>'
         f'<td class="trades__cell trades__cell--name" role="cell">{html.escape(name)}</td>'
         '<td class="trades__cell trades__cell--action" role="cell">'

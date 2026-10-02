@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import re
 from datetime import datetime
 
 from investing.assets import _PAGE_STYLES
@@ -69,6 +70,12 @@ class TestAddHolding:
         # "TBA" carries no direction, so it must not carry a sign
         # colour either.
         assert "value--positive" not in w.current[0].split("TBA")[0].rsplit("<td", 1)[1]
+        # ... and no sort key. The cell declines to print the figure;
+        # an attribute carrying it anyway would publish what the page
+        # has just chosen not to. The sort script puts a row with no
+        # key last in both directions, which is where "unknown" goes.
+        assert "data-sort-cagr" not in w.current[0]
+        assert "data-sort-tsr" in w.current[0]
 
     def test_open_position_renders_its_window_as_start_to_present(self, stub_logo_lookup):
         # One grammar for the whole column: an open row's window is a
@@ -149,21 +156,58 @@ class TestAddHolding:
         assert "+12.3%" in row
         assert "+4.5%" in row
 
-    def test_weight_publishes_its_raw_value_for_the_css_bar(self, stub_logo_lookup):
+    def test_weight_publishes_its_value_for_the_css_bar(self, stub_logo_lookup):
         # The bar's width is ``--w / --holdings-weight-scale`` in CSS,
         # so the row publishes its own weight and the table publishes
         # the page-wide maximum. Doing the division in CSS is what lets
         # a row render before the renderer has seen the whole book.
         w = Webpage()
         w.add_holding(_holding(weight=10.0))
-        assert 'style="--w: 10.00"' in w.current[0]
+        assert 'style="--w: 10.0"' in w.current[0]
         assert "10.0%" in w.current[0]
 
     def test_table_publishes_the_largest_weight_as_the_bar_scale(self, stub_logo_lookup):
         w = Webpage()
         w.add_holding(_holding(ticker="NMS:AAA", weight=21.4))
         w.add_holding(_holding(ticker="NMS:BBB", weight=4.1))
-        assert "--holdings-weight-scale: 21.40" in _open_table(w)
+        assert '--holdings-weight-scale: 21.4"' in _open_table(w)
+
+    def test_no_hidden_figure_is_more_precise_than_the_one_shown(self, stub_logo_lookup):
+        # The page shows weights and returns to one decimal. The sort
+        # keys and the bar width exist for the script and the
+        # stylesheet, and neither needs a digit the reader is not
+        # given -- so neither may carry one. Every extra digit is
+        # extra material for working backwards from the page to
+        # sizes, which SECURITY.md rules out.
+        w = Webpage()
+        w.add_holding(_holding(ticker="NMS:AAA", tsr=12.3456, cagr=4.5678, weight=10.0376))
+        w.add_holding(_holding(ticker="NMS:BBB", weight=21.4321))
+        row = w.current[0]
+        assert "+12.3%" in row and "+4.6%" in row and "10.0%" in row
+        assert 'data-sort-tsr="12.3"' in row
+        assert 'data-sort-cagr="4.6"' in row
+        assert 'data-sort-weight="10.0"' in row
+        assert 'style="--w: 10.0"' in row
+        # Every hidden figure in the table, not just this row's: the
+        # second holding's weight is the bar scale.
+        hidden = re.findall(
+            r'data-sort-(?:tsr|cagr|weight)="([^"]+)"|--(?:w|holdings-weight-scale): ([0-9.]+)',
+            _open_table(w),
+        )
+        figures = [attribute or style for attribute, style in hidden]
+        assert "21.4" in figures
+        assert all(len(figure.partition(".")[2]) <= 1 for figure in figures), figures
+
+    def test_sort_key_drops_its_decimal_where_the_shown_figure_does(self, stub_logo_lookup):
+        # ``_fmt_pct`` prints a triple-digit return as a whole number
+        # (``673%``, not ``672.9%``). The sort key follows it, so the
+        # attribute never carries a digit the cell has dropped.
+        w = Webpage()
+        w.add_holding(_holding(tsr=672.94, cagr=99.96, weight=5.0))
+        row = w.current[0]
+        assert 'data-sort-tsr="673"' in row
+        assert 'data-sort-cagr="100"' in row
+        assert "672.9" not in row and "99.96" not in row
 
     def test_closed_table_publishes_no_weight_scale(self, stub_logo_lookup):
         # No weight column, so no scale -- publishing one would be a
@@ -419,11 +463,13 @@ class TestRowContract:
         assert "data-sort-ticker" not in row
         # Names case-fold so a name sort reads as a clean A->Z run.
         assert 'data-sort-name="nvidia corporation"' in row
-        # Numeric keys use a fixed-decimal serialisation so int / float
-        # upstream values render identically and the JS can parseFloat.
-        assert 'data-sort-tsr="217.4000"' in row
-        assert 'data-sort-cagr="64.2000"' in row
-        assert 'data-sort-weight="21.4000"' in row
+        # Numeric keys are serialised at the precision of the figure
+        # the cell prints -- one decimal, none once the figure reaches
+        # three digits -- so int / float upstream values render
+        # identically and the JS can parseFloat.
+        assert 'data-sort-tsr="217"' in row
+        assert 'data-sort-cagr="64.2"' in row
+        assert 'data-sort-weight="21.4"' in row
         # Dates sort ISO so a lexical compare is a chronological one.
         assert 'data-sort-since="2024-08-14"' in row
 
@@ -445,8 +491,8 @@ class TestRowContract:
         )
         row = w.historical[0]
         assert 'data-sort-name="old co."' in row
-        assert 'data-sort-tsr="-12.5000"' in row
-        assert 'data-sort-cagr="-7.3000"' in row
+        assert 'data-sort-tsr="-12.5"' in row
+        assert 'data-sort-cagr="-7.3"' in row
         assert "data-sort-weight" not in row
         assert "data-sort-since" not in row
 

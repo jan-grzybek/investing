@@ -108,6 +108,12 @@ def _weight_bar(weight: float, *, muted: bool) -> str:
     otherwise draw every bar inside the left fifth of the track,
     where the differences that matter are a few pixels wide.
 
+    ``--w`` carries one decimal, the same as the figure printed beside
+    the bar, and so does the scale. A second decimal moved the bar by
+    a fraction of a pixel and published the weight ten times more
+    precisely than the page shows -- see ``_format_sort_number`` for
+    the rule.
+
     Fixed income gets the neutral fill rather than the JG accent. The
     accent means "this is the equity sleeve" everywhere else on the
     page -- chart curve, allocation bar, OG card swatch -- and a bond
@@ -116,7 +122,7 @@ def _weight_bar(weight: float, *, muted: bool) -> str:
     fill = "holdings__bar-fill holdings__bar-fill--muted" if muted else "holdings__bar-fill"
     return (
         '<span class="holdings__bar">'
-        f'<span class="{fill}" style="--w: {max(weight, 0.0):.2f}"></span>'
+        f'<span class="{fill}" style="--w: {max(weight, 0.0):.1f}"></span>'
         "</span>"
         f'<span class="holdings__weight-value">{_fmt_pct(weight)}%</span>'
     )
@@ -253,8 +259,14 @@ def build_row(holding: HoldingSummary, *, logo_url_for: Callable[[str], str]) ->
     sort_attrs = {
         "name": holding["name"].casefold(),
         "tsr": _format_sort_number(holding["tsr%"]),
-        "cagr": _format_sort_number(holding["cagr%"]),
     }
+    # No IRR key where the cell prints "TBA". The cell is declining to
+    # publish the figure, and a sort key carrying it anyway would be
+    # the page saying in the markup what it would not say in the text.
+    # The sort script places a row without the key last in either
+    # direction, which is the right place for "not known yet".
+    if holding["cagr%"] <= CAGR_TBA_THRESHOLD:
+        sort_attrs["cagr"] = _format_sort_number(holding["cagr%"])
 
     cells = [
         _logo_cell(
@@ -353,7 +365,7 @@ def build_table(
     body = "".join(groups)
     if not body:
         return ""
-    scale_attr = f' style="--holdings-weight-scale: {weight_scale:.2f}"' if weight_scale > 0 else ""
+    scale_attr = f' style="--holdings-weight-scale: {weight_scale:.1f}"' if weight_scale > 0 else ""
     # The order the table is in, declared so the sort script can adopt
     # it instead of booting blind. Blind, its first click on the column
     # the rows were already ordered by re-applied that same order and
