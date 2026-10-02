@@ -14,8 +14,8 @@ from .types import EquityTransaction
 
 # Public surface of this module. The leading-underscore display tables
 # (``_BUY_CATEGORIES`` / ``_TRADE_ACTION_DISPLAY`` / ``_TRADE_DETAIL_LABELS``)
-# are imported by ``investing.webpage.trades_view`` and
-# ``investing.webpage._page``; ``__all__`` is the canonical opt-in
+# are imported by ``investing.webpage.trades_view``, and the first of
+# them by ``investing.holdings``; ``__all__`` is the canonical opt-in
 # that tells CodeQL's ``py/unused-global-variable`` query they're
 # cross-module exports rather than module-local bindings the leading
 # underscore would otherwise imply.
