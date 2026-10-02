@@ -19,7 +19,7 @@ permissions:
 jobs:
   pip-audit:
     name: pip-audit (dependency CVE scan)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -54,7 +54,7 @@ jobs:
 
   codeql:
     name: CodeQL (Python static analysis)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       # CodeQL needs to upload its SARIF result to the GitHub
       # Security tab; the rest of the workflow stays read-only.

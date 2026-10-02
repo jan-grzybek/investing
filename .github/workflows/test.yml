@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   lint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -68,7 +68,7 @@ jobs:
         run: mypy investing scripts/preview.py
 
   pytest:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     strategy:
       # Don't short-circuit one Python version's failure into the others;
       # we want to see every supported runtime's report on the same PR.
@@ -157,3 +157,71 @@ jobs:
         # in ``tests/test_preview_html.py`` alongside the rest of the
         # suite.
         run: python -m pytest -v --cov=investing --cov-report=term-missing
+
+  # TEMPORARY -- pre-flight only, never to be merged.
+  #
+  # Mirrors the OS-sensitive half of ``main.yml``'s ``Update`` job and
+  # of ``regenerate-logos.yml`` on the production lockfile, minus every
+  # step that needs a secret. Neither workflow runs on pull requests,
+  # so this is the only way to see them on the new image before
+  # ``ubuntu-latest`` moves. The 24.04 row is the control: same commit,
+  # same lock, same minute.
+  deploy-path-preflight:
+    name: deploy path, prod lock (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-26.04]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Setup Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.14'
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libcairo2
+
+      - name: Install deps
+        run: pip install -r requirements.txt
+
+      - name: Image and library versions
+        run: |
+          . /etc/os-release && echo "os: $PRETTY_NAME"
+          echo "kernel: $(uname -r)"
+          python --version
+          dpkg-query -W -f='libcairo2 package: ${Version}\n' libcairo2
+          python -c "import cairocffi, cairosvg, PIL; print('cairo', cairocffi.cairo_version_string(), '| cairosvg', cairosvg.__version__, '| Pillow', PIL.__version__)"
+
+      - name: Cropped logos match (what regenerate-logos.yml would rebuild)
+        run: python scripts/tighten_logos.py --check
+
+      - name: Show crop drift, if any
+        if: failure()
+        run: |
+          python scripts/tighten_logos.py || true
+          git status --porcelain logos/tight/
+          git diff --stat logos/tight/ | tail -3
+          git diff -U0 logos/tight/ | grep -E '^[+-]<svg' | cut -c1-240 | head -40
+
+      - name: Render the synthetic page (what the deploy build does, minus the sheet)
+        run: |
+          python scripts/preview.py --out "$RUNNER_TEMP/preview"
+          python - <<'EOF'
+          import hashlib, os, pathlib
+          from PIL import Image
+          out = pathlib.Path(os.environ["RUNNER_TEMP"]) / "preview"
+          for name in ("index.html", "og-image.png", "sitemap.xml", "robots.txt"):
+              data = (out / name).read_bytes()
+              print(f"{name}: {len(data)} bytes sha256={hashlib.sha256(data).hexdigest()[:16]}")
+          image = Image.open(out / "og-image.png")
+          image.load()
+          assert image.size == (1200, 630), image.size
+          pixels = hashlib.sha256(image.convert("RGBA").tobytes()).hexdigest()[:16]
+          print(f"og-image.png: {image.format} {image.size} {image.mode} pixel-sha256={pixels}")
+          EOF
