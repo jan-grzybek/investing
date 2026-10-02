@@ -296,8 +296,9 @@ would for any other issue activity. Implementation lives in
 Lifecycle:
 
 * The notifier is opt-in via `INVESTING_NOTIFY_GITHUB=1` and a
-  workflow-scoped `GITHUB_TOKEN` (the production workflow sets
-  both; forks default to a silent no-op).
+  `GITHUB_TOKEN` that carries `issues: write` (the production
+  workflow's `Update` job sets both; forks default to a silent
+  no-op).
 * Each hint is mapped to an issue with three labels:
   `maintenance`, a category label (`sector` / `logo` /
   `invalid-override`) and a `ticker:<TICKER>` dedupe label.

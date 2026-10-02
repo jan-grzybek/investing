@@ -7,8 +7,8 @@ This repository builds a public web page from a *private* data source:
 1. **Secrets** held by the production GitHub Actions workflow
    (`.github/workflows/main.yml`) -- the Google service-account JSON
    passed in as `GSHEET_CREDS` and the sheet identifier
-   `GSHEET_ID`. Both come from repository secrets and are scoped to
-   the deploy job.
+   `GSHEET_ID`. Both come from repository secrets and are passed to a
+   single step: the page build in the deploy workflow's `Update` job.
 2. **Absolute portfolio values** read from that Google Sheet -- share
    counts, per-trade sizes, cash balances, dividend cash payouts, and
    above all the total portfolio value (net worth). None of these are
@@ -53,8 +53,24 @@ world-readable** and act as a side channel for both classes of data.
 * `_gspread_client` accepts the service-account JSON inline via the
   `GSHEET_CREDS` environment variable so the secret never lands on
   the runner's filesystem.
-* The deploy workflow uses the least-privilege token scope (`contents:
-  read`, `pages: write`, `id-token: write`).
+* The deploy workflow scopes its token per job, not once for the whole
+  workflow, and every job starts from an empty grant (beyond the
+  `metadata: read` GitHub always includes). The build job (`Update`)
+  opts in to `contents: write`, so it can push auto-populated
+  `sector_overrides.toml` stubs and the monthly `market_data/`
+  snapshot back to `main`, and to `issues: write` for the maintenance
+  notifier. The publish job (`Deploy`) opts in to `pages: write` and
+  `id-token: write` and nothing else. So the token held by the job
+  that runs the third-party dependency set alongside the sheet
+  credentials cannot create a Pages deployment or mint an OIDC token,
+  and the token held by the job that publishes cannot push to `main`
+  or file issues.
+
+  This narrows what each token can do; it does not isolate the build
+  from the site. `Update` still produces the artifact that `Deploy`
+  publishes unreviewed, and it still holds `contents: write` on
+  `main`, which is not branch-protected -- the larger power of the
+  two.
 * `.github/workflows/security.yml` runs `pip-audit` against both
   lockfiles (OSV.dev advisory feed, `--strict` so known CVEs fail
   the build) and a CodeQL Python scan (`security-and-quality` query

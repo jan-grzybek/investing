@@ -85,27 +85,19 @@ on:
     branches: [main]
   workflow_dispatch: {}
 
-permissions:
-  # ``contents: write`` lets the post-build "Commit auto-populated
-  # sector overrides" step push commented-out stubs that the
-  # ``append_missing_sector_stubs`` hook in
-  # ``investing.sector_overrides`` adds to ``sector_overrides.toml``
-  # when the build observes a missing-sector ticker. Without the
-  # write scope the file would be mutated only on the ephemeral
-  # runner and the maintainer's local checkout would never see the
-  # auto-populated entry -- defeating the "remind the operator to
-  # fill in a sector" half of the auto-populate contract.
-  contents: write
-  pages: write
-  id-token: write
-  # Lets ``investing.maintenance_notifier`` file an issue when the
-  # build observes a ticker missing a sector or a logo. The
-  # ``GITHUB_TOKEN`` injected into the Update job below already
-  # carries the right scope as long as this permission is opted in
-  # at the workflow level; the notifier dedupes against existing
-  # issues (open OR closed) so it never re-files a hint the
-  # maintainer has already triaged.
-  issues: write
+# The token is scoped per job, not once for the workflow. This block
+# is the floor every job starts from -- nothing beyond the
+# ``metadata: read`` GitHub always grants -- and ``Update`` and
+# ``Deploy`` each opt in to exactly what they use.
+#
+# A workflow-level grant hands every scope to every job. ``Update``
+# is the job that runs the whole third-party dependency set with the
+# sheet credentials in its environment, and it has no business being
+# able to create a Pages deployment or mint an OIDC token; ``Deploy``
+# publishes an artifact and has no business being able to push to
+# ``main`` or file issues. ``WaitForRegenerate`` runs a single ``:``
+# and uses no token at all.
+permissions: {}
 
 concurrency:
     group: "pages"
@@ -152,6 +144,28 @@ jobs:
     # those entry points are allowed through unconditionally.
     if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
 
+    permissions:
+      # ``contents: write`` lets the post-build "Commit auto-populated
+      # sector overrides" step push commented-out stubs that the
+      # ``append_missing_sector_stubs`` hook in
+      # ``investing.sector_overrides`` adds to ``sector_overrides.toml``
+      # when the build observes a missing-sector ticker. Without the
+      # write scope the file would be mutated only on the ephemeral
+      # runner and the maintainer's local checkout would never see the
+      # auto-populated entry -- defeating the "remind the operator to
+      # fill in a sector" half of the auto-populate contract. The
+      # monthly "Commit market-data snapshot updates" step pushes
+      # through the same scope, and the checkout reads through it.
+      contents: write
+      # Lets ``investing.maintenance_notifier`` file an issue when the
+      # build observes a ticker missing a sector or a logo. The
+      # ``GITHUB_TOKEN`` injected into the "Generate new webpage" step
+      # below carries the right scope only because this job opts in
+      # here; the notifier dedupes against existing issues (open OR
+      # closed) so it never re-files a hint the maintainer has already
+      # triaged.
+      issues: write
+
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -192,9 +206,9 @@ jobs:
           # no-op when any prerequisite is missing, so a fork that
           # doesn't want auto-filed issues can simply drop the env var.
           INVESTING_NOTIFY_GITHUB: "1"
-          # ``GITHUB_TOKEN`` is workflow-scoped (the ``issues: write``
-          # permission opt-in at the top of this file is what gives it
-          # the right scope); ``GITHUB_REPOSITORY`` and
+          # ``GITHUB_TOKEN`` is this job's own token (the ``issues:
+          # write`` opt-in in the job's ``permissions`` block above is
+          # what gives it the right scope); ``GITHUB_REPOSITORY`` and
           # ``GITHUB_API_URL`` are populated automatically by the
           # Actions runtime but have to be threaded into the step's env
           # explicitly so the Python process sees them.
@@ -289,6 +303,13 @@ jobs:
   Deploy:
     needs: Update
     runs-on: ubuntu-latest
+    permissions:
+      # The minimum ``actions/deploy-pages`` documents for the job
+      # that runs it: ``pages: write`` to create the deployment and
+      # ``id-token: write`` to request the OIDC token that proves the
+      # deployment originates from this workflow.
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
