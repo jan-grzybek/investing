@@ -220,8 +220,16 @@ class Webpage:
         the preview/test paths). Rows are stored pre-rendered as
         ``<tr>`` fragments so the page assembly in ``save()`` stays
         linear; ``_build_trades_table`` wraps them with the matching
-        ``<thead>`` and sortable column headers."""
-        self.trades = [self._build_trade_row(event) for event in trade_events]
+        ``<thead>`` and sortable column headers.
+
+        The Date column's sort key is an entry's place in the whole
+        log's date order, so it is worked out here, where the whole
+        log is in hand, and passed to each row."""
+        sort_dates = _trades_view.date_sort_keys(trade_events)
+        self.trades = [
+            _trades_view.build_row(event, sort_date=sort_date)
+            for event, sort_date in zip(trade_events, sort_dates, strict=True)
+        ]
 
     def save(self, output_dir: Path | None = None) -> None:
         """Render the page and companion artefacts into ``output_dir``.
@@ -803,11 +811,10 @@ class Webpage:
     # The trades-table renderer (row builder, headers, sort indices,
     # "Show all" toggle) lives in :mod:`investing.webpage.trades_view`.
     # The class-level attributes below preserve the historical
-    # ``Webpage._build_trade_row`` / ``Webpage._build_trades_table`` /
+    # ``Webpage._build_trades_table`` /
     # ``Webpage._TRADES_VISIBLE_DEFAULT`` call surface used by the
     # test suite.
     _strip_exchange = staticmethod(strip_exchange)
-    _build_trade_row = staticmethod(_trades_view.build_row)
     _build_trades_table = staticmethod(_trades_view.build_table)
     _TRADES_VISIBLE_DEFAULT = _trades_view.VISIBLE_DEFAULT
     _TRADES_SORTABLE_COLUMNS = _trades_view.SORTABLE_COLUMNS

@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
+
+import pytest
 
 from investing.webpage import Webpage
+from tests._html_helpers import A_DAY
 from tests._webpage_support import (
     _holding,
     _total_return,
@@ -432,12 +435,13 @@ class TestAddTrades:
         self,
         stub_logo_lookup,
     ):
-        # The five sortable columns (ticker / name / action / detail /
-        # date) are wired up via ``data-sort-*`` attributes the inline
-        # ``_TRADES_SORT_SCRIPT`` reads off each row. Bursts spanning
-        # multiple days anchor the date key on ``end_date`` (the most
-        # recent event) so sorting by date matches what a reader sees
-        # in the rendered cell. ``data-sort-action`` is binary
+        # The six sortable columns (ticker / name / action / detail /
+        # date / price) are wired up via ``data-sort-*`` attributes the
+        # inline ``_TRADES_SORT_SCRIPT`` reads off each row; price has
+        # its own test above. The date key is
+        # the entry's place in the log's date order, taken from its
+        # ``end_date`` (the most recent fill) -- see
+        # ``TestDateSortKey`` below. ``data-sort-action`` is binary
         # (0 = BUY-into-position, 1 = SELL-out-of-position) so
         # ascending groups Bought above Sold. ``data-sort-detail``
         # uses the four-category dict-order index (OPEN=0, INCREASE=1,
@@ -457,8 +461,9 @@ class TestAddTrades:
             ]
         )
         row = w.trades[0]
-        # Date key reflects the burst's most recent event in ISO form.
-        assert 'data-sort-date="2024-06-11"' in row
+        # One entry, so it is first in date order. The key is that
+        # position and not the date: the cell prints a quarter.
+        assert 'data-sort-date="1"' in row
         # Tickers and names are case-folded so the sort is case-
         # insensitive (avoids the "Z before a" surprise that ASCII
         # compare would otherwise produce).
@@ -659,6 +664,92 @@ class TestAddTrades:
         assert "S&amp;P Global Inc." in row
         # No raw ``&P`` leaks.
         assert "S&P Global" not in row
+
+
+class TestDateSortKey:
+    """The Date column sorts on an entry's place in date order, not its date.
+
+    The cell prints a quarter, and the table commits to publishing
+    trade timing at that granularity. A sort key holding the day of
+    the last fill would hand the day to anyone who reads the markup.
+    """
+
+    @staticmethod
+    def _keys(rows: list[str]) -> list[str]:
+        return [re.search(r'data-sort-date="([^"]*)"', row).group(1) for row in rows]
+
+    @staticmethod
+    def _rows(*ends: datetime) -> list[str]:
+        w = Webpage()
+        w.add_trades([_trade_event(ticker=f"NMS:T{i}", start=end) for i, end in enumerate(ends)])
+        return w.trades
+
+    def test_keys_order_the_log_exactly_as_the_dates_would(self, stub_logo_lookup):
+        # Twelve entries, so the keys run past one digit. The script
+        # compares them as strings, where "10" sorts before "9" unless
+        # every key is the same width.
+        days = [datetime(2024, 1, 1) + timedelta(days=17 * i) for i in range(12)]
+        shuffled = [days[i] for i in (7, 2, 11, 0, 5, 9, 1, 10, 3, 8, 6, 4)]
+        keys = self._keys(self._rows(*shuffled))
+        assert len(set(keys)) == 12
+        by_key = sorted(range(12), key=lambda i: keys[i])
+        by_date = sorted(range(12), key=lambda i: shuffled[i])
+        assert by_key == by_date
+
+    @pytest.mark.parametrize("count", [9, 10, 11, 99, 100, 101])
+    def test_keys_stay_in_order_where_the_log_gains_a_digit(self, stub_logo_lookup, count):
+        # The widths are where this goes wrong: at exactly ten or a
+        # hundred days the last key is one digit longer than the rest
+        # unless they are all padded to it.
+        days = [datetime(2020, 1, 1) + timedelta(days=3 * i) for i in range(count)]
+        keys = self._keys(self._rows(*days))
+        assert keys == sorted(keys)
+        assert len({len(key) for key in keys}) == 1
+        # 1 for the earliest day, then counting up.
+        assert [int(key) for key in keys] == list(range(1, count + 1))
+
+    def test_entries_ending_on_the_same_day_share_a_key(self, stub_logo_lookup):
+        # The script breaks a tie on date by ticker. Two holdings
+        # traded on one day have to stay tied for that to keep working,
+        # whatever the time of day on either fill.
+        w = Webpage()
+        w.add_trades(
+            [
+                _trade_event(ticker="NMS:BBB", start=datetime(2024, 6, 11, 9, 30)),
+                _trade_event(ticker="NMS:AAA", start=datetime(2024, 3, 4)),
+                _trade_event(
+                    ticker="NMS:CCC",
+                    start=datetime(2024, 5, 30),
+                    end=datetime(2024, 6, 11, 15, 45),
+                ),
+            ]
+        )
+        first, earlier, second = self._keys(w.trades)
+        assert first == second
+        assert earlier < first
+
+    def test_no_row_names_a_day(self, stub_logo_lookup):
+        w = Webpage()
+        w.add_trades(
+            [
+                _trade_event(start=datetime(2024, 5, 22), end=datetime(2024, 6, 11)),
+                _trade_event(start=datetime(2023, 12, 29)),
+            ]
+        )
+        for row in w.trades:
+            assert not A_DAY.search(row), row
+
+    def test_a_fill_moved_within_its_quarter_leaves_the_markup_unchanged(self, stub_logo_lookup):
+        # The property the rule is about: two logs a reader cannot
+        # tell apart on the page are the same bytes underneath.
+        printed = self._rows(datetime(2024, 6, 11), datetime(2024, 5, 2), datetime(2024, 2, 20))
+        # Same quarters, same order, different days.
+        shifted = self._rows(datetime(2024, 6, 27), datetime(2024, 4, 15), datetime(2024, 1, 9))
+        assert shifted == printed
+        # A difference the reader *can* see, by sorting the column,
+        # still shows: the first two entries have swapped places.
+        swapped = self._rows(datetime(2024, 4, 11), datetime(2024, 5, 2), datetime(2024, 2, 20))
+        assert swapped != printed
 
 
 class TestSaveTradesSection:

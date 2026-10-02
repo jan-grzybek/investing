@@ -47,15 +47,15 @@ def _ts_to_datetime(ts: _DateLike | str) -> datetime:
 
 
 def _fmt_date(dt: date | datetime) -> str:
-    # ``DD/MM/YYYY`` is the canonical human-readable format across
-    # the whole page (holdings rows, trade rows, hero "Updated
-    # on" line). The zero-padded day / month gives every date the
-    # exact same character width, which keeps columns of dates
-    # (the trades table, the closed positions' period lists)
-    # vertically aligned without monospaced glyphs. The ISO
-    # ``<time datetime="...">`` attributes wrapping each rendered
-    # date stay in W3C ``YYYY-MM-DD`` form -- machine-format is a
-    # separate concern from the human-facing label.
+    # ``DD/MM/YYYY`` is the human-readable format wherever the page
+    # prints a day in a table: the holdings rows and the closed
+    # positions' period lists. (The Activity table prints quarters,
+    # see ``_fmt_quarter_range``.) The zero-padded day / month gives
+    # every date the exact same character width, which keeps those
+    # columns of dates vertically aligned without monospaced glyphs.
+    # The ISO ``<time datetime="...">`` attributes wrapping each
+    # rendered date stay in W3C ``YYYY-MM-DD`` form -- machine-format
+    # is a separate concern from the human-facing label.
     return dt.strftime("%d/%m/%Y")
 
 
@@ -107,11 +107,12 @@ def _fmt_quarter_range(start: date | datetime, end: date | datetime) -> str:
     Each ``<time datetime="...">`` carries the first month of the
     referenced quarter (W3C "valid month string" form,
     ``YYYY-MM``) so the machine layer still gets a real anchor
-    point even though the visible label is qualitative. The sort
-    key on the surrounding ``<tr>`` stays anchored on the burst's
-    ``end_date`` (set in ``_build_trade_row``), so sorting by date
-    still works at sub-quarter granularity -- two bursts in the
-    same Q3 sort by how recent each one is.
+    point even though the visible label is qualitative. Sorting by
+    date still works at sub-quarter granularity -- two bursts in the
+    same Q3 sort by how recent each one is -- without a day in the
+    markup: the sort key on the surrounding ``<tr>`` is the burst's
+    place in the order of the log's ``end_date`` values, not the
+    date (``trades_view.date_sort_keys``).
     """
     start_y, start_q = _quarter_of(start)
     end_y, end_q = _quarter_of(end)
@@ -180,7 +181,9 @@ def _format_sort_number(value: float) -> str:
     The rule for every sort key and bar that carries a weight, a
     return or a per-share price: it is never more precise than the
     figure printed for the reader. ``tests/test_preview_html.py``
-    holds the rendered page to it.
+    holds the rendered page to it. The Activity table's date key
+    follows the same rule for a date
+    (``trades_view.date_sort_keys``).
     """
     places = 0 if round(abs(value), 1) >= 100 else 1
     return format(float(value), f".{places}f")

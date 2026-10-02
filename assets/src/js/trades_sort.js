@@ -3,8 +3,9 @@
  *
  * Each `<tr class="trades__row">` carries the sort keys it can be
  * ordered by on `data-sort-*` attributes (date / ticker / name /
- * action / detail). The script wires every `<th data-sort-key="...">`
- * so a click on the inner `.trades__sort` button:
+ * action / detail / price). The script wires every
+ * `<th data-sort-key="...">` so a click on the inner `.trades__sort`
+ * button:
  *
  * * toggles the direction when the same column is clicked twice in
  * a row (asc <-> desc);
@@ -22,10 +23,14 @@
  * share a label.
  *
  * Bursts span multiple days but only one `data-sort-date` value is
- * emitted per row (the burst's `end_date`, i.e. its most recent
- * event) -- it's the natural anchor for the "when did this trade
- * happen?" question and matches the desktop convention of headlining
- * a burst by its last fill.
+ * emitted per row, taken from the burst's `end_date`, i.e. its most
+ * recent event -- it's the natural anchor for the "when did this
+ * trade happen?" question and matches the desktop convention of
+ * headlining a burst by its last fill. The value is that date's
+ * place in the order of the log's end dates and not the date itself:
+ * the cell prints a quarter, so the markup names no day. It is
+ * zero-padded to one width, which is what lets `cmp` and the
+ * tie-break below go on comparing it as a string.
  *
  * Right after the initial sort the script also runs `freezeColumns`
  * to pin each `<th>` to the width it would naturally take with
