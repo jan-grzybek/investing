@@ -53,8 +53,13 @@ world-readable** and act as a side channel for both classes of data.
 * `_gspread_client` accepts the service-account JSON inline via the
   `GSHEET_CREDS` environment variable so the secret never lands on
   the runner's filesystem.
-* The deploy workflow uses the least-privilege token scope (`contents:
-  read`, `pages: write`, `id-token: write`).
+* The deploy workflow declares its token scope explicitly instead of
+  inheriting the repository default: `pages: write` and `id-token:
+  write` to publish, `contents: write` so the build can push
+  auto-populated `sector_overrides.toml` stubs and the monthly
+  `market_data/` snapshot back to `main`, and `issues: write` for the
+  maintenance notifier. The scope is declared once for the whole
+  workflow, so every job holds all four.
 * `.github/workflows/security.yml` runs `pip-audit` against both
   lockfiles (OSV.dev advisory feed, `--strict` so known CVEs fail
   the build) and a CodeQL Python scan (`security-and-quality` query
