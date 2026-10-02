@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
+
+import pytest
 
 from investing.webpage import Webpage
 from investing.webpage.return_chart import render as _render_chart
@@ -302,6 +305,81 @@ class TestYearlyReturns:
         html = w.return_html
         assert "width: 100.0%" in html
         assert "width: 50.0%" in html
+
+    @staticmethod
+    def _yearly(years: list[tuple[float, float]]) -> str:
+        """The block for ``(portfolio, benchmark)`` returns, newest year first."""
+        w = Webpage()
+        w.add_return(
+            _total_return(),
+            [_benchmark()],
+            yearly_returns=[
+                {"year": 2025 - i, "jg%": jg, "bench%": bench, "is_ytd": False}
+                for i, (jg, bench) in enumerate(years)
+            ],
+        )
+        return w.return_html
+
+    @staticmethod
+    def _bar_widths(html: str) -> list[str]:
+        return re.findall(r'class="yearly__bar [^"]*" style="width: ([^%"]*)%"', html)
+
+    @pytest.mark.parametrize(
+        ("record", "prints_the_same"),
+        [
+            pytest.param(
+                [(31.24, 18.44), (12.31, 7.02)],
+                [(31.16, 18.36), (12.27, 6.98)],
+                id="portfolio-sets-the-scale",
+            ),
+            pytest.param(
+                [(12.31, 31.24), (7.02, 18.44)],
+                [(12.27, 31.16), (6.98, 18.36)],
+                id="benchmark-sets-the-scale",
+            ),
+            pytest.param(
+                [(-31.20, 18.40), (12.31, -7.02)],
+                [(-31.17, 18.43), (12.28, -7.01)],
+                id="a-loss-sets-the-scale",
+            ),
+            pytest.param(
+                [(131.24, 18.44), (12.31, 7.02)],
+                [(130.90, 18.36), (12.27, 6.98)],
+                id="three-digits",
+            ),
+            pytest.param([(0.04, -0.03)], [(0.03, -0.04)], id="all-zeros"),
+        ],
+    )
+    def test_bars_say_no_more_than_the_figures_beside_them(
+        self, stub_logo_lookup, record, prints_the_same
+    ):
+        # A bar's width is a return in another form, in markup as
+        # public as the cell next to it. Drawn from the unrounded
+        # return it would carry digits the cell does not print. So two
+        # records that print the same in every cell are the same bytes
+        # underneath.
+        assert self._yearly(prints_the_same) == self._yearly(record)
+
+    def test_bars_are_the_printed_figures_over_the_largest(self, stub_logo_lookup):
+        # 31.2 and 18.4, then 12.3 and 7.0, each over 31.2.
+        widths = self._bar_widths(self._yearly([(31.24, 18.44), (12.31, 7.02)]))
+        assert widths == ["100.0", "59.0", "39.4", "22.4"]
+        # A difference the reader can see moves its bar: 12.4 over 31.2.
+        moved = self._bar_widths(self._yearly([(31.24, 18.44), (12.41, 7.02)]))
+        assert moved == ["100.0", "59.0", "39.7", "22.4"]
+
+    def test_a_loss_can_be_the_longest_bar(self, stub_logo_lookup):
+        # Lengths are magnitudes: the worst year fills its track and
+        # the rest are measured against it.
+        widths = self._bar_widths(self._yearly([(-31.2, 18.4), (12.3, -7.0)]))
+        assert widths == ["100.0", "59.0", "39.4", "22.4"]
+        # The same when the worst year is the benchmark's.
+        widths = self._bar_widths(self._yearly([(18.4, -31.2), (-7.0, 12.3)]))
+        assert widths == ["59.0", "100.0", "22.4", "39.4"]
+
+    def test_a_table_of_zeros_draws_empty_bars(self, stub_logo_lookup):
+        # Nothing to measure against once every figure prints as 0.0.
+        assert self._bar_widths(self._yearly([(0.04, -0.03)])) == ["0.0", "0.0"]
 
     def test_a_losing_year_takes_the_loss_colour(self, stub_logo_lookup):
         w = Webpage()

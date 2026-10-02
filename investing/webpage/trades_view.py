@@ -1,7 +1,9 @@
 """Sortable trades table renderer.
 
-Two public entrypoints:
+Three public entrypoints:
 
+* :func:`date_sort_keys` gives every entry of a log its place in
+  date order, which is what the Date column sorts on.
 * :func:`build_row` renders one net activity entry as a
   ``<tr>``; the renderer calls it once per event so it can
   collect the strings and pass them to :func:`build_table`.
@@ -18,6 +20,7 @@ the same ``data-sort-*`` attributes.
 from __future__ import annotations
 
 import html
+from collections.abc import Sequence
 
 from ..formatting import _fmt_quarter_range
 from ..trades import _BUY_CATEGORIES, _TRADE_ACTION_DISPLAY, _TRADE_DETAIL_LABELS
@@ -123,13 +126,40 @@ def _detail_text(event: TradeEvent) -> str:
     return f"{verb} by <1%" if whole == "0" else f"{verb} by {whole}%"
 
 
-def build_row(event: TradeEvent) -> str:
+def date_sort_keys(events: Sequence[TradeEvent]) -> list[str]:
+    """Each entry's place in the log's date order, as its ``data-sort-date``.
+
+    The Date cell prints a quarter, because the table publishes trade
+    timing at that granularity and no finer. The sort key used to be
+    the ISO day of the entry's last fill, which handed the day to
+    anyone reading the markup. Sorting needs the *order* of those days
+    and nothing else about them, so that is all the key now holds: 1
+    for the earliest day in the log, 2 for the next, and so on. It is
+    what sorting the column shows a reader anyway.
+
+    Entries whose last fills fall on the same day share a key, as they
+    shared a date, so the script's tie-break on ticker is unchanged.
+    The keys are zero-padded to one width because the script compares
+    them as strings, which is also why this needs no change there.
+    """
+    # Ranked on the day as text. That drops the time of day, so two
+    # fills on one date tie, and lets a ``date`` sit beside a
+    # ``datetime``; ISO days sort as text the way they sort as dates.
+    days = [event["end_date"].strftime("%Y-%m-%d") for event in events]
+    ordered = sorted(set(days))
+    width = len(str(len(ordered)))
+    place = {day: f"{index:0{width}d}" for index, day in enumerate(ordered, start=1)}
+    return [place[day] for day in days]
+
+
+def build_row(event: TradeEvent, *, sort_date: str) -> str:
     """Render one net activity entry as a ``<tr>``.
 
-    Five columns: ticker (without exchange prefix), company
-    name, action badge (Bought / Sold), details (initial stake
-    / signed percentage / disposal), date / range, per-share
-    price. ``data-sort-*`` attributes carry the sort key for
+    Six columns: ticker (without exchange prefix), company
+    name, action badge (Bought / Sold), detail (Initiated /
+    Increased or Decreased by a percentage / Divested), quarter
+    or quarter range, per-share price. ``data-sort-*``
+    attributes carry the sort key for
     each sortable column so the inline trades-sort script can
     re-order rows without re-parsing cell text. The per-share
     price stays in the security's native currency (e.g. ``EUR
@@ -140,8 +170,10 @@ def build_row(event: TradeEvent) -> str:
     publishing only relative percentages and per-share prices,
     never sizes.
 
-    That commitment reaches the sort key too: ``data-sort-price``
-    carries the two decimals the cell prints and no more.
+    That commitment reaches the sort keys too. ``data-sort-price``
+    carries the two decimals the cell prints and no more, and
+    ``sort_date`` is the entry's key from :func:`date_sort_keys`: its
+    place in date order, never a date.
     """
     category = event["category"]
     action_label, action_modifier = _TRADE_ACTION_DISPLAY[category]
@@ -164,22 +196,20 @@ def build_row(event: TradeEvent) -> str:
     start = event["start_date"]
     end = event["end_date"]
     # Quarter-granularity timing -- see ``_fmt_quarter_range``
-    # for the layout rules. The row-level ``data-sort-date``
-    # still carries the burst's ISO end date below, so sorting
-    # by date stays fine-grained even though the visible label
-    # is coarse.
+    # for the layout rules. Sorting by date is still fine-grained,
+    # two entries in one quarter keep their order, but through
+    # ``sort_date`` rather than through a date in the markup.
     period_html = _fmt_quarter_range(start, end)
     price_html = html.escape(f"{event['price']:,.2f} {event['currency']}")
     symbol = strip_exchange(event["ticker"])
     name = event["name"]
-    sort_date = end.strftime("%Y-%m-%d")
     sort_ticker = symbol.lower()
     sort_name = name.lower()
     sort_action = TRADE_ACTION_SORT_INDEX[category]
     sort_detail = TRADE_DETAIL_SORT_INDEX[category]
     return (
         '<tr class="trades__row" role="row"'
-        f' data-sort-date="{sort_date}"'
+        f' data-sort-date="{html.escape(sort_date)}"'
         f' data-sort-ticker="{html.escape(sort_ticker)}"'
         f' data-sort-name="{html.escape(sort_name)}"'
         f' data-sort-action="{sort_action}"'

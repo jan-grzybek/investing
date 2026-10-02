@@ -1109,6 +1109,33 @@ def test_trades_sort_toggles_date_direction(preview_page: Page):
     expect(date_header).to_have_attribute("aria-sort", "descending")
 
 
+def test_trades_date_sort_runs_through_the_quarters_in_order(preview_page: Page):
+    # The date key is an entry's place in date order, not its date, and
+    # the script compares keys as strings. So this reads the order back
+    # off what the reader is shown: the quarter each row ends in may
+    # never step the wrong way, in either direction, across more rows
+    # than one digit can number.
+    header = preview_page.locator('th[data-sort-key="date"]')
+
+    def closing_quarters() -> list[tuple[int, int]]:
+        labels = preview_page.locator(".trades__row .trades__cell--date").evaluate_all(
+            "cells => cells.map(cell => cell.textContent)"
+        )
+        return [
+            (int(re.findall(r"\d{4}", label)[-1]), int(re.findall(r"Q(\d)", label)[-1]))
+            for label in labels
+        ]
+
+    newest_first = closing_quarters()
+    assert len(newest_first) > 10
+    assert len(set(newest_first)) > 2
+    assert newest_first == sorted(newest_first, reverse=True)
+
+    header.locator(".trades__sort").click()
+    expect(header).to_have_attribute("aria-sort", "ascending")
+    assert closing_quarters() == sorted(newest_first)
+
+
 def test_trades_price_sorts_by_currency_first(preview_page: Page):
     # A bare numeric sort across USD / EUR / GBp implies an ordering
     # that does not exist without an FX conversion. Currency first is

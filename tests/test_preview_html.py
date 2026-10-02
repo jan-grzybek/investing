@@ -10,7 +10,7 @@ from pathlib import Path
 import html5lib
 import pytest
 
-from tests._html_helpers import assert_single_element, parse_html
+from tests._html_helpers import A_DAY, assert_single_element, parse_html
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -117,6 +117,30 @@ def test_no_sort_key_or_bar_is_more_precise_than_the_page_prints(preview_html: s
         (name, figure) for name, figure in keys if decimals(figure) > allowed.get(name, 1)
     ] + [(name, figure) for name, figure in bars if decimals(figure) > 1]
     assert not too_precise, too_precise
+
+
+def test_the_activity_log_names_no_day(preview_html: str):
+    """Trade timing is published by quarter, in the markup as on the page.
+
+    Same rule as the sort keys above, for a date instead of a number:
+    the Date cell prints a quarter, so nothing in the section may carry
+    a day. This looks for one in each form the page writes a day in
+    (``A_DAY``), across the whole section rather than attribute by
+    attribute. It cannot see a day written some other way; the
+    row-level test that moves a fill inside its quarter
+    (``TestDateSortKey``) is the one that does not depend on the form.
+    """
+    activity = parse_html(preview_html).find(id="activity")
+    rows = activity.find_all("tr", class_="trades__row")
+    # More rows than one digit can order, or the keys' width is untested.
+    assert len(rows) > 10
+    assert not A_DAY.findall(str(activity))
+
+    keys = [row["data-sort-date"] for row in rows]
+    assert all(key.isdigit() for key in keys), keys
+    assert len({len(key) for key in keys}) == 1, keys
+    # The rows are emitted newest first; the keys have to agree.
+    assert keys == sorted(keys, reverse=True)
 
 
 def test_preview_sections_are_structurally_wired(preview_html: str):
