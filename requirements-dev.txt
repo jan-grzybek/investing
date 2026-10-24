@@ -47,7 +47,7 @@ defusedxml==0.7.1
     # via cairosvg
 distlib==0.4.3
     # via virtualenv
-filelock==4.0.6
+filelock==4.2.1
     # via
     #   python-discovery
     #   virtualenv
