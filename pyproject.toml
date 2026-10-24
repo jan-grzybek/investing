@@ -32,7 +32,7 @@ dependencies = [
   "yfinance>=1.6,<2",
   "requests>=2.32,<3",
   "python-dateutil>=2.9,<3",
-  "Pillow>=12,<13",
+  "Pillow>=12,<14",
   "cairosvg>=2.7,<3",
   "numpy>=2.0,<3",
 ]
