@@ -54,7 +54,7 @@ pandas==3.0.6
     # via yfinance
 peewee==4.5.2
     # via yfinance
-pillow==12.3.0
+pillow==13.0.0
     # via
     #   cairosvg
     #   jg-investing (pyproject.toml)
