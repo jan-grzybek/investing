@@ -10,7 +10,7 @@ cairocffi==1.7.1
     # via cairosvg
 cairosvg==2.9.1
     # via jg-investing (pyproject.toml)
-certifi==2026.7.22
+certifi==2026.10.18
     # via
     #   curl-cffi
     #   requests
