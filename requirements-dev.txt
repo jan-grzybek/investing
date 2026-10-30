@@ -148,7 +148,7 @@ pytest-cov==7.1.0
     # via jg-investing (pyproject.toml)
 pytest-playwright==0.10.0
     # via jg-investing (pyproject.toml)
-python-dateutil==2.9.0.post0
+python-dateutil==3.0.0
     # via
     #   jg-investing (pyproject.toml)
     #   pandas
