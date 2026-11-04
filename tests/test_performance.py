@@ -11,11 +11,12 @@ from __future__ import annotations
 
 from datetime import datetime
 
+import numpy as np
 import pandas as pd
 import pytest
 
 import investing.holdings as _holdings
-from investing.performance import Benchmark
+from investing.performance import Benchmark, _ffill
 
 
 def _date_key(d: datetime) -> str:
@@ -559,3 +560,13 @@ class TestGetBenchmarks:
         )
 
         assert len(calls) == 1, "yearly returns must be computed once, from the first benchmark"
+
+
+class TestForwardFill:
+    def test_an_all_nan_series_comes_back_unfilled(self):
+        # With no finite sample anywhere there is nothing to back-fill
+        # from: the series must come back as NaN, not raise.
+        out = _ffill(np.array([np.nan, np.nan, np.nan]))
+
+        assert out.shape == (3,)
+        assert np.isnan(out).all()

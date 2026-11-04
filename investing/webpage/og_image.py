@@ -213,9 +213,11 @@ def _og_logo_aspect(ticker: str) -> float:
                 if parsed and parsed > 0:
                     return parsed
             else:
+                # Pillow refuses to open an image with a zero side
+                # (``UnidentifiedImageError``, an ``OSError``), so the
+                # ratio is always defined here.
                 with Image.open(path) as im:
-                    if im.width > 0 and im.height > 0:
-                        return im.width / im.height
+                    return im.width / im.height
         except (OSError, ValueError):
             continue
     return _DEFAULT_LOGO_ASPECT

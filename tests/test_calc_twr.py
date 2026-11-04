@@ -43,6 +43,27 @@ class TestCalcTwr:
         # leg: 1.0 * 1.0 * 0.6 = 0.6 -> -40%.
         assert result["twr%"] == pytest.approx(-40.0)
 
+    def test_drained_last_snapshot_leaves_today_flat(self, at_datetime):
+        # The final snapshot nets to zero (everything withdrawn), so the
+        # stretch from it to today has no capital base: ``current_value``
+        # must not be divided by zero, and today's history point carries
+        # the multiplier forward unchanged.
+        when = datetime(2024, 12, 31)
+        result = calc_twr(
+            [
+                _val(datetime(2024, 1, 1), 100.0),
+                _val(datetime(2024, 6, 1), 120.0, flow=-120.0),
+            ],
+            current_value=50.0,
+            now=at_datetime(when),
+        )
+        assert result["history"] == [
+            (datetime(2024, 1, 1), 1.0),
+            (datetime(2024, 6, 1), pytest.approx(1.2)),
+            (when, pytest.approx(1.2)),
+        ]
+        assert result["twr%"] == pytest.approx(20.0)
+
     def test_single_valuation_returns_no_growth(self, at_datetime):
         when = datetime(2024, 1, 1)
         result = calc_twr(

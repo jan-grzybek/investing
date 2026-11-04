@@ -60,7 +60,7 @@ def _ledger(
     value=0.0,
     is_current=False,
     periods=None,
-    latest_buy=None,
+    latest_buy=datetime(2024, 1, 1),
     latest_sell=None,
 ) -> PositionLedger:
     return PositionLedger(

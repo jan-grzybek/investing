@@ -81,10 +81,6 @@ def _combined_summary(
     primary_summary = primary.summary()
     merged = merge_ledgers([holding.ledger() for holding in legs])
     tsr_pct, cagr_pct = ledger_metrics(merged)
-    if merged.latest_buy is None:
-        raise InvariantError(
-            f"position group {group.key!r} has no recorded BUY across its legs",
-        )
 
     # Order the ticker list the way the group declares it (primary
     # first), keeping only legs actually held -- ``resolve_groups``

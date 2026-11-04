@@ -115,13 +115,17 @@ precision = 1
 # logo rasteriser, the four renderer buckets, and the production
 # entrypoints.
 #
-# **99 is the standing floor, not a high-water mark to be admired.**
-# New code arrives with its branches covered or the build fails. The
-# remaining ~1% is a handful of defensive guards behind other guards
-# (a merged position group with no BUY, reachable only if a leg's own
-# ledger check is bypassed first) -- the kind of belt-and-braces that
-# is correct to keep and dishonest to fake a test for.
-fail_under = 99
+# 99 -> 100 when the last gaps closed. Each remaining branch either got
+# a test pinning what it is for, or was deleted as unreachable: among
+# them the merged-group "no BUY" guard, gone now that a ledger's
+# ``latest_buy`` is typed as always present, and an interpolation span
+# that the loop guarantees is positive.
+#
+# **100 is the floor.** Every line and branch in ``investing`` is
+# covered, so anything new arrives covered or the build fails. There is
+# no headroom and no ``pragma: no cover``: a branch that cannot be
+# tested is deleted, not excluded.
+fail_under = 100
 
 [tool.ruff]
 line-length = 100

@@ -872,9 +872,10 @@ def _multiplier_at(
         if sd == day:
             return mult
         if sd > day:
+            # ``prev_date`` is either the first sample (already known to
+            # fall before ``day``) or a sample the loop passed because it
+            # did, so ``prev < day < sd`` and the span is positive.
             span = (sd - prev_date.date()).days
-            if span <= 0:
-                return prev_mult
             frac = (day - prev_date.date()).days / span
             if prev_mult > 0.0 and mult > 0.0:
                 return prev_mult * (mult / prev_mult) ** frac

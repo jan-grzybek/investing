@@ -149,14 +149,26 @@ class TestLoadOverrides:
         hints = consume_hints()
         assert "NMS:AAA" in hints.invalid_overrides
 
-    def test_non_table_sectors_entry_is_warned_about(self, tmp_path):
+    def test_non_table_sectors_entry_is_warned_about(self, tmp_path, caplog):
         # A maintainer who accidentally writes ``sectors = "..."``
         # instead of the table form should get the empty-overrides
         # fallback rather than a crash. The loader logs a warning
         # but no hint is recorded -- there's no specific ticker /
         # value pair to surface, just the file-level shape error.
         path = _write_overrides(tmp_path, 'sectors = "broken"\n')
-        assert _load_overrides(str(path)) == {}
+        with caplog.at_level("WARNING", logger="investing.update"):
+            assert _load_overrides(str(path)) == {}
+        assert "non-table ``[sectors]`` entry" in caplog.text
+
+    def test_file_without_sectors_key_is_silently_empty(self, tmp_path, caplog):
+        # Contrast with the non-table case: a file that never declares
+        # ``[sectors]`` (e.g. one holding only comments) is a valid "no
+        # overrides yet" state, not a shape error -- warning on it would
+        # put noise in every build log.
+        path = _write_overrides(tmp_path, '# no overrides yet\n[other]\nkey = "value"\n')
+        with caplog.at_level("WARNING", logger="investing.update"):
+            assert _load_overrides(str(path)) == {}
+        assert caplog.records == []
 
     def test_malformed_toml_returns_empty_dict(self, tmp_path):
         path = tmp_path / "broken.toml"
