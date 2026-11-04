@@ -58,10 +58,11 @@ on:
     # (``INVESTING_MARKET_DATA_PERSIST=0``); this cron is the sole
     # writer that lands backup updates on ``main``, which is also why
     # it runs at 02:17 rather than near midday: the workflow-level
-    # ``concurrency`` group below sets ``cancel-in-progress: true``, so
-    # on a 1st that falls on a Saturday or Sunday a midday slot would
-    # put this run and the weekend refresh minutes apart and let one
-    # cancel the other -- silently costing a month of archive writes.
+    # ``concurrency`` group below lets a newer run replace one that is
+    # still queued, so on a 1st that falls on a Saturday or Sunday a
+    # midday slot would put this run and the weekend refresh minutes
+    # apart and let the refresh displace it -- silently costing a
+    # month of archive writes.
     # 02:17 UTC stays hours clear of every other entry here even at
     # the worst observed dispatch lag. NOTE: this exact
     # string is compared against ``github.event.schedule`` twice
@@ -99,9 +100,18 @@ on:
 # and uses no token at all.
 permissions: {}
 
+# One run at a time, and a run that has started is never cancelled.
+# A newer run queues behind it, replacing any run already waiting, so
+# the latest commit still ends up published.
+#
+# This used to be ``cancel-in-progress: true``. Merging three PRs back
+# to back then cancelled a run while ``deploy-pages`` was mid-publish,
+# and Pages keys a deployment on the commit SHA: every later deploy of
+# that commit hung on an empty status until it timed out, retries
+# included, until a new commit landed.
 concurrency:
     group: "pages"
-    cancel-in-progress: true
+    cancel-in-progress: false
 
 jobs:
   WaitForRegenerate:
