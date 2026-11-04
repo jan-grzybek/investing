@@ -83,7 +83,7 @@ requests-oauthlib==2.0.0
     # via google-auth-oauthlib
 six==1.17.0
     # via python-dateutil
-soupsieve==2.10
+soupsieve==3.0.4
     # via beautifulsoup4
 tinycss2==1.5.1
     # via
