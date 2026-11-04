@@ -757,149 +757,171 @@ class TestInteractionStyles:
             assert token not in out, f"orphaned {token} rules survived"
 
 
-class TestOgImageHeroCopy:
-    """Direct unit tests on :func:`investing.webpage.og_image._hero_copy`
-    -- every string the share card's left-hand column renders.
+class TestOgImageCardCopy:
+    """Every string the share card draws, before it is rasterised.
 
-    Lives at unit-helper granularity rather than driving the full PNG
-    renderer because the rendered text isn't round-trippable out of
-    the raster output. Two contracts are pinned here. The comparison
-    is *annualised* on both sides -- a total-return gap is a function
-    of how long the portfolio has been open as much as of how it has
-    been run, and seven years of a slender annual edge compounds into
-    a headline that sounds like one spectacular year. And the wording
-    flips with the sign, so a losing window never ships a card
-    claiming a lead."""
+    Lives at copy granularity rather than driving the PNG renderer
+    because text cannot be read back out of the raster. The card leads
+    with the same claim as the page hero -- the total time-weighted gap
+    to the benchmark over the whole history -- and carries the per-year
+    rates for both underneath, so the period's length cannot inflate a
+    reader's sense of the yearly edge. The wording flips with the sign,
+    so a losing window never ships a card claiming a lead.
+    """
 
-    @staticmethod
-    def _copy(cagr, delta, label="S&P 500"):
-        from investing.webpage.og_image import _hero_copy
+    START = datetime(2019, 1, 1)
+    NOW = datetime(2026, 11, 4)
 
-        return _hero_copy(cagr, delta, label)
+    @classmethod
+    def _copy(cls, twr=48.4, cagr=5.2, bench=None, names=None):
+        from investing.webpage.og_image import _card_copy
 
-    def test_positive_delta_reads_as_ahead(self):
-        copy = self._copy(5.3, 0.6)
-        assert copy.number == "+0.6"
-        assert copy.unit == "pp"
-        assert copy.claim == "ahead of the S&P 500"
-        assert copy.eyebrow == "Annualised return vs S&P 500"
-        assert copy.positive
-
-    def test_zero_delta_still_reads_as_ahead(self):
-        # A dead heat is not a loss; the sign colour and the wording
-        # have to agree, and both treat zero as non-negative.
-        copy = self._copy(41.7, 0.0)
-        assert copy.claim == "ahead of the S&P 500"
-        assert copy.positive
-
-    def test_negative_delta_reads_as_behind(self):
-        copy = self._copy(35.0, -3.4)
-        # U+2212 MINUS SIGN, not the ASCII hyphen: the card sets this
-        # beside signed positives and the two have to share an advance
-        # width. The vendored Roboto carries the glyph in both weights.
-        assert copy.number == "\u22123.4"
-        assert copy.claim == "behind the S&P 500"
-        assert not copy.positive
-
-    def test_uses_the_benchmark_label(self):
-        assert self._copy(20.0, 2.0, "MSCI World").claim == "ahead of the MSCI World"
-        assert self._copy(20.0, -2.0, "MSCI World").claim == "behind the MSCI World"
-
-    def test_falls_back_to_sp500_when_bench_label_missing(self):
-        # Never let the claim collapse to "ahead of the ".
-        assert self._copy(20.0, 1.0, None).claim == "ahead of the S&P 500"
-        assert self._copy(20.0, 1.0, "").claim == "ahead of the S&P 500"
-
-    def test_no_benchmark_reads_as_a_standalone_metric(self):
-        # With nothing to compare against, leading with a smaller true
-        # claim beats inventing a comparison the page cannot draw.
-        copy = self._copy(5.3, None)
-        assert copy.number == "5.3"
-        assert copy.unit == "%"
-        assert copy.claim == "annualised since inception"
-        assert copy.eyebrow == "Annualised return"
-        assert copy.positive
-
-    def test_negative_standalone_return_is_not_positive(self):
-        assert not self._copy(-12.0, None).positive
-
-    def test_the_card_and_the_page_are_both_annualised(self):
-        """The two assets must not headline different numbers.
-
-        The card used to lead with the *total* return delta while the
-        page's hero leads with the annualised one, so the same
-        portfolio argued +6.7 pp in a feed and +0.6 pp on the page it
-        linked to. Whichever form is chosen, both have to choose it.
-
-        This pins the card's half; ``test_preview_html`` pins that the
-        page's own two figures are arithmetically consistent.
-        """
-        from investing.webpage import og_image
-
-        source = inspect.getsource(og_image._render_unsafe)
-        hero_call = re.search(r"_hero_copy\(([^)]*)\)", source)
-        assert hero_call, "no _hero_copy call in _render_unsafe"
-        args = hero_call.group(1)
-        assert "cagr" in args and "twr" not in args, (
-            f"the hero is fed {args!r} -- it has to be the annualised pair"
+        return _card_copy(
+            total_return={"twr%": twr, "cagr%": cagr, "start_date": cls.START, "history": []},
+            benchmarks=[bench] if bench is not None else [],
+            benchmark_display_names=names or {},
+            now=cls.NOW,
         )
 
+    @staticmethod
+    def _bench(tsr=41.7, cagr=4.5, ticker="LSE:VUAA.L", name="S&P 500"):
+        out = {"ticker": ticker, "name": name, "tsr%": tsr}
+        if cagr is not None:
+            out["cagr%"] = cagr
+        return out
 
-class TestOgImageFootCopy:
-    """Direct unit tests on :func:`investing.webpage.og_image._foot_copy`
-    -- the credibility line beneath the logo strip.
+    def test_the_headline_is_the_total_gap_to_the_benchmark(self):
+        copy = self._copy(bench=self._bench())
+        assert copy.number == "+6.7"
+        assert copy.unit == "pp"
+        assert copy.claim == ("ahead of the", "S&P 500")
+        assert copy.positive
 
-    Unit-helper granularity for the same reason as the hero copy: the
-    text is drawn into a raster and cannot be read back out. The one
-    contract worth pinning is that the count describes the portfolio
-    and not the strip of logos it sits under.
-    """
+    def test_the_eyebrow_names_the_metric_and_the_start_year(self):
+        copy = self._copy(bench=self._bench())
+        assert copy.eyebrow == "Total return vs S&P 500 \u00b7 since 2019"
+
+    def test_the_period_is_spelled_out_under_the_claim(self):
+        assert self._copy(bench=self._bench()).period == "over 7 years, 10 months"
+
+    def test_a_dead_heat_still_reads_as_ahead(self):
+        # Sign colour and wording agree, and both treat zero as
+        # non-negative.
+        copy = self._copy(twr=41.7, bench=self._bench(tsr=41.7))
+        assert copy.claim == ("ahead of the", "S&P 500")
+        assert copy.positive
+
+    def test_a_losing_window_reads_as_behind(self):
+        copy = self._copy(twr=38.3, bench=self._bench(tsr=41.7))
+        # U+2212 MINUS SIGN, not the ASCII hyphen: it shares an advance
+        # width with "+", and the vendored Roboto carries it.
+        assert copy.number == "\u22123.4"
+        assert copy.claim == ("behind the", "S&P 500")
+        assert not copy.positive
+
+    def test_the_display_name_beats_the_fund_name(self):
+        bench = self._bench(name="Vanguard S&P 500 UCITS ETF")
+        copy = self._copy(bench=bench, names={"LSE:VUAA.L": "MSCI World"})
+        assert copy.claim == ("ahead of the", "MSCI World")
+        assert copy.eyebrow.startswith("Total return vs MSCI World")
+
+    def test_an_unnamed_benchmark_never_leaves_the_claim_dangling(self):
+        from investing.webpage.og_image import _hero_copy
+
+        assert _hero_copy(20.0, 1.0, "").claim == ("ahead of the", "S&P 500")
+        assert _hero_copy(20.0, 1.0, None).claim == ("ahead of the", "S&P 500")
+
+    def test_both_annualised_rates_sit_under_the_headline(self):
+        from investing.webpage.og_image import _OG_ACCENT, _OG_BENCH
+
+        rates = self._copy(bench=self._bench()).rates
+        assert [(r.label, r.value) for r in rates] == [
+            ("Portfolio", "5.2% / yr"),
+            ("S&P 500", "4.5% / yr"),
+        ]
+        # The chart's colours, so a reader who has seen the page knows
+        # which figure is which before reading either label.
+        assert [r.swatch for r in rates] == [_OG_ACCENT, _OG_BENCH]
+
+    def test_a_benchmark_without_a_rate_drops_out_of_the_band(self):
+        rates = self._copy(bench=self._bench(cagr=None)).rates
+        assert [r.label for r in rates] == ["Portfolio"]
+
+    def test_with_no_benchmark_the_card_states_its_own_return(self):
+        # With nothing to compare against, a smaller true claim beats a
+        # comparison the page cannot draw.
+        copy = self._copy()
+        assert copy.number == "48.4"
+        assert copy.unit == "%"
+        assert copy.claim == ("total return", "since inception")
+        assert copy.eyebrow == "Portfolio return \u00b7 since 2019"
+        assert [r.label for r in copy.rates] == ["Portfolio"]
+        assert copy.positive
+
+    def test_a_standalone_loss_is_not_positive(self):
+        assert not self._copy(twr=-12.0).positive
+
+    @pytest.mark.parametrize("with_bench", [True, False])
+    def test_the_card_headlines_the_number_the_page_hero_does(self, with_bench):
+        """The card and the page it links to must lead with one figure.
+
+        They once disagreed -- the card annualised, the page did not --
+        so the same portfolio argued two different gaps depending on
+        where a reader met it.
+        """
+        from investing.webpage import hero
+
+        total = {"twr%": 48.4, "cagr%": 5.2, "start_date": self.START, "history": []}
+        benches = [self._bench()] if with_bench else []
+        page = hero.render(
+            total_return=total,
+            benchmarks=benches,
+            yearly_returns=[],
+            benchmark_label="S&P 500",
+            position_counts=(3, 1),
+            now=self.NOW,
+            update_date="Nov 4, 2026",
+            update_iso="2026-11-04",
+        )
+        card = self._copy(bench=benches[0] if benches else None)
+        assert f'>{card.number}<span class="hero__unit">{card.unit}</span>' in page
+
+
+class TestOgImageHeadlineFit:
+    """The headline shrinks rather than overflows as the gap grows."""
 
     @staticmethod
-    def _foot(count, when=date(2019, 1, 1), duration="7 years, 7 months"):
-        from investing.webpage.og_image import _foot_copy
+    def _fit(number, max_w=600):
+        from PIL import Image, ImageDraw
 
-        return _foot_copy(when, duration, count)
+        from investing.webpage import og_image
 
-    def test_the_count_is_the_portfolios_not_the_strips(self):
-        # The strip holds at most ten logos. A portfolio of seventeen
-        # says seventeen, or the line reads as a caption on the row
-        # above it and states something false about the holdings.
-        assert self._foot(17).endswith("17 equities")
+        draw = ImageDraw.Draw(Image.new("RGB", (10, 10)))
+        num, unit = og_image._fit_lockup(draw, number, "pp", max_w)
+        return og_image, draw, num, unit, max_w
 
-    def test_singular_count_reads_as_one_equity(self):
-        assert self._foot(1).endswith("1 equity")
-        assert "equities" not in self._foot(1)
+    def test_a_short_gap_gets_the_full_size(self):
+        og_image, _draw, num, _unit, _w = self._fit("+6.7")
+        assert num.size == og_image._HERO_MAX_SIZE
 
-    def test_absent_count_drops_the_clause_entirely(self):
-        # Not "0 equities", and not a guess from the strip: with
-        # nothing to say, the line says nothing.
-        assert self._foot(None) == "Since Jan 1, 2019  \u00b7  7 years, 7 months"
-        assert self._foot(0) == self._foot(None)
+    def test_a_three_digit_gap_shrinks_to_fit(self):
+        og_image, draw, num, unit, max_w = self._fit("+142.5")
+        assert num.size < og_image._HERO_MAX_SIZE
+        assert og_image._lockup_width(draw, "+142.5", "pp", num, unit) <= max_w
 
-    def test_the_inception_half_survives_either_way(self):
-        for count in (None, 1, 17):
-            line = self._foot(count)
-            assert line.startswith("Since Jan 1, 2019")
-            assert "7 years, 7 months" in line
+    def test_it_never_shrinks_below_the_floor(self):
+        # Past the floor it stops reading as the headline; better a
+        # crowded claim than a number the size of the claim.
+        og_image, _draw, num, _unit, _w = self._fit("+142.5", max_w=10)
+        assert num.size == og_image._HERO_MIN_SIZE
 
-
-class TestOgImageEquityCount:
-    """Where the count the card prints comes from.
-
-    :class:`TestOgImageFootCopy` pins what the string does with a
-    count; this pins that the count handed to it is the number of
-    equities held, which is the claim the word "equities" makes.
-    """
-
-    def test_the_page_counts_equities_not_every_line_item(self):
-        # ``current`` is the equity sleeve; bond ETFs are tracked
-        # separately in ``current_fixed_income``. Counting rows
-        # instead would file two Treasury ETFs under "equities".
-        from investing.webpage import _page
-
-        source = inspect.getsource(_page.Webpage._render_og_image)
-        assert "equity_count=len(self.current)" in "".join(source.split())
+    def test_the_unit_scales_with_the_number(self):
+        _og, _draw, small_num, small_unit, _w = self._fit("+142.5")
+        _og, _draw, big_num, big_unit, _w = self._fit("+6.7")
+        assert small_unit.size < big_unit.size
+        assert small_num.size / small_unit.size == pytest.approx(
+            big_num.size / big_unit.size, rel=0.1
+        )
 
 
 class TestOgImageFont:
