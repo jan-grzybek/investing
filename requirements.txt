@@ -25,7 +25,7 @@ cryptography==50.0.2
     # via google-auth
 cssselect2==0.10.1
     # via cairosvg
-curl-cffi==0.16.3
+curl-cffi==0.17.0
     # via yfinance
 defusedxml==0.7.1
     # via cairosvg
@@ -58,11 +58,11 @@ pillow==13.0.0
     # via
     #   cairosvg
     #   jg-investing (pyproject.toml)
-platformdirs==4.13.5
+platformdirs==4.13.6
     # via yfinance
 protobuf==7.36.2
     # via yfinance
-pyasn1==0.6.4
+pyasn1==0.6.5
     # via pyasn1-modules
 pyasn1-modules==0.4.2
     # via google-auth
