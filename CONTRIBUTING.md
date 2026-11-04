@@ -61,9 +61,9 @@ pre-commit was skipped locally. The deploy, lint and security jobs all
 run 3.14, matching `.python-version` and the interpreter the lock files
 are compiled with.
 
-**Branch coverage must stay at or above 99%** (`fail_under` in
-`pyproject.toml`). The floor only ever moves up: a change that drops
-coverage is missing tests, and those tests are part of the change. See
+**Line and branch coverage must stay at 100%** (`fail_under` in
+`pyproject.toml`). A change that drops coverage is missing tests, and
+those tests are part of the change. See
 the ratchet section in [AGENTS.md](AGENTS.md) for what "covered" means
 here — a test that would fail if the branch were wrong, not one that
 merely executes it.

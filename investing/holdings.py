@@ -190,8 +190,13 @@ class PositionLedger:
     gross_returned: float
     current_value_usd: float
     is_current: bool
+    # Required, not optional: :meth:`Holding.ledger` refuses a holding
+    # with no BUY, and :func:`merge_ledgers` refuses an empty list, so
+    # every ledger that exists has one. Typing it that way lets
+    # ``summary()`` and the group combiner publish it without a
+    # second "no BUY" check that could never fire.
+    latest_buy: datetime
     periods: list[HoldingPeriod] = field(default_factory=list)
-    latest_buy: datetime | None = None
     latest_sell: datetime | None = None
 
 
@@ -249,7 +254,6 @@ def merge_ledgers(ledgers: list[PositionLedger]) -> PositionLedger:
     for ledger in ledgers:
         cashflows.extend(ledger.cashflows)
         periods.extend(ledger.periods)
-    latest_buys = [ledger.latest_buy for ledger in ledgers if ledger.latest_buy is not None]
     latest_sells = [ledger.latest_sell for ledger in ledgers if ledger.latest_sell is not None]
     return PositionLedger(
         cashflows=cashflows,
@@ -258,7 +262,7 @@ def merge_ledgers(ledgers: list[PositionLedger]) -> PositionLedger:
         current_value_usd=sum(ledger.current_value_usd for ledger in ledgers),
         is_current=any(ledger.is_current for ledger in ledgers),
         periods=_merge_periods(periods),
-        latest_buy=max(latest_buys) if latest_buys else None,
+        latest_buy=max(ledger.latest_buy for ledger in ledgers),
         # The most recent exit across every leg. A combined position
         # that still holds one listing keeps ``is_current`` True, so
         # this only drives the historical bucket's sort order.
@@ -865,8 +869,10 @@ class Holding:
             # the walk indexes ``_positions[-1]`` unconditionally -- so
             # without this the caller got an ``IndexError`` from deep
             # inside the cashflow builder instead of being told what was
-            # actually missing. ``summary`` carries the same check for
-            # the merged-group path in :mod:`investing.positions`.
+            # actually missing. ``buy`` records the inflow before the
+            # position entry, so a non-empty ``_positions`` also means a
+            # non-empty ``_inflows`` -- which is what lets the ledger's
+            # ``latest_buy`` be a plain datetime below.
             raise InvariantError(
                 f"holding {self._ticker_symbol!r} has no recorded BUY -- "
                 "ledger() requires at least one inflow",
@@ -961,7 +967,7 @@ class Holding:
                 gross_returned += cash_usd
                 if quantity_current <= 1e-9:
                     quantity_current = 0.0
-            elif kind == "DIV":
+            else:  # "DIV" -- the only other kind the timeline above builds
                 if quantity_current > 0:
                     # Withholding tax applies *only* here. Capital
                     # returns flowing through SELL / MTM cashflows
@@ -1014,7 +1020,7 @@ class Holding:
             current_value_usd=current_value_usd,
             is_current=still_held,
             periods=list(reversed(self._periods)),
-            latest_buy=self._inflows[-1]["date"] if self._inflows else None,
+            latest_buy=self._inflows[-1]["date"],
             latest_sell=self._outflows[-1]["date"] if self._outflows else None,
         )
 
@@ -1030,11 +1036,6 @@ class Holding:
         """
         position = self.ledger()
         tsr_pct, cagr_pct = ledger_metrics(position)
-        if position.latest_buy is None:
-            raise InvariantError(
-                f"holding {self._ticker_symbol!r} has no recorded BUY -- "
-                "summary() requires at least one inflow",
-            )
         return {
             "ticker": f"{self._info['exchange']}:{self._info['symbol']}",
             "name": self._info["longName"],

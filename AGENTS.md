@@ -29,14 +29,14 @@ Cursor runs [`.cursor/hooks/post-edit-verify.sh`](.cursor/hooks/post-edit-verify
 
 ## Coverage is a one-way ratchet
 
-**The floor is 99%.** `fail_under` in `pyproject.toml` enforces it, and it only
-ever moves **up**. When a change lifts real coverage, raise it to match. Never
-lower it to turn a red build green — if a change drops coverage, the missing
-tests are part of that change, not a follow-up.
+**The floor is 100%** — every line and branch in `investing`. `fail_under` in
+`pyproject.toml` enforces it on every Python version CI runs. Never lower it to
+turn a red build green — if a change drops coverage, the missing tests are part
+of that change, not a follow-up.
 
-At 99% the headroom is roughly a dozen statements, so this is a real gate
-rather than a target: a new module landing with an untested branch will fail
-CI, which is the point.
+There is no headroom: a single untested branch fails CI, which is the point.
+Do not reach for `# pragma: no cover` or coverage excludes; the rule below on
+unreachable code is the only way out.
 
 New code arrives with its branches covered. "Covered" means a test that would
 fail if the branch were wrong, not one that merely executes it: write the test
@@ -47,7 +47,10 @@ test to reach it. Several already were — a `SafeHtml.__radd__` arm that
 Python's binary-op protocol can never dispatch to, a year-tick `break` whose
 guard is false by construction, an `if cached is None` inside a block that only
 runs when it isn't, and seven one-line delegators kept "for any external caller"
-that nothing called. Unreachable code is a finding, not a coverage problem.
+that nothing called, and a zero-size check on images Pillow refuses to open.
+Unreachable code is a finding, not a coverage problem. A defensive guard that
+is reachable by calling the function directly with bad input is not
+unreachable: test it that way.
 
 ## Secrets and private data
 

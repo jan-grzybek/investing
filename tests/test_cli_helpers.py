@@ -12,6 +12,7 @@ from investing.cli import (
 )
 from investing.log import logger
 from investing.market_data_store import MarketDataStore
+from investing.performance import BENCHMARKS
 
 
 def test_configure_logging_skips_when_handlers_present():
@@ -80,3 +81,11 @@ def test_snapshot_market_data_refreshes_universe(monkeypatch):
     store.refresh_universe.assert_called_once()
     tickers = store.refresh_universe.call_args[0][0]
     assert "NMS:AAA" in tickers
+
+
+def test_collect_market_data_tickers_does_not_repeat_a_traded_benchmark():
+    """A benchmark the portfolio also trades is fetched once, in trade order."""
+    bench = BENCHMARKS[0].ticker
+    txns = [{"ticker": bench}, {"ticker": "NMS:AAPL"}]
+    tickers = _collect_market_data_tickers(txns, [])
+    assert tickers == [bench, "NMS:AAPL"]

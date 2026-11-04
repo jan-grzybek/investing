@@ -183,10 +183,10 @@ def _run_main_safely() -> None:
         sys.stderr = real_stderr
         sys.stdout = real_stdout
         if redirected:
-            if saved_stderr_fd != -1:
-                os.dup2(saved_stderr_fd, 2)
-            if saved_stdout_fd != -1:
-                os.dup2(saved_stdout_fd, 1)
+            # ``redirected`` is only set once both ``os.dup`` calls
+            # have returned, so both saved fds are valid here.
+            os.dup2(saved_stderr_fd, 2)
+            os.dup2(saved_stdout_fd, 1)
         if saved_stderr_fd != -1:
             os.close(saved_stderr_fd)
         if saved_stdout_fd != -1:
@@ -228,9 +228,13 @@ def _run_main_safely() -> None:
             write_through=True,
         )
         cli._REAL_STDOUT = real_stdout_writer
+        # Set before the remap, not after: if the second ``dup2``
+        # fails, fd 2 already points at /dev/null and teardown must
+        # still put it back. Restoring an fd that was never moved is
+        # harmless.
+        redirected = True
         os.dup2(devnull_py.fileno(), 2)
         os.dup2(devnull_py.fileno(), 1)
-        redirected = True
         sys.stderr = devnull_py
         sys.stdout = captured_stdout
 
@@ -283,10 +287,8 @@ def _run_snapshot_safely() -> None:
         sys.stderr = real_stderr
         sys.stdout = real_stdout
         if redirected:
-            if saved_stderr_fd != -1:
-                os.dup2(saved_stderr_fd, 2)
-            if saved_stdout_fd != -1:
-                os.dup2(saved_stdout_fd, 1)
+            os.dup2(saved_stderr_fd, 2)
+            os.dup2(saved_stdout_fd, 1)
         if saved_stderr_fd != -1:
             os.close(saved_stderr_fd)
         if saved_stdout_fd != -1:
@@ -304,9 +306,9 @@ def _run_snapshot_safely() -> None:
             write_through=True,
         )
         cli._REAL_STDOUT = real_stdout_writer
+        redirected = True  # before the remap; see ``_run_main_safely``
         os.dup2(devnull_py.fileno(), 2)
         os.dup2(devnull_py.fileno(), 1)
-        redirected = True
         sys.stderr = devnull_py
         sys.stdout = captured_stdout
         try:

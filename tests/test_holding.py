@@ -348,6 +348,26 @@ class TestSummaryDividends:
         summary = holding.summary()
         assert summary["tsr%"] == pytest.approx(0.0, abs=1e-9)
 
+    def test_a_zero_dividend_records_no_cashflow(self, install_ticker, stub_exchange_rate):
+        """A zero payout on a held position adds nothing to the timeline.
+
+        yfinance's values are stored verbatim, so a ``0.0`` row reaches
+        the walk with shares held. Only a positive payout is money
+        received; the ledger should carry the BUY and the open
+        position's mark-to-market and nothing dated on the dividend.
+        """
+        install_ticker(_make_ticker(price=100.0, dividends={_date_key(datetime(2024, 6, 1)): 0.0}))
+        holding = Holding("TST", fx=stub_exchange_rate, now=lambda: datetime(2025, 1, 1))
+        holding.buy(Trade(datetime(2024, 1, 1), "TST", 10, 100.0, "BUY"))
+
+        ledger = holding.ledger()
+
+        assert ledger.cashflows == [
+            (datetime(2024, 1, 1), -1000.0),
+            (datetime(2025, 1, 1), +1000.0),
+        ]
+        assert ledger.gross_returned == pytest.approx(1000.0)
+
     def test_capital_return_on_sell_is_untaxed(
         self, install_ticker, stub_exchange_rate, freeze_today
     ):
@@ -415,6 +435,28 @@ class TestSummaryDividends:
         # 42.5 = 1042.5. tsr = 1042.5 / 1000 - 1 = 4.25%.
         expected = (1000.0 + 10 * 5.00 * (1.0 - WITHHOLDING_TAX_RATE)) / 1000.0 - 1.0
         assert summary["tsr%"] == pytest.approx(expected * 100)
+
+
+class TestXirrIterationBudget:
+    def test_an_exhausted_budget_returns_the_midpoint_of_the_narrowed_bracket(self):
+        """Running out of ``max_iter`` is not a failure.
+
+        The bracket still holds the root after every step, so the
+        solver returns its midpoint rather than ``nan`` or the last
+        probe. One step on a 100 -> 200 doubling probes the midpoint of
+        ``[-0.999, 1e4]``, finds NPV negative there (the root, 100%, is
+        far below), pulls ``high`` down to it, and returns the middle
+        of what is left.
+        """
+        cashflows = [(datetime(2024, 1, 1), -100.0), (datetime(2025, 1, 1), 200.0)]
+        low, high = -0.999, 1.0e4
+        first_probe = (low + high) / 2.0
+
+        rate = _xirr(cashflows, low=low, high=high, max_iter=1)
+
+        assert rate == pytest.approx((low + first_probe) / 2.0)
+        # Still a bracket around the true root, which the full budget finds.
+        assert low < _xirr(cashflows) < first_probe
 
 
 class TestSummary:

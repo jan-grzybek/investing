@@ -541,7 +541,7 @@ class TestSetupFailureTeardown:
         """Nothing was saved; teardown must not touch fd 1 or 2 at all."""
         monkeypatch.setattr(_safe_run, "main", lambda: None)
 
-        with self._dup_failing_after(0), pytest.raises(OSError):
+        with self._dup_failing_after(0), pytest.raises(OSError, match="Too many open files"):
             _safe_run._run_main_safely()
 
         self._assert_streams_usable(capfd)
@@ -552,6 +552,85 @@ class TestSetupFailureTeardown:
         with self._dup_failing_after(1), pytest.raises(OSError):
             _safe_run._run_snapshot_safely()
 
+        self._assert_streams_usable(capfd)
+
+    @pytest.mark.parametrize(
+        ("wrapper", "target"),
+        [("_run_main_safely", "main"), ("_run_snapshot_safely", "snapshot_market_data")],
+    )
+    def test_a_failure_redirecting_stdout_still_gives_stderr_back(
+        self, monkeypatch, capfd, wrapper, target
+    ):
+        """fd 2 already points at /dev/null when the second ``dup2`` fails.
+
+        Teardown has to put it back even though the redirect never
+        finished, or every later diagnostic is silently discarded.
+        """
+        monkeypatch.setattr(_safe_run, target, lambda: None)
+        real_dup2 = os.dup2
+        calls = {"n": 0}
+
+        def flaky_dup2(fd, fd2, *args, **kwargs):
+            calls["n"] += 1
+            if calls["n"] == 2:
+                raise OSError(9, "Bad file descriptor")
+            return real_dup2(fd, fd2, *args, **kwargs)
+
+        monkeypatch.setattr(os, "dup2", flaky_dup2)
+        with pytest.raises(OSError, match="Bad file descriptor"):
+            getattr(_safe_run, wrapper)()
+        monkeypatch.setattr(os, "dup2", real_dup2)
+
+        # Write to the fd itself: under ``capfd`` ``sys.stderr`` writes
+        # straight to the capture file and would not notice fd 2.
+        capfd.readouterr()
+        os.write(2, b"fd 2 restored\n")
+        assert "fd 2 restored" in capfd.readouterr().err
+
+    def test_the_snapshot_wrapper_survives_a_failure_on_the_first_dup(self, monkeypatch, capfd):
+        """Neither fd was saved, so teardown must not ``os.close(-1)``.
+
+        Closing the ``-1`` sentinel would raise ``EBADF`` from the
+        ``finally`` block and replace the real error, so the original
+        "Too many open files" is what proves teardown skipped both fds.
+        """
+        monkeypatch.setattr(_safe_run, "snapshot_market_data", lambda: None)
+
+        with self._dup_failing_after(0), pytest.raises(OSError, match="Too many open files"):
+            _safe_run._run_snapshot_safely()
+
+        self._assert_streams_usable(capfd)
+
+    @pytest.mark.parametrize(
+        ("wrapper", "target"),
+        [
+            ("_run_main_safely", "main"),
+            ("_run_snapshot_safely", "snapshot_market_data"),
+        ],
+    )
+    def test_a_failure_opening_devnull_tears_down_without_touching_fds(
+        self, monkeypatch, capfd, wrapper, target
+    ):
+        """``/dev/null`` is the first allocation; if it fails, nothing else ran.
+
+        Teardown must skip closing the never-opened handle -- calling
+        ``.close()`` on ``None`` would raise ``AttributeError`` out of
+        the ``finally`` and mask the real ``OSError``.
+        """
+        ran: list[str] = []
+        monkeypatch.setattr(_safe_run, target, lambda: ran.append("ran"))
+
+        def failing_open(*_args, **_kwargs):
+            raise OSError(24, "Too many open files")
+
+        # Shadow the builtin in the module's globals only, so pytest's
+        # own file handling keeps the real ``open``.
+        monkeypatch.setattr(_safe_run, "open", failing_open, raising=False)
+
+        with pytest.raises(OSError, match="Too many open files"):
+            getattr(_safe_run, wrapper)()
+
+        assert ran == [], "the wrapped entrypoint must not run after a setup failure"
         self._assert_streams_usable(capfd)
 
 

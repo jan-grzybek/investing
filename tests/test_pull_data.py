@@ -321,6 +321,32 @@ class TestPullData:
             },
         ]
 
+    def test_an_excluded_fixed_income_row_is_skipped(self, patch_gspread):
+        # A row whose include flag isn't a YES token parses to ``None``;
+        # it must drop out of the fixed-income list rather than land in
+        # it as a ``None`` placeholder, and must not stop the rows after.
+        sh = _build_spreadsheet(
+            equities=[],
+            returns=[],
+            cash=[],
+            fixed_income=[
+                _equity_row("15-03-2024", "TLT", "100", "90.25", "BUY", include="NO"),
+                _equity_row("01-06-2024", "TLT", "50", "92.10", "SELL"),
+            ],
+        )
+        patch_gspread(sh)
+        _transactions, fixed_income, _valuations, _cash = pull_data()
+
+        assert fixed_income == [
+            {
+                "date": "01-06-2024",
+                "ticker": "TLT",
+                "quantity": 50,
+                "price_per_share": 92.10,
+                "action": "SELL",
+            },
+        ]
+
     def test_fixed_income_parse_error_points_at_fixed_income_sheet(self, patch_gspread):
         # Errors in the fixed-income sheet must surface
         # ``worksheet="Fixed Income"`` so an operator editing the
@@ -646,6 +672,26 @@ class TestBatchGetFallback:
         assert len(transactions) == 1
         assert len(valuations) == 1
         assert len(cash) == 1
+
+    def test_a_spreadsheet_without_the_batch_method_reads_each_worksheet(self, patch_gspread):
+        """No ``values_batch_get`` at all (older gspread) is the fallback too."""
+        sh = _build_spreadsheet(
+            equities=[_equity_row("01-01-2024", "AAA", "10", "1.00", "BUY")],
+            returns=[],
+            cash=[],
+        )
+        del sh.values_batch_get
+        patch_gspread(sh)
+
+        transactions, _, _, _ = pull_data()
+
+        assert [t["ticker"] for t in transactions] == ["AAA"]
+        assert sorted(c.args[0] for c in sh.worksheet.call_args_list) == [
+            "Cash & Cash Equivalents",
+            "Equities",
+            "Fixed Income",
+            "Return",
+        ]
 
     def test_a_short_value_range_response_falls_through(self, patch_gspread):
         """A response missing a range is not a usable batch result."""

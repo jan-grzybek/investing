@@ -901,7 +901,10 @@ class MarketDataStore:
         )
         out_dates = np.array([_iso_date(r["date"]) for r in merged], dtype="datetime64[D]")
         out_rates = np.array([r["rate"] for r in merged], dtype=float)
-        if self._root is not None and out_dates.size > 0 and self._persist:
+        # ``save_fx_history`` already no-ops without a root or when
+        # read-only; the only guard this call site adds is "nothing to
+        # write", so an empty merge never plants an empty archive.
+        if out_dates.size > 0:
             self.save_fx_history(currency, out_dates, out_rates)
         return out_dates, out_rates
 

@@ -736,6 +736,36 @@ class TestPageWiring:
         )
         assert "iShares 1-3 Year Treasury Bond ETF" in "".join(page.historical_fixed_income)
 
+    def test_a_page_without_return_data_has_no_hero_and_no_chart(
+        self, stub_logo_lookup, chdir_tmp, freeze_today
+    ):
+        # The holdings still render; the two surfaces that need a
+        # return series are left out rather than drawn empty.
+        from investing.webpage import Webpage
+        from tests._webpage_support import _holding
+
+        freeze_today(datetime(2025, 6, 1))
+        page = Webpage()
+        page.add_holding(_holding(ticker="NMS:AAA", name="Alpha"))
+        page.save()
+        out = (chdir_tmp / "index.html").read_text()
+        assert 'class="hero"' not in out
+        assert 'id="performance"' not in out
+        assert 'href="#performance"' not in out
+        assert "Alpha" in out
+
+    def test_an_open_row_without_a_weight_fails_as_an_invariant(self, stub_logo_lookup):
+        # ``add_holding`` must not trip over the missing weight itself
+        # (``float(None)`` would surface as a bare TypeError); the row
+        # renderer owns that check and names the stage that skipped.
+        from investing.webpage import Webpage
+        from tests._webpage_support import _holding
+
+        page = Webpage()
+        with pytest.raises(InvariantError, match="apply_rollup"):
+            page.add_holding(_holding(weight=None))
+            page.current  # noqa: B018  (rows render on read once they do)
+
 
 class TestHeroClaims:
     def test_the_every_year_claim_only_appears_when_it_is_earned(self):
@@ -777,6 +807,30 @@ class TestHeroClaims:
         )
         assert "total return since inception" in html
         assert "pp" not in html.split("hero__stats")[0]
+
+    def test_a_return_without_an_annualised_figure_drops_that_stat(self):
+        # ``TotalReturn`` is ``total=False``: a return with no CAGR is
+        # a valid input, and the hero must leave the stat out rather
+        # than print an empty one or fail.
+        from investing.webpage import hero
+
+        def render(total):
+            return hero.render(
+                total_return=total,
+                benchmarks=[],
+                yearly_returns=[],
+                benchmark_label="Bench",
+                position_counts=(3, 0),
+                now=datetime(2026, 1, 1),
+                update_date="Jan 1, 2026",
+                update_iso="2026-01-01",
+            )
+
+        base = {"twr%": 20.0, "start_date": datetime(2024, 1, 1)}
+        assert "Annualised" in render({**base, "cagr%": 10.0})
+        without = render(base)
+        assert "Annualised" not in without
+        assert "total return since inception" in without
 
 
 class TestPositionGroups:
@@ -1259,6 +1313,42 @@ class TestOgLogoLoading:
         import investing.webpage.og_image as og_image
 
         assert og_image._og_logo_aspect("NMS:NOSUCHTICKER") > 0
+
+    def test_an_svg_with_no_readable_size_falls_through_to_the_next_file(
+        self, tmp_path, monkeypatch
+    ):
+        # An SVG without a usable viewBox is skipped like a missing
+        # file: the next candidate (here the placeholder) decides,
+        # not the 3 : 1 default.
+        from PIL import Image
+
+        import investing.webpage.og_image as og_image
+
+        monkeypatch.setattr(og_image, "_REPO_LOGOS_DIR", str(tmp_path))
+        (tmp_path / "NMS:AAA.svg").write_text("<svg></svg>", encoding="utf-8")
+        Image.new("RGBA", (20, 10)).save(tmp_path / "courage.png")
+        assert og_image._og_logo_aspect("NMS:AAA") == pytest.approx(2.0)
+        assert pytest.approx(2.0) != og_image._DEFAULT_LOGO_ASPECT
+
+    def test_a_logo_that_will_not_load_leaves_its_slot_empty(self, monkeypatch):
+        # A missing logo is a gap, not a crash, and the logos after
+        # it keep the places they would have had.
+        from PIL import Image
+
+        import investing.webpage.og_image as og_image
+
+        red = (255, 0, 0, 255)
+        monkeypatch.setattr(og_image, "_og_logo_aspect", lambda _t: og_image._OG_REFERENCE_ASPECT)
+        monkeypatch.setattr(
+            og_image,
+            "load_logo_for_og",
+            lambda t, w, h: None if t == "GONE" else Image.new("RGBA", (w, h), red),
+        )
+        canvas = Image.new("RGBA", (60, 10), "white")
+        # Two equal cells of 10px with a 28px gap: 0-9 and 38-47.
+        og_image.draw_top_holdings_strip(canvas, ["GONE", "HERE"], x=0, y=0, w=48, h=10)
+        assert canvas.getpixel((5, 5)) != red
+        assert canvas.getpixel((42, 5)) == red
 
 
 class TestGenerateWebpageBuckets:

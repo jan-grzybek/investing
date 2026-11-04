@@ -491,3 +491,72 @@ class TestProductionEntrypoints:
         main()
 
         assert called == [True]
+
+
+class TestBenchmarkDeltaNeedsBothCagrs:
+    """The "vs benchmark" clause is a subtraction; it needs both operands.
+
+    Either CAGR can be missing (a benchmark with too short a history, a
+    portfolio with no valuations yet). The line then omits the clause
+    instead of printing a delta against nothing.
+    """
+
+    def test_no_delta_when_the_benchmark_cagr_is_missing(self, capsys):
+        benchmarks = [{"ticker": "LSE:VUAA.L", "cagr%": None}]
+        _print_summary(_total_return(cagr_pct=6.7), _holdings(), benchmarks)
+        out = capsys.readouterr().out
+        assert out.startswith("Build OK:")
+        assert "CAGR 6.7%" in out
+        assert "benchmark" not in out
+        assert "delta" not in out
+
+    def test_no_delta_when_the_portfolio_cagr_is_missing(self, capsys):
+        benchmarks = [{"ticker": "LSE:VUAA.L", "cagr%": 4.2}]
+        _print_summary(_total_return(cagr_pct=None), _holdings(), benchmarks)
+        out = capsys.readouterr().out
+        assert "CAGR n/a" in out
+        assert "benchmark" not in out
+        assert "delta" not in out
+
+
+class TestInjectedFx:
+    def test_an_injected_fx_is_used_instead_of_building_one(self, tmp_path, monkeypatch):
+        """``fx=`` wins even when a store-backed cache could be built.
+
+        Preview and tests rely on this to keep the build off the network.
+        """
+        from unittest.mock import MagicMock
+
+        import investing.cli as cli
+
+        def _no_exchange_rate(**_kwargs):
+            raise AssertionError("an injected fx must not be replaced")
+
+        monkeypatch.setattr(cli, "ExchangeRate", _no_exchange_rate)
+
+        seen: list[object] = []
+        real_get_holdings = cli.get_holdings
+
+        def _spy_get_holdings(*args, **kwargs):
+            seen.append(kwargs["fx"])
+            return real_get_holdings(*args, **kwargs)
+
+        monkeypatch.setattr(cli, "get_holdings", _spy_get_holdings)
+
+        store = MagicMock()
+        store.enabled = True
+        store.persist = False
+        store.list_archived_tickers.return_value = []
+
+        def fx(currency, date=None):  # noqa: ARG001
+            return 1.0
+
+        cli.build_page(
+            pull=MagicMock(return_value=([], [], [], [])),
+            fx=fx,
+            store=store,
+            save=lambda *_a, **_k: None,
+            output_dir=tmp_path,
+        )
+
+        assert seen == [fx]

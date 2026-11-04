@@ -650,6 +650,25 @@ class TestRefreshEntrypoints:
         store.refresh_universe(["AAA", "BBB"])
         assert seen == ["AAA", "BBB"]
 
+    def test_refresh_universe_refreshes_an_archived_input_ticker_once(self, tmp_path, monkeypatch):
+        """An archived ticker also in the input list costs one fetch, not two.
+
+        The archive sweep exists to keep sold-off positions fresh; one
+        still held was already refreshed from the input list, so a
+        second fetch would only double the Yahoo traffic.
+        """
+        monkeypatch.delenv("INVESTING_MARKET_DATA_DISABLE", raising=False)
+        store = MarketDataStore(tmp_path, persist=True)
+        (tmp_path / "tickers").mkdir()
+        for archived in ("AAA", "ZZZ"):
+            (tmp_path / "tickers" / f"{archived}.json").write_text("{}", encoding="utf-8")
+        seen: list[str] = []
+        monkeypatch.setattr(store, "resolve_ticker", lambda t: seen.append(t))
+
+        store.refresh_universe(["AAA", "BBB"])
+
+        assert seen == ["AAA", "BBB", "ZZZ"]
+
     def test_fx_path_sanitises_a_separator_bearing_code(self, tmp_path, monkeypatch):
         """A currency code from the sheet must not escape the snapshot tree."""
         monkeypatch.delenv("INVESTING_MARKET_DATA_DISABLE", raising=False)
@@ -795,3 +814,85 @@ class TestDisabledStore:
             np.array(["2024-01-01"], dtype="datetime64[D]"),
             np.array([1.1], dtype=float),
         )
+
+
+class TestFxSnapshotEdges:
+    """FX archive writes and merges on the paths the happy path skips."""
+
+    _DATES = np.array(["2024-01-01", "2024-02-01"], dtype="datetime64[D]")
+    _RATES = np.array([1.1, 1.2], dtype=float)
+
+    def test_a_failed_replace_leaves_no_temp_file_and_keeps_the_old_snapshot(
+        self, tmp_path, monkeypatch, caplog
+    ):
+        """A write that dies at the commit step must not litter ``fx/``.
+
+        The temp file is uniquely named per call, so a leaked one would
+        never be overwritten -- it would accumulate in the committed
+        snapshot tree run after run.
+        """
+        monkeypatch.delenv("INVESTING_MARKET_DATA_DISABLE", raising=False)
+        store = MarketDataStore(tmp_path, persist=True)
+        store.save_fx_history("EUR", self._DATES, self._RATES)
+
+        def _fail_replace(src, dst):  # noqa: ARG001
+            raise OSError("simulated replace failure")
+
+        with (
+            monkeypatch.context() as patch,
+            caplog.at_level("DEBUG", logger="investing.update"),
+        ):
+            patch.setattr("investing.market_data_store.os.replace", _fail_replace)
+            store.save_fx_history(
+                "EUR",
+                np.array(["2024-03-01"], dtype="datetime64[D]"),
+                np.array([9.9], dtype=float),
+            )
+
+        assert sorted(p.name for p in (tmp_path / "fx").iterdir()) == ["EUR.npz"]
+        loaded = store.load_fx_history("EUR")
+        assert loaded is not None
+        np.testing.assert_array_equal(loaded[0], self._DATES)
+        np.testing.assert_allclose(loaded[1], self._RATES)
+        assert "FX snapshot write failed for EUR" in caplog.text
+
+    def test_merge_without_an_archive_returns_and_persists_the_live_series(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.delenv("INVESTING_MARKET_DATA_DISABLE", raising=False)
+        store = MarketDataStore(tmp_path, persist=True)
+        live_dates = [datetime(2024, 1, 1).date(), datetime(2024, 2, 1)]
+
+        out_dates, out_rates = store.merge_fx_history("EUR", live_dates, [1.1, 1.2])
+
+        np.testing.assert_array_equal(out_dates, self._DATES)
+        np.testing.assert_allclose(out_rates, self._RATES)
+        saved = store.load_fx_history("EUR")
+        assert saved is not None
+        np.testing.assert_array_equal(saved[0], self._DATES)
+
+    def test_an_empty_merge_writes_no_snapshot(self, tmp_path, monkeypatch):
+        """No archive and no live rows must not plant an empty ``.npz``."""
+        monkeypatch.delenv("INVESTING_MARKET_DATA_DISABLE", raising=False)
+        store = MarketDataStore(tmp_path, persist=True)
+
+        out_dates, out_rates = store.merge_fx_history("EUR", [], [])
+
+        assert out_dates.size == 0
+        assert out_rates.size == 0
+        assert not (tmp_path / "fx").exists()
+
+    def test_a_read_only_merge_returns_the_union_but_leaves_the_archive(
+        self, tmp_path, monkeypatch
+    ):
+        """Routine deploys merge in memory; only the monthly cron writes."""
+        monkeypatch.delenv("INVESTING_MARKET_DATA_DISABLE", raising=False)
+        MarketDataStore(tmp_path, persist=True).save_fx_history("EUR", self._DATES, self._RATES)
+        archive = tmp_path / "fx" / "EUR.npz"
+        before = archive.read_bytes()
+        store = MarketDataStore(tmp_path, persist=False)
+
+        out_dates, _ = store.merge_fx_history("EUR", [datetime(2024, 3, 1)], [1.3])
+
+        assert out_dates.size == 3
+        assert archive.read_bytes() == before
