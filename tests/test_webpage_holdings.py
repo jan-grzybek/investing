@@ -15,7 +15,7 @@ from tests._css_helpers import (
     contains_selector,
     normalize,
 )
-from tests._html_helpers import parse_html
+from tests._html_helpers import A_DAY, parse_html
 from tests._webpage_support import (
     _holding,
     _total_return,
@@ -54,9 +54,9 @@ class TestAddHolding:
         assert w.current == []
         # Closed positions have no weight, so no weight cell.
         assert "holdings__weight" not in w.historical[0]
-        # Closed period renders a real end date, not "Present", in the
-        # page-wide DD/MM/YYYY format.
-        assert "01/01/2024" in w.historical[0]
+        # Closed period renders a real end, not "Present", as the
+        # calendar quarter it fell in -- the Activity table's format.
+        assert "Q1 2024" in w.historical[0]
 
     def test_cagr_above_sentinel_renders_as_tba(self, stub_logo_lookup):
         # The check uses `math.nextafter(1_000_000, 0)`; anything strictly
@@ -84,7 +84,7 @@ class TestAddHolding:
         w.add_holding(_holding(periods=[{"start": datetime(2024, 3, 7), "end": None}]))
         row = w.current[0]
         assert "holdings__periods" in row
-        assert '<time datetime="2024-03-07">07/03/2024</time>' in row
+        assert '<time datetime="2024-01">Q1 2024</time>' in row
         assert row.count("<li>") == 1
         assert "Present" in row
 
@@ -105,12 +105,14 @@ class TestAddHolding:
         assert "holdings__periods" in row
         assert "Present" in row
         assert row.count("<li>") == 2
-        assert row.index("2024-06-01") < row.index("2020-01-01")
+        assert row.index("2024-04") < row.index("2020-01")
         # Open rows keep their weight cell alongside the windows list.
         assert "holdings__weight" in row
         # The ``since`` sort contract is unchanged: the open window's
-        # start, not the earliest ever.
-        assert 'data-sort-since="2024-06-01"' in row
+        # start, not the earliest ever. The key is that day's place in
+        # the order of every window end on the page (here the third of
+        # three), so it sorts without carrying the day itself.
+        assert 'data-sort-since="3"' in row
 
     def test_sort_key_falls_back_to_latest_start_when_no_window_is_open(self, stub_logo_lookup):
         # Production guarantees a current row an open window (a
@@ -127,7 +129,7 @@ class TestAddHolding:
             )
         )
         row = w.current[0]
-        assert 'data-sort-since="2022-05-05"' in row
+        assert 'data-sort-since="3"' in row
         assert "Present" not in row
 
     def test_the_dash_alone_is_classed_for_padding(self, stub_logo_lookup):
@@ -246,8 +248,45 @@ class TestClosedPeriods:
             )
         )
         row = w.historical[0]
-        assert '<time datetime="2022-05-04">04/05/2022</time>' in row
-        assert '<time datetime="2023-06-09">09/06/2023</time>' in row
+        # The machine value is the quarter's first month (a W3C month
+        # string), the same anchor the Activity table's dates carry.
+        assert '<time datetime="2022-04">Q2 2022</time>' in row
+        assert '<time datetime="2023-04">Q2 2023</time>' in row
+
+    def test_window_inside_one_quarter_prints_that_quarter_once(self, stub_logo_lookup):
+        # "Q3 2025 - Q3 2025" says the same thing twice; one quarter
+        # reads as a span of its own, as it does in the Activity table.
+        w = Webpage()
+        w.add_holding(
+            _holding(
+                is_current=False,
+                weight=None,
+                periods=[{"start": datetime(2025, 7, 22), "end": datetime(2025, 8, 30)}],
+            )
+        )
+        assert '<li><time datetime="2025-07">Q3 2025</time></li>' in w.historical[0]
+
+    def test_rows_carry_no_day_in_any_form(self, stub_logo_lookup):
+        # The cell prints quarters, so no attribute may carry the day
+        # behind one: not the ``<time>`` values, not the sort keys.
+        w = Webpage()
+        w.add_holding(
+            _holding(
+                periods=[
+                    {"start": datetime(2020, 2, 11), "end": datetime(2021, 5, 17)},
+                    {"start": datetime(2024, 6, 3), "end": None},
+                ],
+            )
+        )
+        w.add_holding(
+            _holding(
+                is_current=False,
+                weight=None,
+                periods=[{"start": datetime(2022, 8, 5), "end": datetime(2023, 6, 9)}],
+            )
+        )
+        for row in (*w.current, *w.historical):
+            assert not A_DAY.findall(row), row
 
     def test_multiple_periods_stack_newest_first(self, stub_logo_lookup):
         w = Webpage()
@@ -262,7 +301,7 @@ class TestClosedPeriods:
             )
         )
         row = w.historical[0]
-        assert row.index("2025-07-22") < row.index("2022-08-05")
+        assert row.index("2025-07") < row.index("2022-07")
         assert row.count("<li>") == 2
 
     def test_closed_rows_sort_by_their_most_recent_exit(self, stub_logo_lookup):
@@ -277,7 +316,26 @@ class TestClosedPeriods:
                 ],
             )
         )
-        assert 'data-sort-held="2025-12-30"' in w.historical[0]
+        assert 'data-sort-held="4"' in w.historical[0]
+
+    def test_exits_inside_one_quarter_still_sort_in_their_true_order(self, stub_logo_lookup):
+        # Both rows print "Q4 2025", but a quarter-level key would tie
+        # them, and a tie keeps arrival order in both directions -- so
+        # reversing the column would leave them where they were. The
+        # key is the exit's place in date order instead.
+        w = Webpage()
+        for name, end in (("Early", datetime(2025, 10, 3)), ("Late", datetime(2025, 12, 30))):
+            w.add_holding(
+                _holding(
+                    name=name,
+                    is_current=False,
+                    weight=None,
+                    periods=[{"start": datetime(2024, 2, 1), "end": end}],
+                )
+            )
+        early, late = (re.search(r'data-sort-held="(\d+)"', row).group(1) for row in w.historical)
+        assert late > early
+        assert len(early) == len(late)
 
 
 class TestRowContract:
@@ -470,8 +528,9 @@ class TestRowContract:
         assert 'data-sort-tsr="217"' in row
         assert 'data-sort-cagr="64.2"' in row
         assert 'data-sort-weight="21.4"' in row
-        # Dates sort ISO so a lexical compare is a chronological one.
-        assert 'data-sort-since="2024-08-14"' in row
+        # The date key is the window start's place in date order (the
+        # only date on this page, so the first) rather than the day.
+        assert 'data-sort-since="1"' in row
 
     def test_closed_row_omits_weight_sort_key(self, stub_logo_lookup):
         # Closed positions have no ``current_weight%``, so the row must

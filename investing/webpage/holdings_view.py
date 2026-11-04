@@ -32,11 +32,17 @@ cache.
 from __future__ import annotations
 
 import html
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import date
 
 from ..errors import InvariantError
-from ..formatting import _fmt_date, _fmt_pct, _format_sort_number, _value_class
+from ..formatting import (
+    _fmt_pct,
+    _fmt_quarter,
+    _format_sort_number,
+    _quarter_month_iso,
+    _value_class,
+)
 from ..holdings import CAGR_TBA_THRESHOLD, google_search_url
 from ..safehtml import safe_url
 from ..types import HoldingSummary
@@ -185,6 +191,47 @@ def _period_start(holding: HoldingSummary) -> date:
     return max(p["start"] for p in (open_periods or periods))
 
 
+def _iso_day(dt: date) -> str:
+    # The day as text: drops a time of day, so a ``date`` and a
+    # ``datetime`` on one day share a key, and ISO days sort as text
+    # the way they sort as dates.
+    return dt.strftime("%Y-%m-%d")
+
+
+def date_sort_keys(holdings: Iterable[HoldingSummary]) -> dict[str, str]:
+    """Each window end's place in date order, keyed by its ISO day.
+
+    The Dates cells print quarters, so the ``since`` / ``held`` sort
+    keys may not carry the day behind one. A quarter-level key would
+    not do either: rows that share a quarter would tie, a tie keeps
+    arrival order in both directions, and reversing the column would
+    leave them where they were. Sorting needs the *order* of the days
+    and nothing else, so that is what the key holds -- 1 for the
+    earliest window end on the page, 2 for the next, and so on, the
+    same scheme as the Activity table (``trades_view.date_sort_keys``).
+
+    Zero-padded to one width, because the script compares keys as
+    strings. Ranked over every start and end of every holding, so one
+    mapping serves both tables.
+    """
+    days = sorted(
+        {
+            _iso_day(day)
+            for holding in holdings
+            for period in holding["periods"]
+            for day in (period["start"], period["end"])
+            if day is not None
+        }
+    )
+    width = len(str(len(days)))
+    return {day: f"{index:0{width}d}" for index, day in enumerate(days, start=1)}
+
+
+def _quarter_time(dt: date) -> str:
+    """One end of an ownership window as a ``<time>``-wrapped quarter."""
+    return f'<time datetime="{_quarter_month_iso(dt)}">{_fmt_quarter(dt)}</time>'
+
+
 def _periods_cell(holding: HoldingSummary) -> str:
     """Render every ownership window of a position, newest first.
 
@@ -195,6 +242,12 @@ def _periods_cell(holding: HoldingSummary) -> str:
     but preview / synthetic data might not, and the visual order is a
     UX guarantee rather than an upstream accident.
 
+    Each end is printed as its calendar quarter ("Q3 2026"), the
+    granularity the Activity table already publishes trades at, and
+    each ``<time>`` carries that quarter's first month rather than the
+    day. A window opened and closed inside one quarter prints that
+    quarter once: "Q3 2026 - Q3 2026" would say it twice.
+
     The separator carries a class because it alone is padded:
     "Present" and an end date must start at the same x, and any
     padding of their own would push them apart (see
@@ -204,11 +257,14 @@ def _periods_cell(holding: HoldingSummary) -> str:
     items = []
     for period in ordered:
         start, end = period["start"], period["end"]
-        start_html = f'<time datetime="{start.strftime("%Y-%m-%d")}">{_fmt_date(start)}</time>'
+        start_html = _quarter_time(start)
         if end is None:
             end_html = "<span>Present</span>"
+        elif _quarter_month_iso(end) == _quarter_month_iso(start):
+            items.append(f"<li>{start_html}</li>")
+            continue
         else:
-            end_html = f'<time datetime="{end.strftime("%Y-%m-%d")}">{_fmt_date(end)}</time>'
+            end_html = _quarter_time(end)
         items.append(f'<li>{start_html}<span class="holdings__dash">&ndash;</span>{end_html}</li>')
     return f'<td class="holdings__periods" role="cell"><ul>{"".join(items)}</ul></td>'
 
@@ -237,7 +293,12 @@ def _metric_cells(holding: HoldingSummary) -> str:
     return "".join(cells)
 
 
-def build_row(holding: HoldingSummary, *, logo_url_for: Callable[[str], str]) -> str:
+def build_row(
+    holding: HoldingSummary,
+    *,
+    logo_url_for: Callable[[str], str],
+    sort_dates: Mapping[str, str],
+) -> str:
     """Render one holding as a ``<tr>``.
 
     Every position renders its ownership windows the same way: open
@@ -247,6 +308,10 @@ def build_row(holding: HoldingSummary, *, logo_url_for: Callable[[str], str]) ->
     list the windows they were held over. What separates open from
     closed is the weight cell -- closed positions have no weight at
     all.
+
+    ``sort_dates`` is :func:`date_sort_keys` over every holding on the
+    page, which the row needs because a place in date order is not a
+    property of one row.
     """
     is_current = holding["is_current"]
     # Validated again at the render boundary, not just where the value
@@ -285,7 +350,7 @@ def build_row(holding: HoldingSummary, *, logo_url_for: Callable[[str], str]) ->
                 "renderer with no weight -- apply_rollup() did not run",
             )
         start = _period_start(holding)
-        sort_attrs["since"] = start.strftime("%Y-%m-%d")
+        sort_attrs["since"] = sort_dates[_iso_day(start)]
         sort_attrs["weight"] = _format_sort_number(weight)
         cells.append(_periods_cell(holding))
         muted = holding.get("asset_class") == "fixed_income"
@@ -305,7 +370,7 @@ def build_row(holding: HoldingSummary, *, logo_url_for: Callable[[str], str]) ->
         # Closed rows sort by their most recent exit, which is the
         # date a reader scanning "when did this end" is looking for.
         sort_attrs["held"] = max(
-            p["end"].strftime("%Y-%m-%d") for p in holding["periods"] if p["end"] is not None
+            sort_dates[_iso_day(p["end"])] for p in holding["periods"] if p["end"] is not None
         )
         cells.append(_periods_cell(holding))
 
@@ -418,4 +483,5 @@ __all__ = [
     "build_group",
     "build_row",
     "build_table",
+    "date_sort_keys",
 ]

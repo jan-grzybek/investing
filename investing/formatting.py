@@ -46,29 +46,15 @@ def _ts_to_datetime(ts: _DateLike | str) -> datetime:
 # ---------------------------------------------------------------------------
 
 
-def _fmt_date(dt: date | datetime) -> str:
-    # ``DD/MM/YYYY`` is the human-readable format wherever the page
-    # prints a day in a table: the holdings rows and the closed
-    # positions' period lists. (The Activity table prints quarters,
-    # see ``_fmt_quarter_range``.) The zero-padded day / month gives
-    # every date the exact same character width, which keeps those
-    # columns of dates vertically aligned without monospaced glyphs.
-    # The ISO ``<time datetime="...">`` attributes wrapping each
-    # rendered date stay in W3C ``YYYY-MM-DD`` form -- machine-format
-    # is a separate concern from the human-facing label.
-    return dt.strftime("%d/%m/%Y")
-
-
 def _fmt_date_long(dt: date | datetime) -> str:
     # Long-form ``Mon D, YYYY`` (e.g. "Mar 7, 2026") used for the
     # one-off "Since ..." caption that sits under the return chart
     # (and its chart-less twin in the returns-compare block). Those
     # captions read as full prose ("Since Jan 1, 2024 . 2 years, 1
-    # month"), and the slashes of the table-friendly DD/MM/YYYY
-    # format break the sentence rhythm there even though they read
-    # naturally in the tabular columns. ``%-d`` (GNU/BSD) drops the
-    # leading zero on the day number so the label reads as proper
-    # English rather than as date-stamp metadata.
+    # month"); the tables print calendar quarters instead (see
+    # ``_fmt_quarter``). ``%-d`` (GNU/BSD) drops the leading zero on
+    # the day number so the label reads as proper English rather than
+    # as date-stamp metadata.
     return dt.strftime("%b %-d, %Y")
 
 
@@ -81,6 +67,31 @@ def _quarter_of(dt: date | datetime) -> tuple[int, int]:
     into a calendar-quarter label.
     """
     return (dt.year, (dt.month - 1) // 3 + 1)
+
+
+def _quarter_month_iso(dt: date | datetime) -> str:
+    """The first month of ``dt``'s quarter as a W3C month string.
+
+    ``2026-07`` for any day in Q3 2026. It is the machine value behind
+    every printed quarter -- the ``<time datetime>`` and the date sort
+    keys -- so the markup says no more than the label does, and ISO
+    months still sort as text the way they sort as dates.
+    """
+    year, quarter = _quarter_of(dt)
+    return f"{year}-{(quarter - 1) * 3 + 1:02d}"
+
+
+def _fmt_quarter(dt: date | datetime) -> str:
+    """``dt``'s calendar quarter as a reader sees it: ``Q3 2026``.
+
+    No comma: "Q3 2026" is how quarters are written in earnings
+    releases and filings, and the letter already separates the two
+    numbers that a comma separates in "Jul 4, 2026". Every quarter
+    label has the same width under tabular numerals, which is what
+    keeps the Holdings date columns aligned.
+    """
+    year, quarter = _quarter_of(dt)
+    return f"Q{quarter} {year}"
 
 
 def _fmt_quarter_range(start: date | datetime, end: date | datetime) -> str:
@@ -116,9 +127,9 @@ def _fmt_quarter_range(start: date | datetime, end: date | datetime) -> str:
     """
     start_y, start_q = _quarter_of(start)
     end_y, end_q = _quarter_of(end)
-    start_month_iso = f"{start_y}-{(start_q - 1) * 3 + 1:02d}"
+    start_month_iso = _quarter_month_iso(start)
     if (start_y, start_q) == (end_y, end_q):
-        return f'<time datetime="{start_month_iso}">Q{start_q} {start_y}</time>'
+        return f'<time datetime="{start_month_iso}">{_fmt_quarter(start)}</time>'
     if start_y == end_y:
         # Single-element ``<time>`` for same-year multi-quarter
         # spans: the slash-joined label ("Q3/Q4 2026") reads as a
@@ -127,13 +138,10 @@ def _fmt_quarter_range(start: date | datetime, end: date | datetime) -> str:
         # commit to a machine-readable structure the page doesn't
         # need.
         return f'<time datetime="{start_month_iso}">Q{start_q}/Q{end_q} {start_y}</time>'
-    end_month_iso = f"{end_y}-{(end_q - 1) * 3 + 1:02d}"
     return (
-        f'<time datetime="{start_month_iso}">'
-        f"Q{start_q} {start_y}</time>"
+        f'<time datetime="{start_month_iso}">{_fmt_quarter(start)}</time>'
         '<span class="trades__date-sep"> - </span>'
-        f'<time datetime="{end_month_iso}">'
-        f"Q{end_q} {end_y}</time>"
+        f'<time datetime="{_quarter_month_iso(end)}">{_fmt_quarter(end)}</time>'
     )
 
 

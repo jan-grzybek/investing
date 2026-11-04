@@ -127,7 +127,7 @@ class TestHoldingsView:
 
         html = _periods_cell({"periods": [{"start": datetime(2024, 1, 2), "end": None}]})
         assert "<span>Present</span>" in html
-        assert 'datetime="2024-01-02"' in html
+        assert 'datetime="2024-01"' in html
 
     def test_a_current_holding_without_a_weight_is_a_pipeline_fault(self):
         # Weight is attached by ``apply_rollup``. Reaching the renderer
@@ -146,7 +146,7 @@ class TestHoldingsView:
             "periods": [{"start": datetime(2024, 1, 1), "end": None}],
         }
         with pytest.raises(InvariantError, match="no weight"):
-            build_row(holding, logo_url_for=lambda _t: "logo.svg")
+            build_row(holding, logo_url_for=lambda _t: "logo.svg", sort_dates={})
 
 
 class TestSitemap:
@@ -1194,6 +1194,7 @@ class TestDataDependentRenderPaths:
                     "periods": [{"start": datetime(2026, 7, 20), "end": None}],
                 },
                 logo_url_for=lambda _t: "logo.svg",
+                sort_dates={"2026-07-20": "1"},
             )
 
         absurd = row_for(CAGR_TBA_THRESHOLD * 2)
