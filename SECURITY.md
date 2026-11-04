@@ -56,10 +56,8 @@ world-readable** and act as a side channel for both classes of data.
 * The deploy workflow scopes its token per job, not once for the whole
   workflow, and every job starts from an empty grant (beyond the
   `metadata: read` GitHub always includes). The build job (`Update`)
-  opts in to `contents: write`, so it can push auto-populated
-  `sector_overrides.toml` stubs and the monthly `market_data/`
-  snapshot back to `main`, and to `issues: write` for the maintenance
-  notifier. The publish job (`Deploy`) opts in to `pages: write` and
+  opts in to `contents: read` and to `issues: write` for the
+  maintenance notifier. The publish job (`Deploy`) opts in to `pages: write` and
   `id-token: write` and nothing else. So the token held by the job
   that runs the third-party dependency set alongside the sheet
   credentials cannot create a Pages deployment or mint an OIDC token,
@@ -68,9 +66,18 @@ world-readable** and act as a side channel for both classes of data.
 
   This narrows what each token can do; it does not isolate the build
   from the site. `Update` still produces the artifact that `Deploy`
-  publishes unreviewed, and it still holds `contents: write` on
-  `main`, which is not branch-protected -- the larger power of the
-  two.
+  publishes unreviewed.
+* `main` is guarded by the "main: require Tests" ruleset: a commit
+  lands only once `lint` and `pytest (3.12 / 3.13 / 3.14)` have passed
+  on it. The bots' own pushes (auto-populated `sector_overrides.toml`
+  stubs, the monthly `market_data/` snapshot, the `logos/tight/`
+  mirror) go through the `BOT_PUSH_KEY` deploy key, the ruleset's one
+  bypass, since a personal repo cannot exempt GitHub Actions itself.
+  The key is the larger power here -- write access to `main` that
+  never expires -- so it is passed only to the commit steps, after the
+  build's third-party code has run, and written to a temp file that
+  the step deletes. It is never configured on the checkout. Rotate it
+  if a dependency is ever found compromised.
 * `.github/workflows/security.yml` runs `pip-audit` against both
   lockfiles (OSV.dev advisory feed, `--strict` so known CVEs fail
   the build) and a CodeQL Python scan (`security-and-quality` query

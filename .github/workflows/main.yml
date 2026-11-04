@@ -145,18 +145,14 @@ jobs:
     if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
 
     permissions:
-      # ``contents: write`` lets the post-build "Commit auto-populated
-      # sector overrides" step push commented-out stubs that the
-      # ``append_missing_sector_stubs`` hook in
-      # ``investing.sector_overrides`` adds to ``sector_overrides.toml``
-      # when the build observes a missing-sector ticker. Without the
-      # write scope the file would be mutated only on the ephemeral
-      # runner and the maintainer's local checkout would never see the
-      # auto-populated entry -- defeating the "remind the operator to
-      # fill in a sector" half of the auto-populate contract. The
-      # monthly "Commit market-data snapshot updates" step pushes
-      # through the same scope, and the checkout reads through it.
-      contents: write
+      # Read-only: the two commit steps below (sector stubs that
+      # ``append_missing_sector_stubs`` adds to ``sector_overrides.toml``,
+      # and the monthly market-data snapshot) push with the
+      # ``BOT_PUSH_KEY`` deploy key, handed to those two steps alone,
+      # not with this token. The "main: require Tests" ruleset rejects pushes
+      # whose commit has no passing Tests run, and on a personal repo
+      # only a deploy key can bypass it.
+      contents: read
       # Lets ``investing.maintenance_notifier`` file an issue when the
       # build observes a ticker missing a sector or a logo. The
       # ``GITHUB_TOKEN`` injected into the "Generate new webpage" step
@@ -250,11 +246,10 @@ jobs:
         # hook keeps subsequent builds idempotent.
         #
         # Following the same model as ``regenerate-logos.yml``: the
-        # push uses the default ``GITHUB_TOKEN`` which (by GitHub's
-        # own rules) does NOT re-trigger any workflow run, so this
-        # commit will not fan out into another Tests + main.yml
-        # cycle. The ``[skip ci]`` marker in the commit message is
-        # belt-and-braces against a future tightening of that rule.
+        # ``[skip ci]`` marker keeps this commit from fanning out into
+        # another Tests + main.yml cycle. It is load-bearing: a push
+        # with the deploy key, unlike one with ``GITHUB_TOKEN``, would
+        # otherwise trigger workflows.
         #
         # The ``git status --porcelain`` guard short-circuits the
         # commit + push on every build that didn't actually mutate
@@ -263,6 +258,13 @@ jobs:
         # ``sector_overrides.toml`` specifically so an unrelated
         # transient file the build might leave behind doesn't
         # accidentally land in the commit.
+        env:
+          # Deploy key that bypasses the "main: require Tests" ruleset;
+          # scoped to this step alone.
+          BOT_PUSH_KEY: ${{ secrets.BOT_PUSH_KEY }}
+          # Read-only job token: only lifts the rate limit on the
+          # host-key lookup below.
+          GH_TOKEN: ${{ github.token }}
         run: |
           if [[ -z "$(git status --porcelain sector_overrides.toml)" ]]; then
             echo "sector_overrides.toml unchanged; nothing to commit."
@@ -272,13 +274,29 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add sector_overrides.toml
           git commit -m "chore(sectors): auto-populate missing sector stubs [skip ci]"
-          git push
+          # Push with the deploy key only here, after the build: it never
+          # sits on the runner while the build's dependencies run. Host
+          # key pinned from GitHub's published list, fetched over TLS.
+          set -o pipefail
+          key="$(mktemp)"; hosts="$(mktemp)"
+          trap 'rm -f "$key" "$hosts"' EXIT
+          printf '%s\n' "$BOT_PUSH_KEY" > "$key"
+          curl -fsS -H "Authorization: Bearer $GH_TOKEN" https://api.github.com/meta | jq -r '.ssh_keys[] | "github.com " + .' > "$hosts"
+          GIT_SSH_COMMAND="ssh -i $key -o IdentitiesOnly=yes -o UserKnownHostsFile=$hosts -o StrictHostKeyChecking=yes" \
+            git push "git@github.com:${GITHUB_REPOSITORY}.git" HEAD:main
 
       - name: Commit market-data snapshot updates
         # Monthly backup only — see the ``17 2 1 * *`` schedule comment
         # at the top of this file and ``INVESTING_MARKET_DATA_PERSIST``
         # on the build step above.
         if: github.event_name == 'schedule' && github.event.schedule == '17 2 1 * *'
+        env:
+          # Deploy key that bypasses the "main: require Tests" ruleset;
+          # scoped to this step alone.
+          BOT_PUSH_KEY: ${{ secrets.BOT_PUSH_KEY }}
+          # Read-only job token: only lifts the rate limit on the
+          # host-key lookup below.
+          GH_TOKEN: ${{ github.token }}
         run: |
           if [[ -z "$(git status --porcelain market_data/)" ]]; then
             echo "market_data/ unchanged; nothing to commit."
@@ -288,7 +306,16 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add market_data/
           git commit -m "chore(market-data): refresh yfinance snapshots [skip ci]"
-          git push
+          # Push with the deploy key only here, after the build: it never
+          # sits on the runner while the build's dependencies run. Host
+          # key pinned from GitHub's published list, fetched over TLS.
+          set -o pipefail
+          key="$(mktemp)"; hosts="$(mktemp)"
+          trap 'rm -f "$key" "$hosts"' EXIT
+          printf '%s\n' "$BOT_PUSH_KEY" > "$key"
+          curl -fsS -H "Authorization: Bearer $GH_TOKEN" https://api.github.com/meta | jq -r '.ssh_keys[] | "github.com " + .' > "$hosts"
+          GIT_SSH_COMMAND="ssh -i $key -o IdentitiesOnly=yes -o UserKnownHostsFile=$hosts -o StrictHostKeyChecking=yes" \
+            git push "git@github.com:${GITHUB_REPOSITORY}.git" HEAD:main
 
       - name: Stage public site artifact
         # Upload only the rendered page and its static dependencies —

@@ -32,11 +32,13 @@ on:
       - 'logos/*.jpeg'
   workflow_dispatch: {}
 
-# Default ``GITHUB_TOKEN`` is read-only; the regenerate job needs to
-# push the rebuilt ``logos/tight/`` mirror back to ``main`` so the
-# repo state matches the freshly-cropped output.
+# The rebuilt ``logos/tight/`` mirror is pushed back to ``main`` with
+# the ``BOT_PUSH_KEY`` deploy key, not ``GITHUB_TOKEN``: the "main:
+# require Tests" ruleset rejects pushes whose commit has no passing
+# Tests run, and on a personal repo only a deploy key can bypass it.
+# The token itself only needs to read.
 permissions:
-  contents: write
+  contents: read
 
 # A second push to ``logos/`` while we are still regenerating the
 # previous batch should not race: serialise per-branch so the later
@@ -77,14 +79,22 @@ jobs:
         run: python scripts/tighten_logos.py
 
       - name: Commit regenerated mirror
-        # The push uses the default ``GITHUB_TOKEN``, which by GitHub's
-        # own rules does *not* re-trigger any workflow run -- the
+        # ``[skip ci]`` keeps this commit from re-triggering any
+        # workflow run (a deploy-key push would otherwise start one)
+        # -- the
         # ``Tests`` and main deploy chains both skip this commit on
         # purpose, so the next scheduled or manual deploy is the one
         # that picks up the new tight crops. That's deliberate: it
         # keeps a single source of truth (the original push) for the
         # deploy cadence and avoids paying compute for a deploy that
         # only updates how a few logos render.
+        env:
+          # Deploy key that bypasses the "main: require Tests" ruleset;
+          # scoped to this step alone.
+          BOT_PUSH_KEY: ${{ secrets.BOT_PUSH_KEY }}
+          # Read-only job token: only lifts the rate limit on the
+          # host-key lookup below.
+          GH_TOKEN: ${{ github.token }}
         run: |
           if [[ -z "$(git status --porcelain logos/tight/)" ]]; then
             echo "logos/tight/ already in sync; nothing to commit."
@@ -93,5 +103,14 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add logos/tight/
-          git commit -m "chore(logos): regenerate logos/tight/ mirror"
-          git push
+          git commit -m "chore(logos): regenerate logos/tight/ mirror [skip ci]"
+          # Push with the deploy key only here, after the build: it never
+          # sits on the runner while the build's dependencies run. Host
+          # key pinned from GitHub's published list, fetched over TLS.
+          set -o pipefail
+          key="$(mktemp)"; hosts="$(mktemp)"
+          trap 'rm -f "$key" "$hosts"' EXIT
+          printf '%s\n' "$BOT_PUSH_KEY" > "$key"
+          curl -fsS -H "Authorization: Bearer $GH_TOKEN" https://api.github.com/meta | jq -r '.ssh_keys[] | "github.com " + .' > "$hosts"
+          GIT_SSH_COMMAND="ssh -i $key -o IdentitiesOnly=yes -o UserKnownHostsFile=$hosts -o StrictHostKeyChecking=yes" \
+            git push "git@github.com:${GITHUB_REPOSITORY}.git" HEAD:main
