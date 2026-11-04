@@ -305,9 +305,11 @@ def test_present_starts_where_the_end_date_below_it_starts(page: Page, preview_i
                 'table[data-holdings-table="open"] .holdings__periods ul')]
                 .filter(ul => ul.children.length > 1);
             return lists.map(ul => {
+                // A window inside one quarter prints that quarter alone
+                // and has no end token to line up.
                 const end = li => li.querySelector('.holdings__dash')
                     .nextElementSibling.getBoundingClientRect().left;
-                return [...ul.children].map(end);
+                return [...ul.children].filter(li => li.querySelector('.holdings__dash')).map(end);
             });
         }"""
     )

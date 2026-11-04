@@ -100,16 +100,19 @@ class Webpage:
         logo_cache: LogoResolver | None = None,
     ):
         self.return_html: str = ""
-        # Pre-rendered ``<tr>`` fragments, one per position, bucketed
-        # by the group band they render under. The equity / fixed
-        # income split is read off each summary's ``asset_class`` tag
-        # in ``add_holding``; the renderer skips an empty group
-        # silently -- "no title for an empty section" is the
-        # asymmetric-portfolio contract.
-        self.current: list[str] = []
-        self.historical: list[str] = []
-        self.current_fixed_income: list[str] = []
-        self.historical_fixed_income: list[str] = []
+        # Every position's summary, bucketed by the group band it
+        # renders under. The equity / fixed income split is read off
+        # each summary's ``asset_class`` tag in ``add_holding``; the
+        # renderer skips an empty group silently -- "no title for an
+        # empty section" is the asymmetric-portfolio contract. Rows
+        # render on read (``current`` and friends) rather than here,
+        # because their date sort keys rank across every holding.
+        self._holdings: dict[str, list[HoldingSummary]] = {
+            "current": [],
+            "historical": [],
+            "current_fixed_income": [],
+            "historical_fixed_income": [],
+        }
         self.allocation_pct: dict[str, float] | None = None
         self.top_10: dict[str, float] | None = None
         # Pre-rendered HTML for each row in the "Activity" section, in
@@ -194,14 +197,38 @@ class Webpage:
                 )
         else:
             self._closed_count += 1
-        row = self._build_holding_card(holding)
+        bucket = "current" if holding["is_current"] else "historical"
         if is_fixed_income:
-            bucket = (
-                self.current_fixed_income if holding["is_current"] else self.historical_fixed_income
+            bucket += "_fixed_income"
+        self._holdings[bucket].append(holding)
+
+    def _rows(self, bucket: str) -> list[str]:
+        """Render one bucket's ``<tr>`` fragments, in arrival order."""
+        sort_dates = _holdings_view.date_sort_keys(
+            holding for holdings in self._holdings.values() for holding in holdings
+        )
+        return [
+            _holdings_view.build_row(
+                holding, logo_url_for=self._get_logo_url, sort_dates=sort_dates
             )
-        else:
-            bucket = self.current if holding["is_current"] else self.historical
-        bucket.append(row)
+            for holding in self._holdings[bucket]
+        ]
+
+    @property
+    def current(self) -> list[str]:
+        return self._rows("current")
+
+    @property
+    def historical(self) -> list[str]:
+        return self._rows("historical")
+
+    @property
+    def current_fixed_income(self) -> list[str]:
+        return self._rows("current_fixed_income")
+
+    @property
+    def historical_fixed_income(self) -> list[str]:
+        return self._rows("historical_fixed_income")
 
     def add_allocations(
         self,
@@ -814,11 +841,6 @@ class Webpage:
     # the first, and the test suite reads both.
     _build_trades_table = staticmethod(_trades_view.build_table)
     _TRADES_VISIBLE_DEFAULT = _trades_view.VISIBLE_DEFAULT
-
-    # Holdings rows + table assembly live in
-    # :mod:`investing.webpage.holdings_view`.
-    def _build_holding_card(self, holding: HoldingSummary) -> str:
-        return _holdings_view.build_row(holding, logo_url_for=self._get_logo_url)
 
     # ---- chart primitive (also covered directly by tests) --------------
 

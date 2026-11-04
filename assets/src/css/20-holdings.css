@@ -295,7 +295,7 @@
 }
 /* The padding lives on the dash and nowhere else. "Present" and an
    end date must start at the same x -- the start dates above one
-   another are equal-width (same format, tabular numerals), so the
+   another are equal-width ("Q3 2026": one format, tabular numerals), so the
    dash's symmetric padding is the whole horizontal rhythm, and any
    padding on the end tokens themselves would push "Present" out of
    line with the date below it. */
@@ -523,8 +523,9 @@
     font-size: 0.65625rem;
   }
   /* Inherits the base ``nowrap``: a window is one line on the card
-     too. If the date format ever grows a space, the loud failure is
-     an overflowing range, not a silent mid-range wrap. */
+     too. The quarter labels carry a space ("Q3 2026"), so this is
+     what holds a range together; the loud failure is an overflowing
+     range, not a silent mid-range wrap. */
   .holdings__periods {
     grid-column: 2 / -1;
     grid-row: 3;

@@ -143,6 +143,22 @@ def test_the_activity_log_names_no_day(preview_html: str):
     assert keys == sorted(keys, reverse=True)
 
 
+def test_preview_holdings_dates_carry_no_day(preview_html: str):
+    """Both Holdings tables print ownership windows as quarters, so no
+    day may sit in the sections in any form the page writes one in.
+    The date sort keys are places in date order instead: digits, one
+    width, so the script's text compare stays chronological."""
+    soup = parse_html(preview_html)
+    for section_id, key in (("holdings", "data-sort-since"), ("closed", "data-sort-held")):
+        section = soup.find(id=section_id)
+        assert not A_DAY.findall(str(section)), section_id
+        rows = section.find_all("tr", class_="holdings__row")
+        keys = [row[key] for row in rows if row.has_attr(key)]
+        assert keys, section_id
+        assert all(key.isdigit() for key in keys), keys
+        assert len({len(key) for key in keys}) == 1, keys
+
+
 def test_preview_sections_are_structurally_wired(preview_html: str):
     soup = parse_html(preview_html)
     for section_id in ("performance", "allocation", "holdings", "closed", "activity", "method"):
