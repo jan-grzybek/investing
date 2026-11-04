@@ -527,21 +527,20 @@ class TestInjectedFx:
         """
         from unittest.mock import MagicMock
 
-        import investing.cli as cli
+        from investing.cli import build_page, get_holdings
 
         def _no_exchange_rate(**_kwargs):
             raise AssertionError("an injected fx must not be replaced")
 
-        monkeypatch.setattr(cli, "ExchangeRate", _no_exchange_rate)
+        monkeypatch.setattr("investing.cli.ExchangeRate", _no_exchange_rate)
 
         seen: list[object] = []
-        real_get_holdings = cli.get_holdings
 
         def _spy_get_holdings(*args, **kwargs):
             seen.append(kwargs["fx"])
-            return real_get_holdings(*args, **kwargs)
+            return get_holdings(*args, **kwargs)
 
-        monkeypatch.setattr(cli, "get_holdings", _spy_get_holdings)
+        monkeypatch.setattr("investing.cli.get_holdings", _spy_get_holdings)
 
         store = MagicMock()
         store.enabled = True
@@ -551,7 +550,7 @@ class TestInjectedFx:
         def fx(currency, date=None):  # noqa: ARG001
             return 1.0
 
-        cli.build_page(
+        build_page(
             pull=MagicMock(return_value=([], [], [], [])),
             fx=fx,
             store=store,
