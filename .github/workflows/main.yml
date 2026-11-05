@@ -65,9 +65,9 @@ on:
     # month of archive writes.
     # 02:17 UTC stays hours clear of every other entry here even at
     # the worst observed dispatch lag. NOTE: this exact
-    # string is compared against ``github.event.schedule`` twice
-    # below -- change it here and both comparisons must change with
-    # it, or the archive silently stops being written.
+    # string is compared against ``github.event.schedule`` three
+    # times below -- change it here and every comparison must change
+    # with it, or the archive silently stops being written.
     - cron: "17 2 1 * *"
     #
     # Exchange holidays still trigger a run; page generation is
@@ -147,6 +147,8 @@ jobs:
     # source of truth for the deploy-eligibility gate.
     needs: WaitForRegenerate
     runs-on: ubuntu-latest
+    outputs:
+      bot_changes: ${{ steps.bot.outputs.changed }}
     # ``workflow_run`` fires for every terminal conclusion (success,
     # failure, cancelled, timed_out, ...), so we must filter here.
     # For the schedule and manual dispatch triggers ``github.event``
@@ -155,13 +157,8 @@ jobs:
     if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
 
     permissions:
-      # Read-only: the two commit steps below (sector stubs that
-      # ``append_missing_sector_stubs`` adds to ``sector_overrides.toml``,
-      # and the monthly market-data snapshot) push with the
-      # ``BOT_PUSH_KEY`` deploy key, handed to those two steps alone,
-      # not with this token. The "main: require Tests" ruleset rejects pushes
-      # whose commit has no passing Tests run, and on a personal repo
-      # only a deploy key can bypass it.
+      # Read-only: what the build writes back to ``main`` is pushed by
+      # the ``Push`` job, with a deploy key this job never sees.
       contents: read
       # Lets ``investing.maintenance_notifier`` file an issue when the
       # build observes a ticker missing a sector or a logo. The
@@ -241,91 +238,53 @@ jobs:
         # visibility half of that contract.
         run: python -m investing
 
-      - name: Commit auto-populated sector overrides
-        # ``investing.sector_overrides.append_missing_sector_stubs``
-        # is called from ``cli.build_page`` and appends a commented-
-        # out template entry to ``sector_overrides.toml`` for each
-        # missing-sector ticker the run observed. Without this step
-        # the file would only be mutated on the ephemeral runner --
-        # the maintainer's local checkout would never see the new
-        # stub, and the next build (fresh checkout) would re-detect
-        # the same ticker and re-append the same stub. Pushing the
-        # change back to ``main`` makes the auto-populate effective:
-        # the maintainer pulls, the diff is the stub they need to
-        # uncomment + fill in, and the dedupe predicate in the
-        # hook keeps subsequent builds idempotent.
+      - name: Collect bot changes
+        # Two files the build writes belong back on ``main``:
         #
-        # Following the same model as ``regenerate-logos.yml``: the
-        # ``[skip ci]`` marker keeps this commit from fanning out into
-        # another Tests + main.yml cycle. It is load-bearing: a push
-        # with the deploy key, unlike one with ``GITHUB_TOKEN``, would
-        # otherwise trigger workflows.
+        # * ``sector_overrides.toml`` --
+        #   ``investing.sector_overrides.append_missing_sector_stubs``
+        #   (called from ``cli.build_page``) appends a commented-out
+        #   template entry for each missing-sector ticker the run
+        #   observed. Without the push the stub would only exist on
+        #   this ephemeral runner, the maintainer would never see it,
+        #   and the next build would re-detect the same ticker and
+        #   re-append the same stub.
+        # * ``market_data/`` -- the monthly backup only; see the
+        #   ``17 2 1 * *`` schedule comment at the top of this file
+        #   and ``INVESTING_MARKET_DATA_PERSIST`` on the build step.
         #
-        # The ``git status --porcelain`` guard short-circuits the
-        # commit + push on every build that didn't actually mutate
-        # the file -- the steady state once every observed ticker
-        # has a stub (or an active override). The guard is keyed on
-        # ``sector_overrides.toml`` specifically so an unrelated
-        # transient file the build might leave behind doesn't
-        # accidentally land in the commit.
+        # This job never holds the push key: it has run the whole
+        # third-party dependency set, and anything that set left
+        # behind (a git hook, a shadowed ``git`` on ``$GITHUB_PATH``, a
+        # background process) would still be here for a later step to
+        # meet. It only copies what changed into an artifact; the
+        # ``Push`` job below checks that artifact and pushes it.
+        id: bot
         env:
-          # Deploy key that bypasses the "main: require Tests" ruleset;
-          # scoped to this step alone.
-          BOT_PUSH_KEY: ${{ secrets.BOT_PUSH_KEY }}
-          # Read-only job token: only lifts the rate limit on the
-          # host-key lookup below.
-          GH_TOKEN: ${{ github.token }}
+          MONTHLY: ${{ github.event_name == 'schedule' && github.event.schedule == '17 2 1 * *' }}
         run: |
-          if [[ -z "$(git status --porcelain sector_overrides.toml)" ]]; then
-            echo "sector_overrides.toml unchanged; nothing to commit."
-            exit 0
-          fi
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add sector_overrides.toml
-          git commit -m "chore(sectors): auto-populate missing sector stubs [skip ci]"
-          # Push with the deploy key only here, after the build: it never
-          # sits on the runner while the build's dependencies run. Host
-          # key pinned from GitHub's published list, fetched over TLS.
-          set -o pipefail
-          key="$(mktemp)"; hosts="$(mktemp)"
-          trap 'rm -f "$key" "$hosts"' EXIT
-          printf '%s\n' "$BOT_PUSH_KEY" > "$key"
-          curl -fsS -H "Authorization: Bearer $GH_TOKEN" https://api.github.com/meta | jq -r '.ssh_keys[] | "github.com " + .' > "$hosts"
-          GIT_SSH_COMMAND="ssh -i $key -o IdentitiesOnly=yes -o UserKnownHostsFile=$hosts -o StrictHostKeyChecking=yes" \
-            git push "git@github.com:${GITHUB_REPOSITORY}.git" HEAD:main
+          out="$RUNNER_TEMP/bot-changes"
+          paths=(sector_overrides.toml)
+          if [[ "$MONTHLY" == true ]]; then paths+=(market_data); fi
+          changed=false
+          for p in "${paths[@]}"; do
+            if [[ -n "$(git status --porcelain -- "$p")" ]]; then
+              mkdir -p "$out"
+              cp -R "$p" "$out/$p"
+              changed=true
+            fi
+          done
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
 
-      - name: Commit market-data snapshot updates
-        # Monthly backup only — see the ``17 2 1 * *`` schedule comment
-        # at the top of this file and ``INVESTING_MARKET_DATA_PERSIST``
-        # on the build step above.
-        if: github.event_name == 'schedule' && github.event.schedule == '17 2 1 * *'
-        env:
-          # Deploy key that bypasses the "main: require Tests" ruleset;
-          # scoped to this step alone.
-          BOT_PUSH_KEY: ${{ secrets.BOT_PUSH_KEY }}
-          # Read-only job token: only lifts the rate limit on the
-          # host-key lookup below.
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          if [[ -z "$(git status --porcelain market_data/)" ]]; then
-            echo "market_data/ unchanged; nothing to commit."
-            exit 0
-          fi
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add market_data/
-          git commit -m "chore(market-data): refresh yfinance snapshots [skip ci]"
-          # Push with the deploy key only here, after the build: it never
-          # sits on the runner while the build's dependencies run. Host
-          # key pinned from GitHub's published list, fetched over TLS.
-          set -o pipefail
-          key="$(mktemp)"; hosts="$(mktemp)"
-          trap 'rm -f "$key" "$hosts"' EXIT
-          printf '%s\n' "$BOT_PUSH_KEY" > "$key"
-          curl -fsS -H "Authorization: Bearer $GH_TOKEN" https://api.github.com/meta | jq -r '.ssh_keys[] | "github.com " + .' > "$hosts"
-          GIT_SSH_COMMAND="ssh -i $key -o IdentitiesOnly=yes -o UserKnownHostsFile=$hosts -o StrictHostKeyChecking=yes" \
-            git push "git@github.com:${GITHUB_REPOSITORY}.git" HEAD:main
+      - name: Upload bot changes
+        if: steps.bot.outputs.changed == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bot-changes
+          path: ${{ runner.temp }}/bot-changes
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
 
       - name: Stage public site artifact
         # Upload only the rendered page and its static dependencies —
@@ -336,6 +295,51 @@ jobs:
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
         with:
           path: site
+
+  Push:
+    # Commits what the build wrote back (see "Collect bot changes")
+    # and pushes it with the ``BOT_PUSH_KEY`` deploy key. The "main:
+    # require Tests" ruleset rejects pushes whose commit has no passing
+    # Tests run, and on a personal repo only a deploy key can bypass
+    # it, so the key is write access to ``main`` that never expires.
+    #
+    # That is why the push has a job of its own. Every job gets a
+    # fresh runner, and this one installs nothing and runs no code
+    # from the dependency set: a clean checkout, the artifact, and
+    # ``scripts/bot_push.sh``, which takes only the paths named below
+    # from the artifact (``market_data/`` on the monthly run alone) and
+    # fails on anything else before it reads the key.
+    #
+    # The ``[skip ci]`` markers are load-bearing: a push with the
+    # deploy key, unlike one with ``GITHUB_TOKEN``, triggers workflows.
+    needs: Update
+    if: needs.Update.outputs.bot_changes == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Download bot changes
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: bot-changes
+          path: ${{ runner.temp }}/bot-changes
+
+      - name: Commit and push
+        env:
+          BOT_PUSH_KEY: ${{ secrets.BOT_PUSH_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          MONTHLY: ${{ github.event_name == 'schedule' && github.event.schedule == '17 2 1 * *' }}
+        run: |
+          args=(sector_overrides.toml "chore(sectors): auto-populate missing sector stubs [skip ci]")
+          if [[ "$MONTHLY" == true ]]; then
+            args+=(market_data "chore(market-data): refresh yfinance snapshots [skip ci]")
+          fi
+          bash scripts/bot_push.sh "$RUNNER_TEMP/bot-changes" "${args[@]}"
 
   Deploy:
     needs: Update

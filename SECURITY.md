@@ -74,10 +74,25 @@ world-readable** and act as a side channel for both classes of data.
   mirror) go through the `BOT_PUSH_KEY` deploy key, the ruleset's one
   bypass, since a personal repo cannot exempt GitHub Actions itself.
   The key is the larger power here -- write access to `main` that
-  never expires -- so it is passed only to the commit steps, after the
-  build's third-party code has run, and written to a temp file that
-  the step deletes. It is never configured on the checkout. Rotate it
-  if a dependency is ever found compromised.
+  never expires -- so no job that runs third-party code ever receives
+  it. Running the push in a later step of the build job would not be
+  enough: steps of one job share the runner, its passwordless-sudo
+  user, the checkout, `$GITHUB_PATH` and any process left running, so
+  a compromised dependency could plant a git hook, shadow `git` or
+  `ssh`, or wait for the key to appear. Instead the build job uploads
+  the files it changed as an artifact, and a separate job on a fresh
+  runner, one that installs and runs nothing from the dependency set,
+  pushes them (`scripts/bot_push.sh`). It checks out the commit, takes
+  only the expected paths from the artifact (`sector_overrides.toml`,
+  `market_data/` on the monthly run, `logos/tight/`), and fails on
+  any other path or any non-regular file before it reads the key.
+
+  The artifact itself stays untrusted: a compromised build can still
+  push arbitrary content to those data paths, past the ruleset. That
+  is no more than it can already publish through the Pages artifact,
+  but it lands on `main`, so review bot commits like any other change
+  when a dependency is in doubt, and rotate the key if one is ever
+  found compromised.
 * `.github/workflows/security.yml` runs `pip-audit` against both
   lockfiles (OSV.dev advisory feed, `--strict` so known CVEs fail
   the build) and a CodeQL Python scan (`security-and-quality` query
