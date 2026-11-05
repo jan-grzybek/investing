@@ -36,7 +36,8 @@ on:
 # the ``BOT_PUSH_KEY`` deploy key, not ``GITHUB_TOKEN``: the "main:
 # require Tests" ruleset rejects pushes whose commit has no passing
 # Tests run, and on a personal repo only a deploy key can bypass it.
-# The token itself only needs to read.
+# The key never reaches the job that runs the dependency set; see the
+# ``push`` job. The token itself only needs to read.
 permissions:
   contents: read
 
@@ -50,6 +51,8 @@ concurrency:
 jobs:
   regenerate:
     runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.mirror.outputs.changed }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -78,39 +81,68 @@ jobs:
       - name: Regenerate logos/tight/
         run: python scripts/tighten_logos.py
 
-      - name: Commit regenerated mirror
-        # ``[skip ci]`` keeps this commit from re-triggering any
-        # workflow run (a deploy-key push would otherwise start one)
-        # -- the
-        # ``Tests`` and main deploy chains both skip this commit on
-        # purpose, so the next scheduled or manual deploy is the one
-        # that picks up the new tight crops. That's deliberate: it
-        # keeps a single source of truth (the original push) for the
-        # deploy cadence and avoids paying compute for a deploy that
-        # only updates how a few logos render.
-        env:
-          # Deploy key that bypasses the "main: require Tests" ruleset;
-          # scoped to this step alone.
-          BOT_PUSH_KEY: ${{ secrets.BOT_PUSH_KEY }}
-          # Read-only job token: only lifts the rate limit on the
-          # host-key lookup below.
-          GH_TOKEN: ${{ github.token }}
+      - name: Collect regenerated mirror
+        # This job has run the third-party dependency set, so it never
+        # holds the push key: anything that set left behind (a git
+        # hook, a shadowed ``git`` on ``$GITHUB_PATH``, a background
+        # process) would still be here for a later step to meet. It
+        # only hands the mirror to the ``push`` job as an artifact.
+        id: mirror
         run: |
           if [[ -z "$(git status --porcelain logos/tight/)" ]]; then
             echo "logos/tight/ already in sync; nothing to commit."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add logos/tight/
-          git commit -m "chore(logos): regenerate logos/tight/ mirror [skip ci]"
-          # Push with the deploy key only here, after the build: it never
-          # sits on the runner while the build's dependencies run. Host
-          # key pinned from GitHub's published list, fetched over TLS.
-          set -o pipefail
-          key="$(mktemp)"; hosts="$(mktemp)"
-          trap 'rm -f "$key" "$hosts"' EXIT
-          printf '%s\n' "$BOT_PUSH_KEY" > "$key"
-          curl -fsS -H "Authorization: Bearer $GH_TOKEN" https://api.github.com/meta | jq -r '.ssh_keys[] | "github.com " + .' > "$hosts"
-          GIT_SSH_COMMAND="ssh -i $key -o IdentitiesOnly=yes -o UserKnownHostsFile=$hosts -o StrictHostKeyChecking=yes" \
-            git push "git@github.com:${GITHUB_REPOSITORY}.git" HEAD:main
+          mkdir -p "$RUNNER_TEMP/bot-changes/logos"
+          cp -R logos/tight "$RUNNER_TEMP/bot-changes/logos/tight"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Upload regenerated mirror
+        if: steps.mirror.outputs.changed == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bot-changes
+          path: ${{ runner.temp }}/bot-changes
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
+
+  push:
+    # Commits the mirror and pushes it with the ``BOT_PUSH_KEY`` deploy
+    # key, in a job of its own: every job gets a fresh runner, and this
+    # one installs nothing and runs no code from the dependency set --
+    # a clean checkout, the artifact, and ``scripts/bot_push.sh``, which
+    # takes only ``logos/tight/`` from the artifact and fails on
+    # anything else before it reads the key.
+    #
+    # ``[skip ci]`` keeps this commit from re-triggering any workflow
+    # run (a deploy-key push would otherwise start one) -- the
+    # ``Tests`` and main deploy chains both skip this commit on
+    # purpose, so the next scheduled or manual deploy is the one that
+    # picks up the new tight crops. That's deliberate: it keeps a
+    # single source of truth (the original push) for the deploy
+    # cadence and avoids paying compute for a deploy that only updates
+    # how a few logos render.
+    needs: regenerate
+    if: needs.regenerate.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Download regenerated mirror
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: bot-changes
+          path: ${{ runner.temp }}/bot-changes
+
+      - name: Commit and push
+        env:
+          BOT_PUSH_KEY: ${{ secrets.BOT_PUSH_KEY }}
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          bash scripts/bot_push.sh "$RUNNER_TEMP/bot-changes"
+          logos/tight "chore(logos): regenerate logos/tight/ mirror [skip ci]"
