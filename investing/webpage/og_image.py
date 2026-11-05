@@ -3,27 +3,23 @@ to whenever the portfolio URL is pasted into a feed.
 
 For most readers this image *is* the portfolio: pasted into Slack
 or LinkedIn it is the only surface they will ever see. So it makes
-exactly the same claim the page makes, in the same words. The
-hero is the time-weighted return delta against the benchmark --
-the page's headline number -- captioned "ahead of the S&P 500"
-so the ``pp`` unit never has to carry the meaning on its own in a
-feed. Beside it, both totals sit head to head, because a reader
-scrolling past has no scale for a bare delta but does have one
-for "48.4% against 41.7%".
+the same claim the page hero makes. The headline is the total
+time-weighted gap to the benchmark over the whole history,
+captioned "ahead of the / S&P 500" so the ``pp`` unit never has to
+carry the meaning on its own, with the length of that history under
+it. A band beneath carries both annualised rates, for the reader who
+looks closer and wants the yearly edge rather than the accumulated
+one. The top-10 equity logos fill a strip along the bottom edge.
 
-The rest of the frame is spent on evidence rather than on the
-byline: ``Jan Grzybek`` is an eyebrow with the accent rule inline,
-the top-10 equity logos get a full-width strip of their own, and
-the foot line carries the period, its length and the holdings
-count. Nothing in the composition is drawn below 22px, which is
-roughly 10px once a feed scales the card to the ~552px width it
-actually renders at.
+Nothing in the composition is drawn below 20px, which is roughly
+9px once a feed scales the card to the ~552px width it actually
+renders at.
 
 Extracted from :mod:`investing.webpage._page` so the renderer
 class can focus on per-section HTML and the OG-specific Pillow
-plumbing (font search, logo rasterisation, halo composition)
-lives on its own. The ``render`` entrypoint is the only public
-function; everything else here is implementation detail.
+plumbing (font search, logo rasterisation) lives on its own. The
+``render`` entrypoint is the only public function; everything else
+here is implementation detail.
 """
 
 from __future__ import annotations
@@ -33,16 +29,16 @@ import math
 import os
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from dateutil.relativedelta import relativedelta
 
-from ..formatting import _fmt_date_long, _fmt_pct, _format_duration
+from ..formatting import _fmt_pct, _format_duration
 from ..log import logger
 from ..logos import _DEFAULT_LOGO_ASPECT, _parse_svg_aspect_ratio
-from ..paths import _REPO_LOGOS_DIR, LOGO_EXTENSIONS, SITE_DISPLAY
+from ..paths import _REPO_LOGOS_DIR, LOGO_EXTENSIONS
 from ..types import BenchmarkSummary, TotalReturn
 
 if TYPE_CHECKING:
@@ -80,7 +76,7 @@ NON_TICKER_TOP10_KEYS: frozenset[str] = frozenset({"Other equities"})
 # page's own ``font-family`` stack, so the card and the page agree on
 # any machine that falls through to it; it is Apache-2.0, so
 # redistributing it in a public repo is unambiguous; and it is a UI
-# face designed to hold up at the small sizes the foot line lands at
+# face designed to hold up at the small sizes the band label lands at
 # once a feed scales the card down.
 #
 # Vendored at ``fonts/`` from the official Google release (v2.138,
@@ -135,6 +131,9 @@ def top_holdings_for_og(top_10: dict | None, *, limit: int = 10) -> list[str]:
     return tickers
 
 
+_SVG_RASTER_MIN_H = 400
+
+
 def load_logo_for_og(ticker: str, max_w: int, max_h: int) -> Canvas | None:
     """Load a ticker's logo as an RGBA ``PIL.Image`` fitted to a
     ``max_w x max_h`` box (preserving aspect ratio).
@@ -168,9 +167,14 @@ def load_logo_for_og(ticker: str, max_w: int, max_h: int) -> Canvas | None:
                 # the height alone keeps the natural aspect
                 # ratio; the LANCZOS resize below caps the width
                 # at ``max_w``. 2x supersample for crispness.
+                # Rasterised at no less than 400px and scaled down
+                # below: cairosvg sizes ``<mask>`` regions wrongly at
+                # small outputs, which clipped the Salesforce mark to
+                # its top-left corner at strip height. The LANCZOS
+                # downscale doubles as the supersample.
                 png_bytes = cairosvg.svg2png(
                     url=path,
-                    output_height=max(2, max_h * 2),
+                    output_height=max(_SVG_RASTER_MIN_H, max_h * 2),
                 )
                 src = Image.open(io.BytesIO(png_bytes)).convert("RGBA")
             else:
@@ -403,68 +407,135 @@ def _benchmark_label(
 
 @dataclass(frozen=True)
 class HeroCopy:
-    """Every string the card's left-hand column renders, plus its sign.
+    """The headline lockup's strings, plus its sign.
 
-    Split out of :func:`_render_unsafe` so the directional copy is
-    unit-testable without rasterising a PNG and OCR'ing it back.
+    Split out of :func:`_card_copy` so the directional wording is
+    unit-testable on its own.
     """
 
     eyebrow: str  # Names the metric being claimed, above the number.
     number: str  # The hero figure itself, already signed and rounded.
     unit: str  # "pp" or "%", set beside ``number`` at a smaller size.
-    claim: str  # The sentence that gives ``unit`` its meaning.
+    claim: tuple[str, str]  # Two lines beside the number giving ``unit`` its meaning.
     positive: bool  # Drives the hero colour (Sea Green / Rose Red).
 
 
 def _hero_copy(
-    cagr: float,
-    cagr_delta: float | None,
+    twr: float,
+    twr_delta: float | None,
     bench_label: str | None,
 ) -> HeroCopy:
-    """Return the hero's copy for a given headline pair.
+    """Return the headline for a given total return and gap.
 
-    The comparison is **annualised**, on both sides.
+    The headline is the **total** gap: the portfolio's time-weighted
+    return minus the benchmark's total return over the whole history,
+    the figure the page hero leads with. A card seen cold in a feed
+    and the page it links to have to make one claim, and the per-year
+    rates drawn under it keep a long history from passing for a large
+    yearly edge.
 
-    A total-return gap is a function of how long the portfolio has
-    been open as much as of how it has been run: seven years of a
-    slender annual edge compounds into a headline that sounds like a
-    single spectacular year. Annualising divides that back out, so
-    the number on the card is the one that generalises -- what this
-    portfolio does in a year against what the index does in a year.
-    It is also the only form in which two runs of different lengths
-    can be set beside each other at all.
-
-    The card reads smaller for it, and that is the point: a card seen
-    cold in a feed should not claim more than the underlying edge.
-
-    * with a benchmark -> the annualised delta in percentage points,
-      captioned "ahead of {bench}" or "behind {bench}" with the sign.
-    * without a benchmark -> the portfolio's own annualised return,
-      captioned "annualised since inception", so it reads as a
-      standalone metric rather than a comparison with nothing on the
-      other side.
+    * with a benchmark -> the gap in percentage points, captioned
+      "ahead of the / {bench}" or "behind the / {bench}" by its sign.
+      In a feed the reader gets no scale for "pp", so the words do the
+      work the abbreviation cannot.
+    * without one -> the portfolio's own total return, captioned
+      "total return / since inception", a standalone claim rather than
+      a comparison with nothing on the other side.
 
     ``bench_label`` falls back to "S&P 500" when present-but-empty so
     the claim never collapses to "ahead of the ".
     """
-    if cagr_delta is None:
+    if twr_delta is None:
         return HeroCopy(
-            eyebrow="Annualised return",
-            number=_fmt_pct(cagr),
+            eyebrow="Portfolio return",
+            number=_fmt_pct(twr),
             unit="%",
-            claim="annualised since inception",
-            positive=cagr >= 0,
+            claim=("total return", "since inception"),
+            positive=twr >= 0,
         )
     bench = bench_label or "S&P 500"
     return HeroCopy(
-        eyebrow=f"Annualised return vs {bench}",
-        number=_fmt_pct(cagr_delta, signed=True),
+        eyebrow=f"Total return vs {bench}",
+        number=_fmt_pct(twr_delta, signed=True),
         unit="pp",
-        # "ahead of" / "behind" rather than "outperformance of":
-        # in a feed the reader gets no scale for "pp", so the
-        # sentence has to do the work the abbreviation cannot.
-        claim=f"{'ahead of' if cagr_delta >= 0 else 'behind'} the {bench}",
-        positive=cagr_delta >= 0,
+        claim=("ahead of the" if twr_delta >= 0 else "behind the", bench),
+        positive=twr_delta >= 0,
+    )
+
+
+@dataclass(frozen=True)
+class Rate:
+    """One entry in the annualised band under the headline."""
+
+    swatch: tuple[int, int, int]  # The chart curve's colour for this series.
+    label: str
+    value: str
+    fill: tuple[int, int, int]
+
+
+@dataclass(frozen=True)
+class CardCopy:
+    """Every string the card draws, worked out before anything is drawn.
+
+    The rendered text is not round-trippable out of the raster, so the
+    only way to hold the card to a contract is to test this first.
+    """
+
+    eyebrow: str
+    number: str
+    unit: str
+    claim: tuple[str, str]
+    period: str
+    positive: bool
+    rates: tuple[Rate, ...]
+
+
+def _card_copy(
+    *,
+    total_return: TotalReturn,
+    benchmarks: list[BenchmarkSummary],
+    benchmark_display_names: dict[str, str],
+    now: datetime,
+) -> CardCopy:
+    """Derive the card's copy from the same inputs as the page hero.
+
+    The gap is computed exactly as :func:`investing.webpage.hero.render`
+    computes it -- ``twr%`` against the first benchmark's ``tsr%`` -- so
+    the card and the page cannot lead with different numbers.
+    """
+    bench = benchmarks[0] if benchmarks else None
+    twr = float(total_return.get("twr%", 0.0))
+    bench_label = _benchmark_label(bench, benchmark_display_names)
+    delta = twr - float(bench["tsr%"]) if bench is not None else None
+    hero = _hero_copy(twr, delta, bench_label)
+    history = list(total_return.get("history") or [])
+    start_date = total_return.get("start_date") or (history[0][0] if history else now)
+
+    rates = [
+        Rate(
+            _OG_ACCENT,
+            "Portfolio",
+            f"{_fmt_pct(float(total_return.get('cagr%', 0.0)))}% / yr",
+            _OG_FG,
+        )
+    ]
+    if bench is not None and bench.get("cagr%") is not None:
+        rates.append(
+            Rate(
+                _OG_BENCH,
+                bench_label or "S&P 500",
+                f"{_fmt_pct(float(bench['cagr%']))}% / yr",
+                _OG_MUTED,
+            )
+        )
+    return CardCopy(
+        eyebrow=f"{hero.eyebrow} \u00b7 since {start_date.year}",
+        number=hero.number,
+        unit=hero.unit,
+        claim=hero.claim,
+        period=f"over {_format_duration(relativedelta(now, start_date))}",
+        positive=hero.positive,
+        rates=tuple(rates),
     )
 
 
@@ -481,36 +552,6 @@ def _resolve_output_dir(output_dir: Path | None) -> Path:
     return output_dir if output_dir is not None else Path.cwd()
 
 
-def _foot_copy(
-    start_date: date,
-    duration: str,
-    equity_count: int | None,
-) -> str:
-    """Return the credibility line under the logo strip.
-
-    Split out for the same reason as :func:`_hero_copy`: the rendered
-    text is not round-trippable out of the raster, so the only way to
-    hold this to a contract is to test the string before it is drawn.
-
-    The count is the *portfolio's*, not the strip's. It used to read
-    ``len(tickers)``, and ``tickers`` is capped at ten because that is
-    how many logos fit the strip -- so a twenty-equity portfolio
-    announced "10 equities" underneath a row of ten logos, which looks
-    like a caption on the row and is a false statement about the
-    portfolio. Anything the card says about the holdings has to be
-    true of the holdings.
-
-    With no count supplied there is nothing to say, so the clause is
-    dropped rather than guessed at from the strip -- a card that says
-    less is fine, a card that says something untrue is not.
-    """
-    line = f"Since {_fmt_date_long(start_date)}  \u00b7  {duration}"
-    if equity_count:
-        plural = "y" if equity_count == 1 else "ies"
-        line += f"  \u00b7  {equity_count} equit{plural}"
-    return line
-
-
 def render(
     *,
     total_return: TotalReturn,
@@ -518,7 +559,6 @@ def render(
     top_10: dict[str, float] | None,
     benchmark_display_names: dict[str, str],
     now: datetime,
-    equity_count: int | None = None,
     output_dir: Path | None = None,
 ) -> None:
     """Render a 1200x630 PNG with the headline numbers for sharing.
@@ -552,7 +592,6 @@ def render(
             top_10=top_10,
             benchmark_display_names=benchmark_display_names,
             now=now,
-            equity_count=equity_count,
             output_dir=out_dir,
         )
     except Exception:
@@ -563,8 +602,8 @@ def render(
 
 
 # Canvas + frame. 1200x630 is the Open Graph contract; the padding
-# is asymmetric because the foot line sits on its own baseline and
-# needs less air beneath it than the byline needs above.
+# is asymmetric because the logo strip's card needs less air beneath
+# it than the byline needs above.
 _W, _H = 1200, 630
 _PAD_X = 56
 _PAD_T = 40
@@ -633,66 +672,69 @@ def _text_height(draw: Draw, text: str, font: Font) -> float:
     return bottom - top
 
 
-def _draw_total(
-    draw: Draw,
-    *,
-    x: float,
-    y: float,
-    swatch: tuple[int, int, int],
-    label: str,
-    value: str,
-    label_font: Font,
-    value_font: Font,
-    value_fill: tuple[int, int, int],
-) -> float:
-    """Draw one "swatch + LABEL / big number" block; return its bottom.
+# Headline lockup sizes. The number starts at 176px and steps down
+# until number + unit fit their column, so a gap that reaches three
+# digits shrinks rather than running into the claim. 96px is the
+# floor: below it the lockup stops reading as the headline. The unit
+# keeps the design's 74 : 176 ratio at every size.
+_HERO_MAX_SIZE = 176
+_HERO_MIN_SIZE = 96
+_HERO_UNIT_RATIO = 74 / 176
 
-    Used for the two totals set head to head on the right of the
-    card. The swatch colours match the chart's two curves, so a
-    reader who has seen the page recognises which line is which
-    before reading either label.
-    """
-    swatch_w, swatch_h = 20, 7
-    label_top = draw.textbbox((0, 0), label, font=label_font)[1]
-    label_h = _text_height(draw, label, label_font)
-    draw.rectangle(
-        (x, y + label_h / 2 - swatch_h / 2, x + swatch_w, y + label_h / 2 + swatch_h / 2),
-        fill=swatch,
+
+def _lockup_gap(num_size: int) -> float:
+    """Space between the number and its unit, scaled with the number."""
+    return 14 * num_size / _HERO_MAX_SIZE
+
+
+def _lockup_width(draw: Draw, number: str, unit: str, num_font: Font, unit_font: Font) -> float:
+    """Width of the "+6.7 pp" lockup at the given fonts."""
+    size = getattr(num_font, "size", _HERO_MAX_SIZE)
+    return (
+        draw.textlength(number, font=num_font)
+        + _lockup_gap(size)
+        + draw.textlength(unit, font=unit_font)
     )
-    _draw_tracked(
-        draw,
-        (x + swatch_w + 10, y - label_top),
-        label,
-        label_font,
-        _OG_MUTED,
-        _OG_LABEL_TRACKING,
+
+
+def _fit_lockup(draw: Draw, number: str, unit: str, max_w: float) -> tuple[Font, Font]:
+    """Return the largest (number, unit) fonts whose lockup fits ``max_w``."""
+    for size in range(_HERO_MAX_SIZE, _HERO_MIN_SIZE, -4):
+        num_font = load_font("bold", size)
+        unit_font = load_font("bold", round(size * _HERO_UNIT_RATIO))
+        if _lockup_width(draw, number, unit, num_font, unit_font) <= max_w:
+            return num_font, unit_font
+    return (
+        load_font("bold", _HERO_MIN_SIZE),
+        load_font("bold", round(_HERO_MIN_SIZE * _HERO_UNIT_RATIO)),
     )
-    value_y = y + label_h + _OG_LABEL_TO_VALUE
-    value_top = draw.textbbox((0, 0), value, font=value_font)[1]
-    draw.text((x, value_y - value_top), value, font=value_font, fill=value_fill)
-    return value_y + _text_height(draw, value, value_font)
 
 
-# Letter-spacing for the card's two uppercase labels, in px at their
-# rendered sizes (~0.1em on the byline, ~0.07em on the total labels).
+# Letter-spacing for the card's uppercase labels, in px at their
+# rendered sizes (~0.1em each).
 _OG_BYLINE_TRACKING = 2.7
-_OG_LABEL_TRACKING = 1.5
+_OG_EYEBROW_TRACKING = 2.4
+_OG_BAND_LABEL_TRACKING = 2.0
 
 # Vertical rhythm, as ink-to-ink distances.
 #
-# The design states these as CSS box margins (16 / 20 / 4 / 20+20),
-# but a CSS box carries leading above and below its ink, so the gap
-# the eye sees is always larger than the declared margin. Pillow has
-# no line boxes -- it places ink -- so porting the margins literally
-# collapsed every gap on the card: the claim sat 7px under the hero
-# where the design shows 31, and each total's figure sat 4px under
-# its label where the design shows 19. These are the design's own
-# rendered spacings, measured off the reference at 1200x630.
+# A CSS box carries leading above and below its ink, so the gap the
+# eye sees is always larger than a declared margin. Pillow has no line
+# boxes -- it places ink -- so these are the rendered spacings the
+# design shows at 1200x630, not CSS margins.
 _OG_BYLINE_INK_TOP = 6  # caps sit this far into a 27px line box
 _OG_EYEBROW_TO_HERO = 29
-_OG_HERO_TO_CLAIM = 31
-_OG_LABEL_TO_VALUE = 19
-_OG_TOTALS_BLOCK_GAP = 54
+_OG_CLAIM_LINE_GAP = 16  # between the claim's two lines
+_OG_CLAIM_TO_PERIOD = 26
+_OG_BAND_TO_STRIP = 20
+
+# The annualised band: a quieter surface than the logo strip's white
+# card, between the page ``--bg`` and ``--line``, so it reads as a
+# caption on the headline rather than as a second card.
+_OG_BAND: tuple[int, int, int] = (233, 238, 242)
+_BAND_H = 58
+_BAND_RADIUS = 14
+_BAND_PAD_X = 24
 
 
 def _render_unsafe(
@@ -702,20 +744,16 @@ def _render_unsafe(
     top_10: dict[str, float] | None,
     benchmark_display_names: dict[str, str],
     now: datetime,
-    equity_count: int | None = None,
     output_dir: Path | None = None,
 ) -> None:
     from PIL import Image, ImageDraw
 
-    bench = benchmarks[0] if benchmarks else None
-    cagr = float(total_return.get("cagr%", 0.0))
-    bench_cagr = float(bench["cagr%"]) if bench and bench.get("cagr%") is not None else None
-    cagr_delta = (cagr - bench_cagr) if bench_cagr is not None else None
-    bench_label = _benchmark_label(bench, benchmark_display_names)
-    hero = _hero_copy(cagr, cagr_delta, bench_label)
-    history = list(total_return.get("history") or [])
-    start_date = total_return.get("start_date") or (history[0][0] if history else now)
-    duration = _format_duration(relativedelta(now, start_date))
+    copy = _card_copy(
+        total_return=total_return,
+        benchmarks=benchmarks,
+        benchmark_display_names=benchmark_display_names,
+        now=now,
+    )
     tickers = top_holdings_for_og(top_10, limit=10)
 
     img = Image.new("RGBA", (_W, _H), (*_OG_BG, 255))
@@ -762,27 +800,13 @@ def _render_unsafe(
     )
     header_bottom = header_top + _OG_BYLINE_INK_TOP + byline_h
 
-    # ---- foot + logo strip, measured up from the bottom edge ---------
-    f_foot = load_font("regular", 22)
-    foot_left = _foot_copy(start_date, duration, equity_count)
-    # Anchored by its ink bottom, not its box top. The design bottoms
-    # the foot's line box against the 34px padding, so what sits a
-    # fixed distance from the canvas edge is the last row of pixels --
-    # placing the box top there instead pushed the whole line, and the
-    # logo strip above it, several pixels low.
-    foot_bb = draw.textbbox((0, 0), foot_left, font=f_foot)
-    foot_top = _H - _PAD_B - 1 - foot_bb[3]
-    # ``MUTED`` on the opaque ``BG`` page surface lands at WCAG-AA
-    # contrast (4.3 : 1), readable without any stroke outline. At
-    # 22px it survives the ~0.46x scale a feed renders the card at,
-    # which is the whole point of the "nothing below 22px" rule --
-    # this line is the credibility line and it has to arrive intact.
-    draw.text((content_l, foot_top), foot_left, font=f_foot, fill=_OG_MUTED)
-    draw.text((content_r, foot_top), SITE_DISPLAY, font=f_foot, fill=_OG_MUTED, anchor="ra")
-
+    # ---- logo strip, on the bottom edge -------------------------------
+    #
+    # Decoration, so it takes the bottom of the frame. There is no foot
+    # line under it any more: the period is in the eyebrow and under
+    # the claim, and feeds print the domain beneath every link card.
     strip_h = 38
-    strip_bottom = foot_top - 20 - _STRIP_PAD_Y
-    strip_top = round(strip_bottom - strip_h)
+    strip_top = _H - _PAD_B - _STRIP_PAD_Y - strip_h
     if tickers:
         draw_top_holdings_strip(
             img,
@@ -792,103 +816,84 @@ def _render_unsafe(
             w=content_r - content_l - 2 * _STRIP_PAD_X,
             h=strip_h,
         )
+    above_strip = strip_top - _STRIP_PAD_Y if tickers else _H - _PAD_B
 
-    # ---- the two totals, head to head on the right -------------------
+    # ---- the annualised band, under the headline ----------------------
     #
-    # This half of the frame used to be empty. Absolute numbers are
-    # what a reader can actually judge -- a delta alone asks them to
-    # supply a scale they do not have while scrolling a feed.
-    mid_top = header_bottom + 34
-    mid_bottom = (strip_top - _STRIP_PAD_Y if tickers else foot_top) - 30
-    f_total_label = load_font("bold", 22)
-    f_total_value = load_font("bold", 72)
-    # Annualised on both sides, matching the hero. Two figures in
-    # different units beside one another -- a total on the left of a
-    # per-year delta -- would invite exactly the arithmetic that does
-    # not work between them.
-    totals: list[tuple[tuple[int, int, int], str, str, tuple[int, int, int]]] = [
-        (_OG_ACCENT, "PORTFOLIO", f"{_fmt_pct(cagr)}%", _OG_FG),
-    ]
-    if bench_cagr is not None:
-        totals.append(
-            (
-                _OG_BENCH,
-                (bench_label or "BENCHMARK").upper(),
-                f"{_fmt_pct(bench_cagr)}%",
-                _OG_MUTED,
-            )
-        )
-    totals_w = max(
-        max(
-            20 + 10 + _tracked_width(draw, label, f_total_label, _OG_LABEL_TRACKING),
-            draw.textlength(value, font=f_total_value),
-        )
-        for _, label, value, _ in totals
+    # What a closer look finds: both per-year rates over the whole
+    # history, so a long history cannot pass for a large yearly edge.
+    band_bottom = above_strip - _OG_BAND_TO_STRIP
+    band_top = band_bottom - _BAND_H
+    band_mid = band_top + _BAND_H / 2
+    draw.rounded_rectangle(
+        (content_l, band_top, content_r, band_bottom), radius=_BAND_RADIUS, fill=_OG_BAND
     )
-    totals_x = content_r - totals_w
-    block_h = (
-        _text_height(draw, "PORTFOLIO", f_total_label)
-        + _OG_LABEL_TO_VALUE
-        + _text_height(draw, "0%", f_total_value)
+    f_band_label = load_font("bold", 20)
+    band_label = "ANNUALISED"
+    band_label_h = _text_height(draw, band_label, f_band_label)
+    _draw_tracked(
+        draw,
+        (
+            content_l + _BAND_PAD_X,
+            band_mid - band_label_h / 2 - draw.textbbox((0, 0), band_label, font=f_band_label)[1],
+        ),
+        band_label,
+        f_band_label,
+        _OG_MUTED,
+        _OG_BAND_LABEL_TRACKING,
     )
-    totals_h = block_h * len(totals) + _OG_TOTALS_BLOCK_GAP * (len(totals) - 1)
-    totals_top = mid_top + (mid_bottom - mid_top - totals_h) / 2
-
-    # The divider is the right column's leading edge, so it spans that
-    # column and not the whole band -- run to the full band height it
-    # reads as a page rule rather than as the frame around the two
-    # figures it belongs to.
-    divider_x = totals_x - 56
-    draw.rectangle(
-        (divider_x, totals_top, divider_x + 2, totals_top + totals_h),
-        fill=_OG_RULE,
+    entries_x = (
+        content_l
+        + _BAND_PAD_X
+        + _tracked_width(draw, band_label, f_band_label, _OG_BAND_LABEL_TRACKING)
+        + 56
     )
-
-    y = totals_top
-    for index, (swatch, label, value, fill) in enumerate(totals):
-        if index:
-            rule_y = y - _OG_TOTALS_BLOCK_GAP / 2
-            draw.rectangle((totals_x, rule_y, content_r, rule_y + 2), fill=_OG_RULE)
-        y = (
-            _draw_total(
-                draw,
-                x=totals_x,
-                y=y,
-                swatch=swatch,
-                label=label,
-                value=value,
-                label_font=f_total_label,
-                value_font=f_total_value,
-                value_fill=fill,
-            )
-            + _OG_TOTALS_BLOCK_GAP
+    swatch_w, swatch_h, swatch_gap, entry_gap = 20, 7, 12, 64
+    entry_texts = [f"{rate.label}  {rate.value}" for rate in copy.rates]
+    f_entry = _fit_font(
+        draw,
+        "".join(entry_texts),
+        "bold",
+        30,
+        content_r
+        - _BAND_PAD_X
+        - entries_x
+        - len(entry_texts) * (swatch_w + swatch_gap)
+        - entry_gap * (len(entry_texts) - 1),
+    )
+    x = entries_x
+    for rate, text in zip(copy.rates, entry_texts, strict=True):
+        draw.rectangle(
+            (x, band_mid - swatch_h / 2, x + swatch_w, band_mid + swatch_h / 2),
+            fill=rate.swatch,
         )
+        x += swatch_w + swatch_gap
+        draw.text((x, band_mid), text, font=f_entry, fill=rate.fill, anchor="lm")
+        x += draw.textlength(text, font=f_entry) + entry_gap
 
-    # ---- the claim, on the left --------------------------------------
-    claim_w = divider_x - 60 - content_l
+    # ---- the headline: eyebrow, then the lockup with its claim --------
+    content_w = content_r - content_l
+    hero_fill = _OG_POS if copy.positive else _OG_NEG
+    eyebrow = copy.eyebrow.upper()
+    f_eyebrow = _fit_font(draw, eyebrow, "bold", 24, content_w, tracking=_OG_EYEBROW_TRACKING)
+    # The lockup may take a little under half the width; the claim
+    # takes what is left beside it.
+    f_num, f_unit = _fit_lockup(draw, copy.number, copy.unit, content_w * 0.48)
+    lockup_w = _lockup_width(draw, copy.number, copy.unit, f_num, f_unit)
+    claim_x = content_l + lockup_w + 72
+    claim_w = content_r - claim_x
+    f_claim = min(
+        (_fit_font(draw, line, "bold", 46, claim_w) for line in copy.claim),
+        key=lambda font: getattr(font, "size", 0),
+    )
+    f_period = _fit_font(draw, copy.period, "regular", 30, claim_w)
 
-    f_eyebrow = _fit_font(draw, hero.eyebrow.upper(), "bold", 24, claim_w, tracking=2.4)
-    f_hero_num = load_font("bold", 150)
-    f_hero_unit = load_font("bold", 64)
-    f_claim = _fit_font(draw, hero.claim, "bold", 50, claim_w)
-    hero_fill = _OG_POS if hero.positive else _OG_NEG
-
-    eyebrow = hero.eyebrow.upper()
     eyebrow_h = _text_height(draw, eyebrow, f_eyebrow)
-    num_h = _text_height(draw, hero.number, f_hero_num)
-    claim_h = _text_height(draw, hero.claim, f_claim)
-    # The unit sits on the number's baseline, and "pp" descends below
-    # it. That descender is part of the lockup the eye sees, so the
-    # gap to the claim is measured from it -- measuring from the
-    # digits instead pulled the claim up into the descender by exactly
-    # its depth.
-    unit_descent = max(
-        0.0,
-        draw.textbbox((0, 0), hero.unit, font=f_hero_unit, anchor="ls")[3],
-    )
-    lockup_h = num_h + unit_descent
-    stack_h = eyebrow_h + _OG_EYEBROW_TO_HERO + lockup_h + _OG_HERO_TO_CLAIM + claim_h
-    y = mid_top + (mid_bottom - mid_top - stack_h) / 2
+    num_h = _text_height(draw, copy.number, f_num)
+    stack_top = header_bottom + 30
+    stack_bottom = band_top - 30
+    stack_h = eyebrow_h + _OG_EYEBROW_TO_HERO + num_h
+    y = stack_top + (stack_bottom - stack_top - stack_h) / 2
 
     _draw_tracked(
         draw,
@@ -896,26 +901,53 @@ def _render_unsafe(
         eyebrow,
         f_eyebrow,
         _OG_MUTED,
-        2.4,
+        _OG_EYEBROW_TRACKING,
     )
-    y += eyebrow_h + _OG_EYEBROW_TO_HERO
-    num_top = draw.textbbox((0, 0), hero.number, font=f_hero_num)[1]
-    draw.text((content_l, y - num_top), hero.number, font=f_hero_num, fill=hero_fill)
+    num_top = y + eyebrow_h + _OG_EYEBROW_TO_HERO
+    draw.text(
+        (content_l, num_top - draw.textbbox((0, 0), copy.number, font=f_num)[1]),
+        copy.number,
+        font=f_num,
+        fill=hero_fill,
+    )
     # The unit sits on the number's baseline rather than on its own
     # box, so "+6.7" and "pp" read as one lockup at two sizes.
     draw.text(
-        (content_l + draw.textlength(hero.number, font=f_hero_num) + 16, y + num_h),
-        hero.unit,
-        font=f_hero_unit,
+        (
+            content_l
+            + draw.textlength(copy.number, font=f_num)
+            + _lockup_gap(getattr(f_num, "size", _HERO_MAX_SIZE)),
+            num_top + num_h,
+        ),
+        copy.unit,
+        font=f_unit,
         fill=hero_fill,
         anchor="ls",
     )
-    y += lockup_h + _OG_HERO_TO_CLAIM
+
+    # The claim block is centred on the numerals, so the two lines and
+    # the period read as the caption of the figure beside them.
+    line_h = max(_text_height(draw, line, f_claim) for line in copy.claim)
+    period_h = _text_height(draw, copy.period, f_period)
+    block_h = 2 * line_h + _OG_CLAIM_LINE_GAP + _OG_CLAIM_TO_PERIOD + period_h
+    cy = num_top + (num_h - block_h) / 2
+    for line in copy.claim:
+        # Line boxes, not ink, so "ahead of the" and "S&P 500" share a
+        # baseline grid whatever their ascenders.
+        draw.text(
+            (claim_x, cy + line_h),
+            line,
+            font=f_claim,
+            fill=_OG_FG,
+            anchor="ls",
+        )
+        cy += line_h + _OG_CLAIM_LINE_GAP
+    cy += _OG_CLAIM_TO_PERIOD - _OG_CLAIM_LINE_GAP
     draw.text(
-        (content_l, y - draw.textbbox((0, 0), hero.claim, font=f_claim)[1]),
-        hero.claim,
-        font=f_claim,
-        fill=_OG_FG,
+        (claim_x, cy - draw.textbbox((0, 0), copy.period, font=f_period)[1]),
+        copy.period,
+        font=f_period,
+        fill=_OG_MUTED,
     )
 
     img.save(_resolve_output_dir(output_dir) / OUTPUT_FILENAME, optimize=True)

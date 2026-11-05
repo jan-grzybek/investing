@@ -1304,6 +1304,19 @@ class TestOgLogoLoading:
         # candidate fails and the caller gets ``None`` to leave a gap.
         assert og_image.load_logo_for_og("NMS:BAD", 60, 30) is None
 
+    def test_a_masked_svg_is_not_clipped_at_strip_size(self):
+        # The Salesforce mark draws through a ``<mask>``, which
+        # cairosvg sizes wrongly at small outputs: rasterised straight
+        # to strip height, only its top-left corner survived on the
+        # card. The logo has to fill the box it was fitted to.
+        import investing.webpage.og_image as og_image
+
+        img = og_image.load_logo_for_og("NYQ:CRM", 200, 38)
+        assert img is not None
+        left, top, right, bottom = img.getchannel("A").getbbox()
+        assert right - left >= 0.9 * img.width
+        assert bottom - top >= 0.9 * img.height
+
     def test_aspect_ratio_is_read_from_the_committed_svg(self):
         import investing.webpage.og_image as og_image
 
