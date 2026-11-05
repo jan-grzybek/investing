@@ -3,10 +3,9 @@ pointer interaction styles, and the end-to-end ``save()`` flow."""
 
 from __future__ import annotations
 
-import inspect
 import itertools
 import re
-from datetime import date, datetime
+from datetime import datetime
 
 import pytest
 
