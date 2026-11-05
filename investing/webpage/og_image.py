@@ -252,7 +252,7 @@ _OG_REFERENCE_ASPECT = 3.0
 #     sits on this colour to read as a lifted card above ``--bg``, the
 #     same surface layering the webpage uses for its content cards.
 #   * ``_OG_FG`` = ``--fg`` (body slate). Byline + hero caption.
-#   * ``_OG_MUTED`` = ``--muted``. Foot metadata; lands at WCAG-AA
+#   * ``_OG_MUTED`` = ``--muted``. Eyebrow, period and band; WCAG-AA
 #     contrast against ``_OG_BG`` (4.3 : 1) so it reads as supporting
 #     context without a stroke halo.
 #   * ``_OG_ACCENT`` = ``--accent`` (Tiger Orange). The JG brand mark
@@ -263,15 +263,12 @@ _OG_REFERENCE_ASPECT = 3.0
 #     every up / down TSR readout on the page resolve to.
 #   * ``_OG_BENCH`` = ``--accent-bench`` (Deep Space Blue). The
 #     benchmark's swatch, matching the benchmark curve on the chart.
-#   * ``_OG_RULE`` = ``--line``. The divider between the claim and
-#     the two totals beside it.
 _OG_BG: tuple[int, int, int] = (248, 250, 252)
 _OG_CARD: tuple[int, int, int] = (255, 255, 255)
 _OG_FG: tuple[int, int, int] = (15, 36, 48)
 _OG_MUTED: tuple[int, int, int] = (107, 130, 145)
 _OG_ACCENT: tuple[int, int, int] = (251, 133, 0)
 _OG_BENCH: tuple[int, int, int] = (2, 48, 71)
-_OG_RULE: tuple[int, int, int] = (221, 228, 234)
 _OG_POS: tuple[int, int, int] = (42, 157, 143)
 _OG_NEG: tuple[int, int, int] = (230, 57, 112)
 
