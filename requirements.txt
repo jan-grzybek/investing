@@ -29,7 +29,7 @@ curl-cffi==0.17.0
     # via yfinance
 defusedxml==0.7.1
     # via cairosvg
-google-auth==2.62.0
+google-auth==2.62.1
     # via
     #   google-auth-oauthlib
     #   gspread
@@ -50,7 +50,7 @@ numpy==2.5.4
     #   yfinance
 oauthlib==4.0.1
     # via requests-oauthlib
-pandas==3.1.0
+pandas==3.1.1
     # via yfinance
 peewee==4.5.3
     # via yfinance
@@ -58,7 +58,7 @@ pillow==13.0.0
     # via
     #   cairosvg
     #   jg-investing (pyproject.toml)
-platformdirs==4.13.6
+platformdirs==4.14.5
     # via yfinance
 protobuf==7.36.2
     # via yfinance
@@ -72,7 +72,7 @@ python-dateutil==2.9.0.post0
     # via
     #   jg-investing (pyproject.toml)
     #   pandas
-pytz==2026.5
+pytz==2026.6
     # via yfinance
 requests==2.34.2
     # via
@@ -97,7 +97,7 @@ webencodings==0.6.1
     # via
     #   cssselect2
     #   tinycss2
-websockets==17.3
+websockets==17.4
     # via yfinance
-yfinance==1.7.0
+yfinance==1.8.0
     # via jg-investing (pyproject.toml)
