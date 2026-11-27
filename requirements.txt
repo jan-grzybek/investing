@@ -19,7 +19,7 @@ cffi==2.1.1
     #   cairocffi
     #   cryptography
     #   curl-cffi
-charset-normalizer==3.5.2
+charset-normalizer==3.5.3
     # via requests
 cryptography==50.0.2
     # via google-auth
@@ -29,7 +29,7 @@ curl-cffi==0.17.0
     # via yfinance
 defusedxml==0.7.1
     # via cairosvg
-google-auth==2.63.0
+google-auth==2.63.1
     # via
     #   google-auth-oauthlib
     #   gspread
